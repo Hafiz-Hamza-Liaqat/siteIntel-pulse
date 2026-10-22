@@ -1,0 +1,56 @@
+{
+  "name": "siteintel-pulse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SiteIntel Pulse — Website Intelligence & Growth Audit Platform",
+  "engines": {
+    "node": ">=22.5.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:pdf": "node scripts/verify-pdf.mjs && node scripts/verify-expert-pdf.mjs",
+    "seed:staging": "node scripts/seed-staging.mjs",
+    "db:backup": "node scripts/backup-database.mjs",
+    "db:restore": "node scripts/restore-database.mjs",
+    "db:verify": "node scripts/verify-backup-recovery.mjs"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.475.0",
+    "next": "15.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.54.2",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.1",
+    "cheerio": "^1.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^16.4.7",
+    "eslint": "^9.19.0",
+    "eslint-config-next": "15.1.7",
+    "jsdom": "^26.0.0",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

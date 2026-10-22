@@ -1,0 +1,43 @@
+services:
+  siteintel-pulse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: siteintel-pulse:staging
+    container_name: siteintel-pulse-staging
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - SESSION_SECRET=staging_session_secret_min_32_chars_random_string_here
+      - DATABASE_PATH=/app/data/siteintel.db
+      - ALLOW_STAGING_SEEDS=false
+      - RATE_LIMIT_ENABLED=true
+      - MAX_CONCURRENT_SCANS_PER_TENANT=2
+      - MAX_HOURLY_SCANS_PER_TENANT=20
+      - CRAWLER_DEFAULT_PAGE_BUDGET=50
+      - CRAWLER_HARD_PAGE_BUDGET=100
+      - CRAWLER_DEPTH_BUDGET=3
+      - CRAWLER_CONCURRENCY=3
+      - CRAWLER_REQUEST_TIMEOUT_MS=10000
+      - CRAWLER_MAX_DECOMPRESSED_PAGE_BYTES=2097152
+      - CRAWLER_MAX_TOTAL_SCAN_BYTES=52428800
+    volumes:
+      - siteintel_data:/app/data
+      - siteintel_backups:/app/backups
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  siteintel_data:
+    name: siteintel_staging_data
+  siteintel_backups:
+    name: siteintel_staging_backups
