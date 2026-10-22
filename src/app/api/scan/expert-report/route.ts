@@ -41,6 +41,16 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (job.request?.reportType === "owner") {
+      return NextResponse.json(
+        {
+          error: "This scan was generated as a Website Owner Report. No Expert Diagnostic Report exists for this scan.",
+          code: "NOT_FOUND",
+        },
+        { status: 404 }
+      );
+    }
+
     const report = await scanDb.getExpertReport(jobId);
     if (report) {
       return NextResponse.json(report);

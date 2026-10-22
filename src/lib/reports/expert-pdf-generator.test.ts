@@ -7,6 +7,7 @@ import type { PageObservation, ScanCoverage } from "@/types";
 describe("Milestone 2: Expert PDF Generator & Print Layout", () => {
   const scanRequest = {
     targetUrl: "https://pdf-test.company.com",
+    reportType: "expert" as const,
     platformName: "PDF Test Platform",
     businessCategory: "ecommerce" as const,
     targetMarket: "US",

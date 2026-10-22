@@ -7,6 +7,7 @@ import type { PageObservation, LinkObservation, ResourceObservation, ScanCoverag
 describe("Milestone 2: Expert Report Projection & Schema Invariants", () => {
   const scanRequest = {
     targetUrl: "https://shop.company-a.com",
+    reportType: "expert" as const,
     platformName: "Company A Storefront",
     businessCategory: "ecommerce" as const,
     targetMarket: "US",

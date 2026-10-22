@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
 
   const scanRequest = {
     targetUrl: "https://example-shop.demo",
+    reportType: "expert" as const,
     platformName: "Example Storefront Inc.",
     businessCategory: "ecommerce" as const,
     targetMarket: "US",

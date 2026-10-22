@@ -167,6 +167,90 @@ export class AuthService {
   }
 
   /**
+   * Creates an isolated guest tenant, user, and session token.
+   * Gives guests immediate access to run public scans without manual registration,
+   * while enforcing total database-level tenant isolation.
+   */
+  createGuestSession(clientIp?: string): {
+    user: User;
+    tenant: Tenant;
+    token: string;
+    signedToken: string;
+    session: Session;
+  } {
+    const entropy = crypto.randomBytes(8).toString("hex");
+    const tenantId = `tenant_guest_${Date.now()}_${entropy}`;
+    const userId = `user_guest_${Date.now()}_${entropy}`;
+    const now = new Date().toISOString();
+
+    const tenant: Tenant = {
+      id: tenantId,
+      name: "Guest Session",
+      slug: `guest-${entropy}`,
+      plan: "guest",
+      maxConcurrentScans: 1,
+      scansPerHourQuota: 5,
+      createdAt: now,
+    };
+
+    const user: User = {
+      id: userId,
+      tenantId,
+      email: `guest_${entropy}@guest.local`,
+      role: "viewer",
+      name: "Guest Visitor",
+      createdAt: now,
+    };
+
+    this.db.exec("BEGIN IMMEDIATE;");
+    try {
+      this.db
+        .prepare(
+          "INSERT INTO tenants (id, name, slug, plan, max_concurrent_scans, scans_per_hour_quota, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )
+        .run(
+          tenant.id,
+          tenant.name,
+          tenant.slug,
+          tenant.plan,
+          tenant.maxConcurrentScans,
+          tenant.scansPerHourQuota,
+          tenant.createdAt
+        );
+
+      this.db
+        .prepare(
+          "INSERT INTO users (id, tenant_id, email, password_hash, salt, role, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .run(
+          user.id,
+          user.tenantId,
+          user.email,
+          "GUEST_NO_PASSWORD",
+          "NONE",
+          user.role,
+          user.name,
+          user.createdAt
+        );
+
+      this.db.exec("COMMIT;");
+    } catch (err) {
+      this.db.exec("ROLLBACK;");
+      throw err;
+    }
+
+    const { token, signedToken, session } = this.createSession(userId, tenantId);
+
+    return {
+      user,
+      tenant,
+      token,
+      signedToken,
+      session,
+    };
+  }
+
+  /**
    * Validates a session token (raw or signed) and returns full AuthContext.
    */
   validateSessionToken(tokenOrSigned: string): AuthContext | null {

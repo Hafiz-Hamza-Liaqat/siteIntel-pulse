@@ -121,8 +121,9 @@ NEXT_PUBLIC_APP_URL=https://audit.yourdomain.com
 DATABASE_PATH=/var/lib/siteintel/data/siteintel.db
 
 # Mandatory Production Security Secret (Minimum 32 random characters)
-# Generate with: openssl rand -hex 32
-SESSION_SECRET=e7b4c6e8f192a35b0d8e4f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c
+# Generate a unique high-entropy secret on your server using: openssl rand -hex 32
+# DO NOT use a hardcoded or default value in production.
+SESSION_SECRET=<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>
 
 # Demonstration Seed Account Guard
 # MUST remain false in production to prevent seeding demo accounts

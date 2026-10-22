@@ -14,6 +14,7 @@ import type { PageObservation, ScanCoverage } from "@/types";
 describe("Milestone 2: Expert Multi-Format Data Exporter", () => {
   const scanRequest = {
     targetUrl: "https://export-test.company.com",
+    reportType: "expert" as const,
     platformName: "Export Test Platform",
     businessCategory: "saas" as const,
     targetMarket: "US",

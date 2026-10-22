@@ -26,8 +26,8 @@ export class JobManager {
       return { error: dnsSafety.rejectionReason || "Target destination failed safety checks." };
     }
 
-    // 3. Duplicate check for identical in-progress scan within tenant scope
-    const recentJob = await scanDb.findRecentJobByUrl(urlValidation.normalizedUrl, tenantId);
+    // 3. Duplicate check for identical in-progress scan within tenant scope matching reportType
+    const recentJob = await scanDb.findRecentJobByUrl(urlValidation.normalizedUrl, tenantId, request.reportType);
     if (recentJob && recentJob.status !== "failed" && recentJob.status !== "canceled") {
       return { job: recentJob };
     }

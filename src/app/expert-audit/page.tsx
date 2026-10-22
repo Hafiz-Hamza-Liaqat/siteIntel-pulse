@@ -87,10 +87,15 @@ function ExpertAuditContent() {
     setProgressPercentage(5);
 
     try {
+      const payload: ScanRequest = {
+        ...data,
+        reportType: "expert",
+      };
+
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
@@ -336,6 +341,7 @@ function ExpertAuditContent() {
           <IntakeForm
             onSubmit={handleStartScan}
             isLoading={isLoading}
+            defaultReportType="expert"
           />
         </div>
       )}

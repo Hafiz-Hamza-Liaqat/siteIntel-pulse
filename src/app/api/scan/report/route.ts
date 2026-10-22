@@ -41,6 +41,16 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (job.request?.reportType === "expert") {
+      return NextResponse.json(
+        {
+          error: "This scan was generated as an Expert Diagnostic Report. No Owner Report exists for this scan.",
+          code: "NOT_FOUND",
+        },
+        { status: 404 }
+      );
+    }
+
     const report = await scanDb.getReport(jobId);
     if (!report) {
       return NextResponse.json({ error: "Report for job not yet ready", code: "NOT_READY" }, { status: 404 });

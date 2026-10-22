@@ -14,7 +14,7 @@ export interface ScanDatabaseAdapter {
   getReport(reportId: string, tenantId?: string): Promise<OwnerReport | null>;
   saveExpertReport(report: ExpertReport, tenantId?: string): Promise<void>;
   getExpertReport(reportId: string, tenantId?: string): Promise<ExpertReport | null>;
-  findRecentJobByUrl(url: string, tenantId?: string): Promise<ScanJob | null>;
+  findRecentJobByUrl(url: string, tenantId?: string, reportType?: "owner" | "expert"): Promise<ScanJob | null>;
   updateRemediationStatus(
     taskId: string,
     status: string,
@@ -134,7 +134,26 @@ export class SqliteScanDatabaseAdapter implements ScanDatabaseAdapter {
     const row = this.db.prepare(query).get(...params) as any;
     if (!row) return null;
 
-    return this.hydrateJob(row);
+    const job = this.hydrateJob(row);
+
+    // If completed, hydrate the appropriate report
+    if (job.status === "completed") {
+      if (job.request?.reportType === "expert") {
+        const expertReport = await this.getExpertReport(job.id, tenantId);
+        if (expertReport) {
+          job.expertReport = expertReport;
+          job.expertReportId = expertReport.metadata?.reportId;
+        }
+      } else {
+        const report = await this.getReport(job.id, tenantId);
+        if (report) {
+          job.report = report;
+          job.ownerReportId = report.reportId;
+        }
+      }
+    }
+
+    return job;
   }
 
   async updateJob(jobId: string, updates: Partial<ScanJob>, tenantId?: string): Promise<ScanJob | null> {
@@ -215,7 +234,7 @@ export class SqliteScanDatabaseAdapter implements ScanDatabaseAdapter {
   }
 
   async getReport(reportId: string, tenantId?: string): Promise<OwnerReport | null> {
-    let query = "SELECT report_json, tenant_id FROM owner_reports WHERE report_id = ? OR scan_id = ?";
+    let query = "SELECT report_json, tenant_id FROM owner_reports WHERE (report_id = ? OR scan_id = ?)";
     const params: any[] = [reportId, reportId];
 
     if (tenantId) {
@@ -298,7 +317,7 @@ export class SqliteScanDatabaseAdapter implements ScanDatabaseAdapter {
   }
 
   async getExpertReport(reportId: string, tenantId?: string): Promise<ExpertReport | null> {
-    let query = "SELECT report_json, tenant_id FROM expert_reports WHERE report_id = ? OR scan_id = ?";
+    let query = "SELECT report_json, tenant_id FROM expert_reports WHERE (report_id = ? OR scan_id = ?)";
     const params: any[] = [reportId, reportId];
 
     if (tenantId) {
@@ -312,7 +331,7 @@ export class SqliteScanDatabaseAdapter implements ScanDatabaseAdapter {
     return JSON.parse(row.report_json);
   }
 
-  async findRecentJobByUrl(url: string, tenantId?: string): Promise<ScanJob | null> {
+  async findRecentJobByUrl(url: string, tenantId?: string, reportType?: "owner" | "expert"): Promise<ScanJob | null> {
     const normalizedInput = url.trim().toLowerCase();
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
@@ -329,12 +348,16 @@ export class SqliteScanDatabaseAdapter implements ScanDatabaseAdapter {
       params.push(tenantId);
     }
 
-    query += " ORDER BY created_at DESC LIMIT 1";
+    query += " ORDER BY created_at DESC LIMIT 10";
 
-    const row = this.db.prepare(query).get(...params) as any;
-    if (!row) return null;
-
-    return this.hydrateJob(row);
+    const rows = this.db.prepare(query).all(...params) as any[];
+    for (const row of rows) {
+      const job = this.hydrateJob(row);
+      if (!reportType || job.request.reportType === reportType) {
+        return job;
+      }
+    }
+    return null;
   }
 
   async updateRemediationStatus(

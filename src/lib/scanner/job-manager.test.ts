@@ -7,6 +7,7 @@ describe("JobManager", () => {
     const manager = new JobManager();
     const result = await manager.submitScan({
       targetUrl: "http://127.0.0.1:8080",
+      reportType: "owner",
       businessCategory: "ecommerce",
       targetMarket: "US",
       preferredLanguage: "en",
@@ -29,6 +30,7 @@ describe("JobManager", () => {
     const manager = new JobManager();
     const result = await manager.submitScan({
       targetUrl: "https://example.com",
+      reportType: "owner",
       platformName: "Example Store",
       businessCategory: "ecommerce",
       targetMarket: "US",
@@ -53,6 +55,7 @@ describe("JobManager", () => {
     const manager = new JobManager();
     const sub = await manager.submitScan({
       targetUrl: "https://example.com/cancel-test",
+      reportType: "owner",
       businessCategory: "ecommerce",
       targetMarket: "US",
       preferredLanguage: "en",

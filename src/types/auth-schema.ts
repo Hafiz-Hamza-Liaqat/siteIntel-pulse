@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TenantPlanSchema = z.enum(["free", "starter", "pro", "enterprise"]);
+export const TenantPlanSchema = z.enum(["guest", "free", "starter", "pro", "enterprise"]);
 export type TenantPlan = z.infer<typeof TenantPlanSchema>;
 
 export const TenantSchema = z.object({

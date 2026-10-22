@@ -1,4 +1,4 @@
-import { ScanRequest, ScanJob, OwnerReport } from "@/types";
+import { ScanRequest, ScanJob, OwnerReport, ExpertReport } from "@/types";
 import { jobManager } from "./job-manager";
 import { SafeCrawler } from "./crawler";
 import { assessmentRegistry } from "../catalogue/registry";
@@ -8,9 +8,9 @@ import { scanDb } from "../persistence/db";
 
 export class ScanOrchestrator {
   /**
-   * Executes the full website owner audit pipeline.
+   * Executes the full website audit pipeline for exactly ONE selected report type.
    */
-  async runAudit(job: ScanJob): Promise<OwnerReport> {
+  async runAudit(job: ScanJob): Promise<OwnerReport | ExpertReport> {
     const jobId = job.id;
     const request = job.request;
     const abortSignal = jobManager.getAbortSignal(jobId);
@@ -72,33 +72,66 @@ export class ScanOrchestrator {
       // Stage 4: Scoring
       await jobManager.updateProgress(jobId, "scoring", "Computing category scores and overall weighted composite baseline", 85, undefined, job.tenantId);
 
-      // Stage 5: Generating Reports
-      await jobManager.updateProgress(jobId, "generating_report", "Projecting Company A Owner Report & Company B Expert Diagnostic Report", 95, undefined, job.tenantId);
+      // Stage 5 & 6: Single-Report Generation & Persistence
+      if (request.reportType === "expert") {
+        await jobManager.updateProgress(
+          jobId,
+          "generating_report",
+          "Projecting Company B Expert Diagnostic Report",
+          95,
+          undefined,
+          job.tenantId
+        );
 
-      const ownerReport = projectOwnerReport(jobId, request, crawlResult, assessmentResults, job.tenantId);
-      const expertReport = projectExpertReport(jobId, request, crawlResult, assessmentResults, {}, job.tenantId);
+        const expertReport = projectExpertReport(jobId, request, crawlResult, assessmentResults, {}, job.tenantId);
+        await scanDb.saveExpertReport(expertReport, job.tenantId);
+        await scanDb.updateJob(
+          jobId,
+          {
+            status: "completed",
+            currentStage: "Audit complete. Expert Diagnostic Report ready.",
+            progressPercentage: 100,
+            coverage: { ...crawlResult.coverage, ...expertReport.coverage },
+            results: assessmentResults,
+            expertReport,
+            expertReportId: expertReport.metadata.reportId,
+            completedAt: new Date().toISOString(),
+          },
+          job.tenantId
+        );
 
-      // Stage 6: Persistence & Complete
-      await scanDb.saveReport(ownerReport, job.tenantId);
-      await scanDb.saveExpertReport(expertReport, job.tenantId);
-      await scanDb.updateJob(
-        jobId,
-        {
-          status: "completed",
-          currentStage: "Audit complete. Owner Report and Expert Report ready.",
-          progressPercentage: 100,
-          coverage: ownerReport.executiveSnapshot.coverage,
-          results: assessmentResults,
-          report: ownerReport,
-          expertReport,
-          expertReportId: expertReport.metadata.reportId,
-          completedAt: new Date().toISOString(),
-        },
-        job.tenantId
-      );
+        jobManager.cleanupJob(jobId);
+        return expertReport;
+      } else {
+        await jobManager.updateProgress(
+          jobId,
+          "generating_report",
+          "Projecting Company A Owner Report",
+          95,
+          undefined,
+          job.tenantId
+        );
 
-      jobManager.cleanupJob(jobId);
-      return ownerReport;
+        const ownerReport = projectOwnerReport(jobId, request, crawlResult, assessmentResults, job.tenantId);
+        await scanDb.saveReport(ownerReport, job.tenantId);
+        await scanDb.updateJob(
+          jobId,
+          {
+            status: "completed",
+            currentStage: "Audit complete. Owner Report ready.",
+            progressPercentage: 100,
+            coverage: ownerReport.executiveSnapshot.coverage,
+            results: assessmentResults,
+            report: ownerReport,
+            ownerReportId: ownerReport.reportId,
+            completedAt: new Date().toISOString(),
+          },
+          job.tenantId
+        );
+
+        jobManager.cleanupJob(jobId);
+        return ownerReport;
+      }
     } catch (err: any) {
       const isCanceled = abortSignal?.aborted || err?.message?.includes("canceled");
       await scanDb.updateJob(

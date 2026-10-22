@@ -25,6 +25,7 @@ async function main() {
 
   const scanRequest = {
     targetUrl: "https://strideto.com",
+    reportType: "owner" as const,
     platformName: "StrideTo",
     businessCategory: "ecommerce" as const,
     targetMarket: "Global",

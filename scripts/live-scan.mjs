@@ -21,6 +21,7 @@ async function runLiveAudit() {
 
   const scanRequest = {
     targetUrl: "https://example.com",
+    reportType: "owner",
     platformName: "Example Domain (IANA)",
     businessCategory: "other",
     targetMarket: "Global",

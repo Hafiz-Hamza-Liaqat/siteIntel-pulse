@@ -107,6 +107,7 @@ describe("Strict Multi-Tenant Isolation & Endpoint Authorization", () => {
       jobTenantA = await adapter.createJob(
         {
           targetUrl: "https://tenant-a-confidential-store.com",
+          reportType: "owner",
           platformName: "Tenant A Platform",
           businessCategory: "ecommerce",
           targetMarket: "US",

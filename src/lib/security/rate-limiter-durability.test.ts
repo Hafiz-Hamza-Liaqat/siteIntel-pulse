@@ -65,6 +65,7 @@ describe("Rate Limiter & Database Durability Across Process Restarts", () => {
 
     const req: ScanRequest = {
       targetUrl: "https://concurrency-test.demo",
+      reportType: "owner",
       platformName: "Concurrency Store",
       businessCategory: "ecommerce",
       targetMarket: "US",
@@ -108,6 +109,7 @@ describe("Rate Limiter & Database Durability Across Process Restarts", () => {
 
     const req: ScanRequest = {
       targetUrl: "https://durability-store.demo",
+      reportType: "owner",
       platformName: "Durability Store",
       businessCategory: "ecommerce",
       targetMarket: "US",

@@ -72,9 +72,13 @@ export const AssessmentCategorySchema = z.enum([
 ]);
 export type AssessmentCategory = z.infer<typeof AssessmentCategorySchema>;
 
+export const ReportTypeSchema = z.enum(["owner", "expert"]);
+export type ReportType = z.infer<typeof ReportTypeSchema>;
+
 // 1. ScanRequest Schema
 export const ScanRequestSchema = z.object({
   targetUrl: z.string().min(1, "Website URL or domain is required"),
+  reportType: ReportTypeSchema,
   platformName: z.string().optional(),
   businessCategory: BusinessCategorySchema.default("ecommerce"),
   targetMarket: z.string().default("US"),
@@ -463,6 +467,7 @@ export const ScanJobSchema = z.object({
   report: OwnerReportSchema.optional(),
   expertReport: z.any().optional(),
   expertReportId: z.string().optional(),
+  ownerReportId: z.string().optional(),
   errorMessage: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),

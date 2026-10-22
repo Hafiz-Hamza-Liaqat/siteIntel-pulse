@@ -57,6 +57,7 @@ describe("Phase 1: Durable SQLite Persistence & Restart Verification", () => {
 
     const request: ScanRequest = {
       targetUrl: "https://strideto.test",
+      reportType: "owner",
       platformName: "StrideTo Test Store",
       businessCategory: "ecommerce",
       targetMarket: "Global",

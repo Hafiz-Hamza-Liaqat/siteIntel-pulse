@@ -92,6 +92,7 @@ describe("Phase 2 & Phase 4: Authentication, Multi-Tenant Isolation & Rate Limit
     it("enforces tenant boundaries: User B cannot view User A's scans or reports", async () => {
       const requestA: ScanRequest = {
         targetUrl: "https://companya-store.test",
+        reportType: "owner",
         platformName: "Company A Store",
         businessCategory: "ecommerce",
         targetMarket: "US",
@@ -122,6 +123,7 @@ describe("Phase 2 & Phase 4: Authentication, Multi-Tenant Isolation & Rate Limit
     it("prevents cross-tenant remediation task modification", async () => {
       const requestA: ScanRequest = {
         targetUrl: "https://companya-store.test",
+        reportType: "owner",
         platformName: "Company A",
         businessCategory: "ecommerce",
         targetMarket: "US",
@@ -205,6 +207,7 @@ describe("Phase 2 & Phase 4: Authentication, Multi-Tenant Isolation & Rate Limit
       // Create 2 concurrent active scans for tenant_comp_a (reaching plan limit of 2)
       const req: ScanRequest = {
         targetUrl: "https://companya.test",
+        reportType: "owner",
         businessCategory: "ecommerce",
         targetMarket: "US",
         preferredLanguage: "en",

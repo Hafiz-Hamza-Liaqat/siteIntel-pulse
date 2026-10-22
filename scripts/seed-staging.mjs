@@ -4,6 +4,15 @@ import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import crypto from "node:crypto";
 
+// STRICT SECURITY INVARIANT:
+// Staging demonstration accounts must NEVER be seeded when NODE_ENV=production,
+// regardless of any other staging-related environment variables.
+if (process.env.NODE_ENV === "production") {
+  console.error("FATAL SECURITY POLICY ERROR: Staging demonstration accounts cannot be seeded when NODE_ENV=production.");
+  console.error("Operation aborted unconditionally.");
+  process.exit(1);
+}
+
 const dbPath = process.env.DATABASE_PATH || path.resolve(process.cwd(), "data", "siteintel.db");
 const dir = path.dirname(dbPath);
 if (!fs.existsSync(dir)) {

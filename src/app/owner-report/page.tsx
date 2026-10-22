@@ -72,10 +72,15 @@ function OwnerReportContent() {
     setProgressPercentage(5);
 
     try {
+      const payload: ScanRequest = {
+        ...data,
+        reportType: "owner",
+      };
+
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
@@ -271,7 +276,7 @@ function OwnerReportContent() {
           )}
 
           {/* Form when not scanning */}
-          {!isLoading && <IntakeForm onSubmit={handleStartScan} isLoading={isLoading} />}
+          {!isLoading && <IntakeForm onSubmit={handleStartScan} isLoading={isLoading} defaultReportType="owner" />}
         </div>
       )}
     </div>

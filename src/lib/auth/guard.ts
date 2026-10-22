@@ -7,6 +7,21 @@ export type AuthResult =
   | { auth: AuthContext; response?: never }
   | { auth?: never; response: NextResponse };
 
+export interface GuestAuthResult {
+  auth: AuthContext;
+  newSessionCookie?: {
+    name: string;
+    value: string;
+    options: {
+      httpOnly: boolean;
+      secure: boolean;
+      sameSite: "lax" | "strict" | "none";
+      path: string;
+      maxAge: number;
+    };
+  };
+}
+
 /**
  * Extracts and validates credentials from Authorization header or HTTP-only session cookie.
  */
@@ -67,6 +82,45 @@ export async function requireAuth(
   }
 
   return { auth };
+}
+
+/**
+ * Returns existing authentication if present; otherwise creates a new isolated guest session
+ * and returns the session context along with cookie configuration.
+ */
+export async function requireAuthOrGuest(
+  req: NextRequest,
+  clientIp?: string
+): Promise<GuestAuthResult> {
+  const existingAuth = await authenticateRequest(req);
+  if (existingAuth) {
+    return { auth: existingAuth };
+  }
+
+  const authService = scanDb.getAuthService();
+  const guest = authService.createGuestSession(clientIp);
+
+  const authContext: AuthContext = {
+    user: guest.user,
+    tenant: guest.tenant,
+  };
+
+  const isProduction = process.env.NODE_ENV === "production";
+
+  return {
+    auth: authContext,
+    newSessionCookie: {
+      name: SESSION_COOKIE_NAME,
+      value: guest.signedToken,
+      options: {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 14 * 24 * 60 * 60, // 14 days
+      },
+    },
+  };
 }
 
 /**

@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ScanRequestSchema, ScanRequest } from "@/types";
+import { ScanRequestSchema, ScanRequest, ReportType } from "@/types";
 import {
   Globe,
   Building,
@@ -13,24 +13,32 @@ import {
   Search,
   Users,
   Compass,
+  FileText,
+  Layers,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 
 interface IntakeFormProps {
   onSubmit: (data: ScanRequest) => void;
   isLoading: boolean;
+  defaultReportType?: ReportType;
 }
 
-export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
+export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }: IntakeFormProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<ScanRequest>({
     resolver: zodResolver(ScanRequestSchema),
     defaultValues: {
       targetUrl: "",
+      reportType: defaultReportType,
       platformName: "",
       businessCategory: "ecommerce",
       targetMarket: "US",
@@ -43,6 +51,8 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
     },
   });
 
+  const selectedReportType = watch("reportType") || "owner";
+
   const handleFormSubmit = (data: ScanRequest) => {
     // Clean competitors array if string was split
     const cleanedCompetitors = (data.competitors || [])
@@ -52,6 +62,7 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
 
     onSubmit({
       ...data,
+      reportType: selectedReportType,
       competitors: cleanedCompetitors,
     });
   };
@@ -64,12 +75,116 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
       <div className="space-y-2">
         <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
           <Globe className="w-6 h-6 text-brand-teal" />
-          <span>Website Owner Audit Intake</span>
+          <span>Website Audit Intake &amp; Intelligence</span>
         </h2>
         <p className="text-sm text-brand-textMuted">
-          Enter a public domain (e.g. <span className="text-brand-tealLight font-mono">naffeez.com</span>) or HTTPS URL.
-          SiteIntel Pulse performs a bounded, non-invasive assessment strictly adhering to robots.txt.
+          Enter a public domain (e.g. <span className="text-brand-tealLight font-mono">example.com</span>) or HTTPS URL.
+          Select exactly one report perspective. SiteIntel Pulse performs a bounded, non-invasive assessment strictly adhering to robots.txt.
         </p>
+      </div>
+
+      {/* Report Type Selector (Single-Report Selection Requirement) */}
+      <div className="space-y-2.5">
+        <label className="block text-sm font-semibold text-white flex items-center justify-between">
+          <span>Choose Report Type <span className="text-red-400">*</span></span>
+          <span className="text-xs text-brand-textMuted font-normal">Strictly 1 report generated per scan</span>
+        </label>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {/* Option A: Owner Report */}
+          <div
+            onClick={() => setValue("reportType", "owner")}
+            className={`cursor-pointer rounded-xl p-4 border transition-all flex flex-col justify-between ${
+              selectedReportType === "owner"
+                ? "border-brand-teal bg-brand-teal/10 shadow-md shadow-brand-teal/10"
+                : "border-brand-border bg-brand-surface/60 hover:border-brand-borderSubtle hover:bg-brand-surface"
+            }`}
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      selectedReportType === "owner"
+                        ? "bg-brand-teal text-white"
+                        : "bg-brand-surface border border-brand-border text-brand-textMuted"
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-brand-tealLight">Company A</span>
+                    <h3 className="text-sm font-bold text-white leading-tight">Website Owner Report</h3>
+                  </div>
+                </div>
+                <div
+                  className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                    selectedReportType === "owner"
+                      ? "border-brand-teal bg-brand-teal text-white"
+                      : "border-brand-border bg-brand-surface"
+                  }`}
+                >
+                  {selectedReportType === "owner" && <CheckCircle2 className="w-3.5 h-3.5" />}
+                </div>
+              </div>
+              <p className="text-xs text-brand-textMuted leading-relaxed">
+                Executive summary, 100-point composite score, business impact themes, competitor benchmarks, and PDF export. Tailored for platform founders and decision-makers.
+              </p>
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-brand-borderSubtle/50 text-[11px] font-medium text-brand-tealLight">
+              ✓ Bounded Non-invasive • Executive Insights
+            </div>
+          </div>
+
+          {/* Option B: Expert Diagnostic Report */}
+          <div
+            onClick={() => setValue("reportType", "expert")}
+            className={`cursor-pointer rounded-xl p-4 border transition-all flex flex-col justify-between ${
+              selectedReportType === "expert"
+                ? "border-brand-cyan bg-brand-cyan/10 shadow-md shadow-brand-cyan/10"
+                : "border-brand-border bg-brand-surface/60 hover:border-brand-borderSubtle hover:bg-brand-surface"
+            }`}
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      selectedReportType === "expert"
+                        ? "bg-brand-cyan text-brand-bg font-bold"
+                        : "bg-brand-surface border border-brand-border text-brand-textMuted"
+                    }`}
+                  >
+                    <Layers className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-brand-cyan">Company B</span>
+                    <h3 className="text-sm font-bold text-white leading-tight">Expert Diagnostic Report</h3>
+                  </div>
+                </div>
+                <div
+                  className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                    selectedReportType === "expert"
+                      ? "border-brand-cyan bg-brand-cyan text-brand-bg font-bold"
+                      : "border-brand-border bg-brand-surface"
+                  }`}
+                >
+                  {selectedReportType === "expert" && <CheckCircle2 className="w-3.5 h-3.5 text-brand-bg" />}
+                </div>
+              </div>
+              <p className="text-xs text-brand-textMuted leading-relaxed">
+                Deep technical findings ledger, code snippets, URL inventory, reproduction steps, remediation tasks, and CSV/PDF export. Tailored for engineers and consultants.
+              </p>
+            </div>
+            <div className="mt-3 pt-2.5 border-t border-brand-borderSubtle/50 text-[11px] font-medium text-brand-cyan">
+              ✓ 56-Rule Findings Ledger • Remediation Register
+            </div>
+          </div>
+        </div>
+
+        {errors.reportType && (
+          <p className="text-xs text-red-400 font-medium">{errors.reportType.message}</p>
+        )}
       </div>
 
       {/* Main Website URL Input */}
@@ -84,7 +199,7 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
           <input
             id="targetUrl"
             type="text"
-            placeholder="e.g. naffeez.com or https://store.example.com"
+            placeholder="e.g. example.com or https://store.example.com"
             disabled={isLoading}
             {...register("targetUrl")}
             className="w-full pl-11 pr-4 py-3 rounded-xl bg-brand-surface border border-brand-border focus:border-brand-teal focus:ring-1 focus:ring-brand-teal text-white placeholder-brand-textMuted/60 text-base transition-colors"
@@ -108,7 +223,7 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
             <input
               id="platformName"
               type="text"
-              placeholder="e.g. Naffeez Apparel"
+              placeholder="e.g. Acme Commerce"
               disabled={isLoading}
               {...register("platformName")}
               className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-brand-surface border border-brand-border focus:border-brand-teal text-white placeholder-brand-textMuted/50 text-sm"
@@ -197,7 +312,7 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
                 disabled={isLoading}
                 onChange={(e) => {
                   const arr = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
-                  // Manually pass to hook form via register
+                  setValue("competitors", arr);
                 }}
                 className="w-full pl-9 pr-3 py-2 rounded-lg bg-brand-surface border border-brand-border text-white placeholder-brand-textMuted/50 text-sm"
               />
@@ -211,7 +326,7 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
         <ShieldAlert className="w-4 h-4 text-brand-teal shrink-0 mt-0.5" />
         <span>
           <strong>Bounded Public Scope:</strong> SiteIntel Pulse conducts a safe, non-destructive public assessment
-          (max 50 pages). No login bypasses, destructive payloads, or private systems are accessed.
+          (max 50 pages). No login bypasses, destructive payloads, or private systems are accessed. Strictly adheres to robots.txt.
         </span>
       </div>
 
@@ -219,7 +334,11 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
       <button
         type="submit"
         disabled={isLoading}
-        className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-brand-teal to-brand-tealDark text-white font-bold shadow-lg shadow-brand-teal/20 hover:shadow-brand-teal/35 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 text-base disabled:opacity-50 disabled:pointer-events-none"
+        className={`w-full py-3.5 px-6 rounded-xl text-white font-bold shadow-lg hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 text-base disabled:opacity-50 disabled:pointer-events-none ${
+          selectedReportType === "expert"
+            ? "bg-gradient-to-r from-teal-500 to-cyan-600 shadow-cyan-500/20 hover:shadow-cyan-500/35"
+            : "bg-gradient-to-r from-brand-teal to-brand-tealDark shadow-brand-teal/20 hover:shadow-brand-teal/35"
+        }`}
       >
         {isLoading ? (
           <>
@@ -229,7 +348,11 @@ export function IntakeForm({ onSubmit, isLoading }: IntakeFormProps) {
         ) : (
           <>
             <Search className="w-5 h-5" />
-            <span>Start Owner Audit</span>
+            <span>
+              {selectedReportType === "expert"
+                ? "Start Expert Audit"
+                : "Start Owner Audit"}
+            </span>
           </>
         )}
       </button>
