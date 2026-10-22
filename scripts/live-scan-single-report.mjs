@@ -18,7 +18,7 @@ async function runLiveValidation() {
   console.log(`  Guest Tenant ID:   ${guestA.tenant.id}`);
   console.log(`  Guest User ID:     ${guestA.user.id}`);
   console.log(`  Guest Plan:        ${guestA.tenant.plan} (Max concurrent: ${guestA.tenant.maxConcurrentScans}, Scans/hr: ${guestA.tenant.scansPerHourQuota})`);
-  console.log(`  Session Token:     ${guestA.signedToken.substring(0, 20)}...`);
+  console.log("  Session Token:     [REDACTED_SESSION_TOKEN]");
 
   // 2. Submit Live Owner Scan for https://example.com
   console.log("\n[Test 2: Live Owner Scan (https://example.com)]");

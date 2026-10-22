@@ -15,16 +15,20 @@ export const LOGIN_IP_MAX_ATTEMPTS = 10;
 export const LOGIN_IP_ACCOUNT_MAX_ATTEMPTS = 5;
 
 /**
- * Normalizes client IP address from standard proxy headers.
+ * Normalizes client IP address from standard reverse proxy headers.
+ * Under documented reverse proxy configurations (e.g. Nginx proxy_set_header X-Real-IP $remote_addr),
+ * X-Real-IP reflects the authentic TCP connection IP and cannot be spoofed by client-supplied
+ * X-Forwarded-For headers.
  */
 export function extractClientIp(headers: Headers): string {
+  const realIp = headers.get("x-real-ip");
+  if (realIp?.trim()) return realIp.trim();
+
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
     const first = forwarded.split(",")[0]?.trim();
     if (first) return first;
   }
-  const realIp = headers.get("x-real-ip");
-  if (realIp?.trim()) return realIp.trim();
 
   return "127.0.0.1";
 }

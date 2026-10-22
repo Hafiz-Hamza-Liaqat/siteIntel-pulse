@@ -1,24 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ScanRequestSchema } from "@/types";
+import { ScanRequestSchema, AuthContext } from "@/types";
 import { jobManager } from "@/lib/scanner/job-manager";
 import { scanOrchestrator } from "@/lib/scanner/orchestrator";
-import { requireAuth, requireAuthOrGuest, verifyTenantOwnership } from "@/lib/auth/guard";
+import { authenticateRequest, requireAuth, verifyTenantOwnership } from "@/lib/auth/guard";
+import { SESSION_COOKIE_NAME } from "@/lib/auth";
 import { tenantRateLimiter } from "@/lib/security/rate-limiter";
+import { extractClientIp } from "@/lib/security/login-rate-limiter";
 import { scanDb } from "@/lib/persistence/db";
 
 export async function POST(req: NextRequest) {
-  // 1. Resolve Authentication or Issue Isolated Guest Session
-  const clientIp =
-    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    req.headers.get("x-real-ip") ||
-    "127.0.0.1";
+  // 1. Extract Client IP using trusted reverse-proxy normalization
+  const clientIp = extractClientIp(req.headers);
 
-  const { auth, newSessionCookie } = await requireAuthOrGuest(req, clientIp);
+  // 2. Check for existing authentication first (session cookie, Bearer token, or API key)
+  const existingAuth = await authenticateRequest(req);
 
-  try {
-    // 2. IP-level Rate Limiting against Cookie-clearing Abuse
+  // 3. Apply IP-based Rate Limiting BEFORE provisioning any new guest records or sessions in SQLite
+  // Capping unauthenticated scan submissions at 15/hour prevents cookie-clearing abuse and database bloat
+  if (!existingAuth) {
     const ipHour = Math.floor(Date.now() / 3600000);
-    const ipLimit = await scanDb.incrementRateLimit(`ratelimit:ip_scan:${clientIp}:${ipHour}`, 3600);
+    const ipLimitKey = `ratelimit:ip_scan:${clientIp}:${ipHour}`;
+    const ipLimit = await scanDb.incrementRateLimit(ipLimitKey, 3600);
     if (ipLimit.count > 15) {
       return NextResponse.json(
         {
@@ -28,18 +30,56 @@ export async function POST(req: NextRequest) {
         { status: 429 }
       );
     }
+  }
 
-    const body = await req.json();
-    const parseResult = ScanRequestSchema.safeParse(body);
+  // 4. Validate Request Structure & Report Type BEFORE creating any guest records in SQLite
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON request body" },
+      { status: 400 }
+    );
+  }
 
-    if (!parseResult.success) {
-      return NextResponse.json(
-        { error: "Validation failed", details: parseResult.error.flatten() },
-        { status: 400 }
-      );
+  const parseResult = ScanRequestSchema.safeParse(body);
+  if (!parseResult.success) {
+    return NextResponse.json(
+      { error: "Validation failed", details: parseResult.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  try {
+    // 5. Provision or Resolve Identity
+    // Guest records are created ONLY after IP rate limits and request payload validation have succeeded
+    let auth: AuthContext;
+    let newSessionCookie: { name: string; value: string; options: any } | undefined;
+
+    if (existingAuth) {
+      auth = existingAuth;
+    } else {
+      const authService = scanDb.getAuthService();
+      const guest = authService.createGuestSession(clientIp);
+      auth = {
+        user: guest.user,
+        tenant: guest.tenant,
+      };
+      newSessionCookie = {
+        name: SESSION_COOKIE_NAME,
+        value: guest.signedToken,
+        options: {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 14 * 24 * 60 * 60, // 14 days
+        },
+      };
     }
 
-    // 3. Enforce Tenant Scan Quotas & Concurrent Limits
+    // 6. Enforce Tenant Scan Quotas & Concurrent Limits (5 scans/hr, 1 concurrent for guests)
     const allowance = await tenantRateLimiter.checkScanAllowance(auth.tenant.id);
     if (!allowance.allowed) {
       return NextResponse.json(
@@ -55,7 +95,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Submit Scan Scoped to Tenant and Selected Report Type
+    // 7. Submit Scan Scoped to Tenant and Selected Report Type
     const submission = await jobManager.submitScan(
       parseResult.data,
       auth.tenant.id,

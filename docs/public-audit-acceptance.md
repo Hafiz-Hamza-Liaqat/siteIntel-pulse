@@ -74,16 +74,17 @@ This report establishes the comprehensive verification of **SiteIntel Pulse** as
 
 ---
 
-## 4. Live Scan Verification Evidence
+## 4. Live Outbound Scan Verification Evidence (Local Test Environment)
 
-A real outbound scan was executed against `https://example.com` (RFC 2606 permitted public reference domain) through the native `ScanOrchestrator` pipeline:
+> [!NOTE]
+> **Environment Context:** The following transcript records a real, non-invasive outbound network scan executed in the local development environment against `https://example.com` (RFC 2606 permitted public reference domain) through the native `ScanOrchestrator` pipeline. It verifies the functionality of genuine DNS validation, HTTP response parsing, catalogue evaluation, single-report generation, and tenant isolation. This test proves that the application pipeline is completely ready, but is distinct from a live scan conducted through a public hosted production deployment. Public hosting requires deploying to an authorized server per the runbook in Section 5.
 
 ```
 [Test 1: Guest Session Issuance]
   Guest Tenant ID:   tenant_guest_1792663952140_f4a9ba65e562bd8b
   Guest User ID:     user_guest_1792663952140_f4a9ba65e562bd8b
   Guest Plan:        guest (Max concurrent: 1, Scans/hr: 5)
-  Session Token:     52d5ed656fa5de42e89f...
+  Session Token:     [REDACTED_SESSION_TOKEN]
 
 [Test 2: Live Owner Scan (https://example.com)]
   Job ID:            scan_1792663952226_y33bhv
@@ -164,7 +165,8 @@ SiteIntel Pulse requires a persistent POSIX filesystem for SQLite Write-Ahead Lo
            proxy_pass http://127.0.0.1:3000;
            proxy_set_header Host $host;
            proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           # Overwrite forwarding headers with trusted TCP connection info
+           proxy_set_header X-Forwarded-For $remote_addr;
            proxy_set_header X-Forwarded-Proto $scheme;
        }
    }
