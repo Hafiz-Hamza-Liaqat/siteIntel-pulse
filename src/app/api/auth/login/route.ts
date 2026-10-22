@@ -16,6 +16,15 @@ export async function POST(req: NextRequest) {
     }
 
     const clientIp = extractClientIp(req.headers);
+    if (!clientIp) {
+      return NextResponse.json(
+        {
+          error: "Trusted client IP address could not be verified. Production requests must be routed through a configured reverse proxy.",
+          code: "UNTRUSTED_CLIENT_IP",
+        },
+        { status: 400 }
+      );
+    }
 
     // 1. Check Login Rate Limit (Durable shared limits without DoS account lockout)
     const allowance = await loginRateLimiter.checkAllowance(clientIp, email);

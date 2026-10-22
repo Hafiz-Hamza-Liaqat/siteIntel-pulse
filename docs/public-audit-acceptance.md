@@ -10,10 +10,16 @@
 
 ## 1. Executive Summary
 
-This report establishes the comprehensive verification of **SiteIntel Pulse** as a public website auditing platform. The application has been upgraded from a restricted staging system into a live platform that allows any public visitor to audit eligible websites, observe genuine scanning progress, and receive exactly one requested report perspective with complete tenant isolation.
+This report establishes the comprehensive verification of **SiteIntel Pulse** as a website auditing and growth intelligence platform. The application has been upgraded from a restricted staging system into a unified platform supporting public guest audits, observable scanning progress, and strict single-report generation with complete multi-tenant isolation.
+
+> [!IMPORTANT]
+> **Static Showcase vs. Dynamic Backend Distinction:**
+> - **Public GitHub Pages Site (`https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`):** Serves strictly as a public static showcase providing project documentation, interactive architecture diagrams, catalogue rules, and report previews.
+> - **Dynamic Scanning Backend:** The full-featured dynamic scanning engine (requiring a native Node.js >=22.5.0 runtime, SQLite WAL durable storage, Playwright headless Chromium for PDF generation, and outbound network scanning orchestration) is **100% implemented and verified locally**, but is **NOT publicly hosted yet**.
+> - **Service Definition:** Only a deployed and independently verified backend running on persistent infrastructure may be described as a public live scanning service.
 
 ### Final Verdict: `IMPLEMENTED — HOSTING REQUIRED`
-- **Application Completeness:** 100% implemented, verified, and tested across all layers (API, database, background scan orchestrator, and React/Next.js frontend).
+- **Application Completeness:** 100% implemented, verified, and tested across all layers (API, SQLite persistence, background scan orchestrator, single-report mutual exclusivity, and React/Next.js frontend).
 - **Hosting Reality:** Docker is neither installed nor required. All functionality runs natively on Node.js (>=22.5.0) with local SQLite WAL persistence. Because this local development environment does not contain remote cloud server credentials, the honest, evidence-based status is `IMPLEMENTED — HOSTING REQUIRED`.
 
 ---
@@ -33,17 +39,25 @@ This report establishes the comprehensive verification of **SiteIntel Pulse** as
   - `GET /api/scan/expert-report`: When queried for an owner-only scan, returns HTTP 404 with message: *"This scan was generated as a Website Owner Report. No Expert Diagnostic Report exists for this scan."*
 - **Caching & Deduplication Separation:** `findRecentJobByUrl(url, tenantId, reportType)` filters by `reportType`. A recent completed owner scan cannot satisfy an incoming expert scan, and vice versa.
 
-### B. Public Guest Access with Multi-Tenant Isolation
-**Requirement:** Visitors must be able to run their first public scan without registering an account. The server must issue an unpredictable guest identity, set a secure session cookie, and enforce strict tenant-level isolation.
+### B. Public Guest Access, Client IP Trust & Multi-Tenant Isolation
+**Requirement:** Visitors must be able to run their first public scan without registering an account. The server must issue an unpredictable guest identity, set a secure session cookie, enforce strict tenant-level isolation, and protect against client IP spoofing and database bloat.
 
+- **Client IP Resolution & Anti-Spoofing Trust Contract (`src/lib/security/login-rate-limiter.ts`):**
+  - Enforces trusted reverse-proxy resolution via `X-Real-IP` (or custom provider header via `TRUSTED_IP_HEADER` for platforms like Fly.io or Cloudflare).
+  - Explicitly **prohibits** falling back to `X-Forwarded-For` when `X-Real-IP` is missing, preventing attackers from evading IP rate limits via forged headers.
+  - In production (`NODE_ENV=production`), missing trusted reverse-proxy headers fail safely by immediately rejecting requests with HTTP 400 (`UNTRUSTED_CLIENT_IP`).
+- **Database Hygiene & Pre-Provisioning Protection (`src/app/api/scan/route.ts`):**
+  - IP-level rate limiting (`15 scans/hr`) and request body schema validation occur **before** any guest records are provisioned in SQLite.
+  - Malformed or rate-limited requests fail immediately without creating orphaned tenant, user, or session rows.
+  - Existing guest sessions are reused across subsequent valid requests without duplicate row creation.
 - **Guest Session Generation (`src/lib/auth/index.ts`):**
-  - Unauthenticated requests to `POST /api/scan` trigger `createGuestSession()`.
+  - Unauthenticated requests to `POST /api/scan` that pass rate limiting and validation trigger `createGuestSession()`.
   - Generates unpredictable IDs: `tenant_guest_<timestamp>_<entropy>` and `user_guest_<timestamp>_<entropy>`.
   - Sets signed HttpOnly session cookie (`siteintel_session`) with `SameSite=Lax`, `Path=/`, and a 14-day TTL.
 - **Strict Tenant Isolation:**
   - Database queries (`getJob`, `getReport`, `getExpertReport`, `getRemediationTasks`) enforce tenant boundaries (`WHERE tenant_id = ?`).
-  - Raw SQL queries in `db.ts` were corrected with proper operator precedence (`WHERE (report_id = ? OR scan_id = ?) AND (tenant_id = ? OR tenant_id IS NULL)`), eliminating any possible query bypass.
-  - Guest B attempting to access Guest A's scan job or reports receives `null` or HTTP 403 Forbidden.
+  - Raw SQL queries in `db.ts` enforce proper operator precedence (`WHERE (report_id = ? OR scan_id = ?) AND (tenant_id = ? OR tenant_id IS NULL)`), eliminating any possible query bypass.
+  - Guest B attempting to access Guest A's scan job or reports receives `null` or HTTP 403 Forbidden across all endpoints and export formats.
 - **Rate-Limiting Protection:**
   - Guest tenants are capped at 1 concurrent scan and 5 scans per hour.
   - IP-level rate limiting tracks `ratelimit:ip_scan:<ip>:<hour>` in durable SQLite, capping unauthenticated requests at 15 scans per hour per IP address to prevent cookie-clearing abuse.
@@ -65,7 +79,7 @@ This report establishes the comprehensive verification of **SiteIntel Pulse** as
 | :--- | :--- | :--- | :---: | :--- |
 | **Type Integrity** | Entire TypeScript Codebase | `npm run typecheck` | **PASS (100%)** | 0 compilation errors across all modules, tests, and scripts |
 | **Lint & Quality** | Next.js Core Web Vitals | `npm run lint` | **PASS (100%)** | 0 ESLint warnings or errors |
-| **Unit & Integration** | Scoring, Auth, DB, Scanner | `npm run test` | **PASS (100%)** | **22 test files, 123 tests passing** (including guest sessions and single-report selection) |
+| **Unit & Integration** | Scoring, Auth, DB, Scanner | `npm run test` | **PASS (100%)** | **23 test files, 136 tests passing** (including guest IP trust, pre-provisioning validation, guest sessions, and single-report selection) |
 | **Browser E2E** | Navigation, Intake, Reports | `npm run test:e2e` | **PASS (100%)** | **33 Playwright tests passing** across Desktop, Tablet, and Mobile Chrome |
 | **PDF Generation** | Owner & Expert Playwright PDF | `npm run test:pdf` | **PASS (100%)** | 88 KB Owner PDF and 107 KB Expert PDF generated and validated |
 | **DB & Recovery** | SQLite WAL Backup / Restore | `npm run db:verify` | **PASS (100%)** | Online `VACUUM INTO` backup restored with 100% record fidelity |
@@ -181,10 +195,14 @@ SiteIntel Pulse requires a persistent POSIX filesystem for SQLite Write-Ahead Lo
   VERDICT: IMPLEMENTED — HOSTING REQUIRED
 ================================================================================
   1. The complete public live audit platform, single-report generation pipeline,
-     guest session system, tenant isolation, and security controls are 100%
-     implemented and verified locally.
-  2. All 123 unit/integration tests and 33 Playwright E2E browser tests pass.
-  3. Live scans against https://example.com prove genuine outbound assessment.
-  4. Full operational deployment requires hosting on a persistent Node.js server.
+     guest session system, reverse-proxy IP trust contract, tenant isolation,
+     and security controls are 100% implemented and verified locally.
+  2. All 136 unit/integration tests (across 23 test suites) and 33 Playwright
+     E2E browser tests pass cleanly.
+  3. Live scans against https://example.com prove genuine outbound assessment
+     with clean token redaction in test logs.
+  4. The public GitHub Pages deployment is confirmed as a static project showcase;
+     the dynamic backend is verified locally but is NOT publicly hosted yet.
+  5. Full operational deployment requires hosting on a persistent Node.js server.
 ================================================================================
 ```

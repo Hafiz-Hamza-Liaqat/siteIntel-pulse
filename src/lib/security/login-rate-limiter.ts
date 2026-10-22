@@ -15,21 +15,41 @@ export const LOGIN_IP_MAX_ATTEMPTS = 10;
 export const LOGIN_IP_ACCOUNT_MAX_ATTEMPTS = 5;
 
 /**
- * Normalizes client IP address from standard reverse proxy headers.
- * Under documented reverse proxy configurations (e.g. Nginx proxy_set_header X-Real-IP $remote_addr),
- * X-Real-IP reflects the authentic TCP connection IP and cannot be spoofed by client-supplied
- * X-Forwarded-For headers.
+ * Trust Contract for Client IP Resolution:
+ * 1. Reverse Proxy Requirement:
+ *    The application relies on an outer trusted reverse proxy (e.g., Nginx, Caddy, Cloudflare,
+ *    Fly.io, or an authenticated cloud ingress) to establish the client's verified TCP remote address.
+ * 2. Primary Trusted Header:
+ *    By default, the application extracts the client IP from `X-Real-IP` (or a configured provider-specific
+ *    header via the `TRUSTED_IP_HEADER` environment variable, such as `fly-client-ip` or `cf-connecting-ip`).
+ * 3. Prohibited Fallback:
+ *    The application NEVER falls back to `X-Forwarded-For` when the trusted header is missing. Arbitrary
+ *    clients can forge or rotate `X-Forwarded-For` headers to evade IP-based rate limits.
+ * 4. Production Fail-Safe:
+ *    In production (`NODE_ENV === "production"`), if the trusted reverse-proxy header is missing or empty,
+ *    `extractClientIp` returns `null`. Route handlers must fail safely by rejecting the request
+ *    (e.g., HTTP 400 UNTRUSTED_CLIENT_IP) rather than allowing unmetered or spoofed access.
+ * 5. Development & Test Safety:
+ *    In non-production environments (`NODE_ENV !== "production"`), if the trusted header is absent,
+ *    `extractClientIp` safely defaults to `"127.0.0.1"`. In this case, any client-supplied `X-Forwarded-For`
+ *    values are still ignored, ensuring tests and local development cannot evade rate limits via forged headers.
  */
-export function extractClientIp(headers: Headers): string {
-  const realIp = headers.get("x-real-ip");
-  if (realIp?.trim()) return realIp.trim();
-
-  const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
+export function extractClientIp(headers: Headers): string | null {
+  const trustedHeaderName = (process.env.TRUSTED_IP_HEADER || "x-real-ip").toLowerCase();
+  const trustedIp = headers.get(trustedHeaderName)?.trim();
+  if (trustedIp) {
+    // If the trusted proxy supplied a comma-separated list, take the first authentic entry
+    const sanitized = trustedIp.split(",")[0]?.trim();
+    if (sanitized) return sanitized;
   }
 
+  // In production, missing trusted reverse-proxy header must fail safely
+  if (process.env.NODE_ENV === "production") {
+    return null;
+  }
+
+  // In development and test environments, fall back to loopback address.
+  // Note: We intentionally do NOT fall back to caller-supplied X-Forwarded-For.
   return "127.0.0.1";
 }
 

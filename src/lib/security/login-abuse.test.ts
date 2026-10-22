@@ -26,19 +26,19 @@ describe("Login Abuse Protection & DoS Prevention", () => {
   });
 
   describe("Client IP Extraction", () => {
-    it("extracts the first IP from X-Forwarded-For header", () => {
+    it("ignores untrusted X-Forwarded-For when X-Real-IP is missing and defaults to 127.0.0.1 in non-prod", () => {
       const headers = new Headers();
       headers.set("x-forwarded-for", "203.0.113.195, 70.41.3.18, 150.172.238.178");
-      expect(extractClientIp(headers)).toBe("203.0.113.195");
+      expect(extractClientIp(headers)).toBe("127.0.0.1");
     });
 
-    it("extracts IP from X-Real-IP header if X-Forwarded-For is missing", () => {
+    it("extracts IP from trusted X-Real-IP header", () => {
       const headers = new Headers();
       headers.set("x-real-ip", "198.51.100.42");
       expect(extractClientIp(headers)).toBe("198.51.100.42");
     });
 
-    it("falls back to 127.0.0.1 when no IP headers are present", () => {
+    it("falls back to 127.0.0.1 when no IP headers are present in non-prod", () => {
       const headers = new Headers();
       expect(extractClientIp(headers)).toBe("127.0.0.1");
     });
@@ -96,7 +96,7 @@ describe("Login Abuse Protection & DoS Prevention", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-forwarded-for": clientIp,
+          "x-real-ip": clientIp,
         },
         body: JSON.stringify({ email, password: passwordPlain }),
       });

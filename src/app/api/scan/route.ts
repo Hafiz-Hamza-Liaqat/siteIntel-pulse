@@ -11,6 +11,15 @@ import { scanDb } from "@/lib/persistence/db";
 export async function POST(req: NextRequest) {
   // 1. Extract Client IP using trusted reverse-proxy normalization
   const clientIp = extractClientIp(req.headers);
+  if (!clientIp) {
+    return NextResponse.json(
+      {
+        error: "Trusted client IP address could not be verified. Production requests must be routed through a configured reverse proxy.",
+        code: "UNTRUSTED_CLIENT_IP",
+      },
+      { status: 400 }
+    );
+  }
 
   // 2. Check for existing authentication first (session cookie, Bearer token, or API key)
   const existingAuth = await authenticateRequest(req);

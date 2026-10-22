@@ -34,6 +34,7 @@ describe("Final Guest Security Review & Regression Suite", () => {
   });
 
   afterEach(() => {
+    delete process.env.TRUSTED_IP_HEADER;
     (globalThis as any).scanDbInstance = undefined;
     adapter.close();
     try {
@@ -63,6 +64,17 @@ describe("Final Guest Security Review & Regression Suite", () => {
 
       const extracted = extractClientIp(headers);
       expect(extracted).toBe("203.0.113.77");
+    });
+
+    it("ignores X-Forwarded-For supplied without X-Real-IP (does not fall back to untrusted headers)", () => {
+      const headers = new Headers();
+      headers.set("x-forwarded-for", "198.51.100.44, 10.0.0.1");
+      // X-Real-IP is intentionally missing
+
+      // In non-production test environment, falls back to loopback (127.0.0.1), NEVER trusting X-Forwarded-For
+      const extracted = extractClientIp(headers);
+      expect(extracted).toBe("127.0.0.1");
+      expect(extracted).not.toBe("198.51.100.44");
     });
 
     it("prevents bypassing IP rate limits via rotating X-Forwarded-For when X-Real-IP is provided", async () => {
@@ -105,6 +117,144 @@ describe("Final Guest Security Review & Regression Suite", () => {
       expect(blockedRes.status).toBe(429);
       const json = await blockedRes.json();
       expect(json.code).toBe("IP_RATE_LIMIT_EXCEEDED");
+    });
+
+    it("prevents bypassing IP rate limits via rotating X-Forwarded-For when X-Real-IP is missing", async () => {
+      // Attacker attempts to evade rate limits by supplying ONLY varying X-Forwarded-For headers
+      for (let i = 1; i <= 15; i++) {
+        const req = new NextRequest("http://localhost:3000/api/scan", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": `172.20.${i}.5`, // Rotating forged header
+          },
+          body: JSON.stringify({
+            targetUrl: `https://test-forged-ff-${i}.example.com`,
+            reportType: "owner",
+          }),
+        });
+
+        const res = await scanHandler(req);
+        expect(res.status).toBe(200);
+      }
+
+      // 16th request with yet another forged X-Forwarded-For MUST be blocked because
+      // X-Forwarded-For is ignored and all requests map to the same fallback IP (127.0.0.1)
+      const blockedReq = new NextRequest("http://localhost:3000/api/scan", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "172.20.99.99",
+        },
+        body: JSON.stringify({
+          targetUrl: "https://test-forged-ff-blocked.example.com",
+          reportType: "owner",
+        }),
+      });
+
+      const blockedRes = await scanHandler(blockedReq);
+      expect(blockedRes.status).toBe(429);
+      const json = await blockedRes.json();
+      expect(json.code).toBe("IP_RATE_LIMIT_EXCEEDED");
+    });
+
+    it("fails safely in production when trusted client IP is missing and creates zero guest records", async () => {
+      const prevEnv = process.env.NODE_ENV;
+      (process.env as any).NODE_ENV = "production";
+
+      try {
+        const headers = new Headers();
+        headers.set("x-forwarded-for", "198.51.100.1"); // Forged header alone
+        // extractClientIp returns null in production when X-Real-IP is absent
+        expect(extractClientIp(headers)).toBeNull();
+
+        const initialCounts = getTableCounts();
+
+        const req = new NextRequest("http://localhost:3000/api/scan", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": "198.51.100.1",
+          },
+          body: JSON.stringify({
+            targetUrl: "https://untrusted-client-test.example.com",
+            reportType: "owner",
+          }),
+        });
+
+        const res = await scanHandler(req);
+        expect(res.status).toBe(400);
+        const json = await res.json();
+        expect(json.code).toBe("UNTRUSTED_CLIENT_IP");
+
+        // Zero guest records must be created in SQLite
+        const countsAfter = getTableCounts();
+        expect(countsAfter.tenants).toBe(initialCounts.tenants);
+        expect(countsAfter.users).toBe(initialCounts.users);
+        expect(countsAfter.sessions).toBe(initialCounts.sessions);
+      } finally {
+        (process.env as any).NODE_ENV = prevEnv;
+      }
+    });
+
+    it("allows legitimate trusted-proxy requests in production when X-Real-IP is provided", async () => {
+      const prevEnv = process.env.NODE_ENV;
+      const prevSecret = process.env.SESSION_SECRET;
+      (process.env as any).NODE_ENV = "production";
+      process.env.SESSION_SECRET = "production_super_secure_entropy_key_with_sufficient_length_2026";
+
+      try {
+        const legitimateIp = "203.0.113.88";
+        const headers = new Headers();
+        headers.set("x-real-ip", legitimateIp);
+        headers.set("x-forwarded-for", "1.1.1.1"); // Client header ignored
+
+        expect(extractClientIp(headers)).toBe(legitimateIp);
+
+        const req = new NextRequest("http://localhost:3000/api/scan", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-real-ip": legitimateIp,
+            "x-forwarded-for": "1.1.1.1",
+          },
+          body: JSON.stringify({
+            targetUrl: "https://legit-proxy-prod.example.com",
+            reportType: "owner",
+          }),
+        });
+
+        const res = await scanHandler(req);
+        expect(res.status).toBe(200);
+        const json = await res.json();
+        expect(json.jobId).toBeDefined();
+      } finally {
+        (process.env as any).NODE_ENV = prevEnv;
+        if (prevSecret === undefined) {
+          delete process.env.SESSION_SECRET;
+        } else {
+          process.env.SESSION_SECRET = prevSecret;
+        }
+      }
+    });
+
+    it("supports PaaS provider-specific trusted headers via TRUSTED_IP_HEADER", () => {
+      const prevHeader = process.env.TRUSTED_IP_HEADER;
+      process.env.TRUSTED_IP_HEADER = "fly-client-ip";
+
+      try {
+        const headers = new Headers();
+        headers.set("fly-client-ip", "192.0.2.123");
+        headers.set("x-forwarded-for", "10.0.0.1");
+
+        expect(extractClientIp(headers)).toBe("192.0.2.123");
+      } finally {
+        if (prevHeader === undefined) {
+          delete process.env.TRUSTED_IP_HEADER;
+        } else {
+          process.env.TRUSTED_IP_HEADER = prevHeader;
+        }
+      }
     });
   });
 

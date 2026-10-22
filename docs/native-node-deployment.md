@@ -241,6 +241,27 @@ server {
 > 1. Ensure the Node.js application listens strictly on `127.0.0.1:3000` (configured via `HOST=127.0.0.1`), preventing direct external access that bypasses Nginx.
 > 2. `proxy_set_header X-Real-IP $remote_addr;` and `proxy_set_header X-Forwarded-For $remote_addr;` explicitly overwrite any incoming client headers with the trusted TCP remote address `$remote_addr`. This ensures clients cannot spoof IP addresses or evade guest rate limits by forging `X-Forwarded-For` headers.
 
+### 7.2 Reverse Proxy Trust Contract & Header Security
+
+SiteIntel Pulse enforces a strict reverse-proxy trust contract for client IP identification:
+
+1. **Explicit Trusted Header Requirement:** The application inspects `X-Real-IP` (or the custom header defined by `TRUSTED_IP_HEADER`).
+2. **Prohibited Fallback to `X-Forwarded-For`:** When the trusted header is absent, the backend **never** falls back to `X-Forwarded-For`. Arbitrary clients can forge, prepend, or rotate IP values in `X-Forwarded-For` to evade rate limits.
+3. **Production Fail-Safe:** In `NODE_ENV=production`, if the trusted reverse-proxy header is missing, API route handlers fail safely by rejecting the request with `HTTP 400` (`code: "UNTRUSTED_CLIENT_IP"`). No guest sessions, scan jobs, or database records are provisioned for unverified callers.
+4. **Local Development & Automated Tests:** In non-production environments (`NODE_ENV !== "production"`), missing trusted headers default safely to `127.0.0.1` while continuing to ignore untrusted `X-Forwarded-For` headers, preventing test suite disruption while guaranteeing rate-limit durability.
+
+### 7.3 Persistent Node.js PaaS & Managed Ingress Deployments
+
+When deploying to persistent Node.js PaaS environments (which provide persistent POSIX disk volumes for SQLite WAL storage), different edge proxies sanitize headers differently. Set the `TRUSTED_IP_HEADER` environment variable according to your platform:
+
+| Platform / Edge Ingress | Trusted Header Setting | Provider Header Behavior & Configuration |
+| :--- | :--- | :--- |
+| **Linux VPS + Nginx** | *(default: `x-real-ip`)* | Nginx `proxy_set_header X-Real-IP $remote_addr;` overwrites any client-supplied header with the authentic TCP connection IP. |
+| **Fly.io** | `TRUSTED_IP_HEADER=fly-client-ip` | Fly's edge proxy strips caller-supplied `Fly-Client-IP` headers and injects the authentic client IP. Configure in `fly.toml`: `[env] TRUSTED_IP_HEADER = "fly-client-ip"`. |
+| **Cloudflare (Proxy / Tunnel)** | `TRUSTED_IP_HEADER=cf-connecting-ip` | Cloudflare edge overwrites `CF-Connecting-IP` with the visitor's authenticated IP. Set `TRUSTED_IP_HEADER=cf-connecting-ip`. |
+| **Railway / Render** | *(default: `x-real-ip`)* | Platform edge proxy sets `X-Real-IP`. Verify in project settings that external headers matching the trusted header name are stripped at the edge. |
+| **AWS ALB / ECS** | Ingress Sidecar Required | AWS ALB appends client IPs to `X-Forwarded-For` rather than sanitizing `X-Real-IP`. Deploy an Nginx reverse-proxy sidecar or Cloudflare WAF in front to ensure authenticated `X-Real-IP` injection. |
+
 
 ---
 
