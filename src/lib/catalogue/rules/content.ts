@@ -1,5 +1,15 @@
 import { RuleDefinition } from "../types";
-import { AssessmentResult } from "@/types";
+import { AssessmentResult, PageObservation } from "@/types";
+
+function getHtmlPages(pages: PageObservation[]): PageObservation[] {
+  return pages.filter(
+    (p) =>
+      !p.isXmlSitemap &&
+      p.documentType !== "xml_sitemap" &&
+      !(p.contentType || "").toLowerCase().includes("xml") &&
+      !p.finalUrl.toLowerCase().endsWith(".xml")
+  );
+}
 
 export const contentRules: RuleDefinition[] = [
   {
@@ -64,7 +74,7 @@ export const contentRules: RuleDefinition[] = [
     remediationAdvice: "Break up long walls of text with descriptive subheadings (H2, H3), bulleted lists, and highlighted takeaways.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
+      const pages = getHtmlPages(ctx.pages);
       const wellStructured = pages.filter((p) => p.headings.h2.length >= 1 || p.headings.h3.length >= 1);
 
       if (wellStructured.length >= pages.length * 0.7) {

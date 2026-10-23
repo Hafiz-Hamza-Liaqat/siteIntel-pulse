@@ -444,7 +444,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <div class="grid-4">
     <div class="card">
       <div class="card-title">Lab TTFB</div>
-      <div class="card-value" style="font-size: 13pt;">${report.performanceDiagnostics.labScores.ttfbMs || 240}ms</div>
+      <div class="card-value" style="font-size: 13pt;">${report.performanceDiagnostics.labScores.ttfbMs != null ? `${report.performanceDiagnostics.labScores.ttfbMs}ms` : "—"}</div>
     </div>
     <div class="card">
       <div class="card-title">Render-Blocking</div>
@@ -454,12 +454,12 @@ export function generateExpertReportHtml(report: ExpertReport): string {
     </div>
     <div class="card">
       <div class="card-title">Mobile Lab Score</div>
-      <div class="card-value" style="font-size: 13pt;">${report.performanceDiagnostics.labScores.mobile || 80}/100</div>
+      <div class="card-value" style="font-size: 13pt;">${report.performanceDiagnostics.labScores.mobile != null ? `${report.performanceDiagnostics.labScores.mobile}/100` : "Not connected"}</div>
     </div>
     <div class="card">
       <div class="card-title">Responsive Breakpoints</div>
       <div class="card-value" style="font-size: 13pt; color: #0F9D91;">
-        ${report.responsiveDiagnostics.length} tested
+        ${report.responsiveDiagnostics.length > 0 ? `${report.responsiveDiagnostics.length} tested` : "Not tested"}
       </div>
     </div>
   </div>
@@ -475,17 +475,19 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       </tr>
     </thead>
     <tbody>
-      ${report.responsiveDiagnostics
-        .map(
-          (b) => `<tr>
-        <td><strong>${b.viewport}px</strong></td>
-        <td>${b.horizontalOverflow ? '<span style="color: #DC2626; font-weight: bold;">OVERFLOW</span>' : '<span style="color: #059669;">Normal Fit</span>'}</td>
-        <td>${b.touchTargetIssues}</td>
-        <td>${b.clippingIssues}</td>
-        <td>${getSeverityBadge(b.severity)}</td>
-      </tr>`
-        )
-        .join("")}
+      ${report.responsiveDiagnostics.length > 0
+        ? report.responsiveDiagnostics
+            .map(
+              (b) => `<tr>
+            <td><strong>${b.viewport}px</strong></td>
+            <td>${b.horizontalOverflow ? '<span style="color: #DC2626; font-weight: bold;">OVERFLOW</span>' : '<span style="color: #059669;">Normal Fit</span>'}</td>
+            <td>${b.touchTargetIssues}</td>
+            <td>${b.clippingIssues}</td>
+            <td>${getSeverityBadge(b.severity)}</td>
+          </tr>`
+            )
+            .join("")
+        : '<tr><td colspan="5" style="text-align: center; color: #64748B; padding: 12px;">Passive crawl only — browser-automated responsive tests were not executed for this run.</td></tr>'}
     </tbody>
   </table>
 
@@ -529,9 +531,9 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       </div>
       <div class="card">
         <div class="card-title">Session Cookie Flags</div>
-        <div>Secure Flag: <strong>${report.authenticationAssessment.sessionSecurity.cookieSecure ? "Enforced" : "Vulnerable"}</strong></div>
-        <div>HttpOnly Flag: <strong>${report.authenticationAssessment.sessionSecurity.cookieHttpOnly ? "Enforced" : "Vulnerable"}</strong></div>
-        <div>SameSite Policy: <strong>${report.authenticationAssessment.sessionSecurity.cookieSameSite}</strong></div>
+        <div>Secure Flag: <strong>${report.authenticationAssessment.sessionSecurity.cookieSecure === null ? "Unknown (No Cookies)" : report.authenticationAssessment.sessionSecurity.cookieSecure ? "Enforced" : "Vulnerable"}</strong></div>
+        <div>HttpOnly Flag: <strong>${report.authenticationAssessment.sessionSecurity.cookieHttpOnly === null ? "Unknown (No Cookies)" : report.authenticationAssessment.sessionSecurity.cookieHttpOnly ? "Enforced" : "Vulnerable"}</strong></div>
+        <div>SameSite Policy: <strong>${report.authenticationAssessment.sessionSecurity.cookieSameSite || "Unobserved"}</strong></div>
       </div>
     </div>
   </div>
@@ -607,9 +609,9 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         .map(
           (comp) => `<tr>
         <td><strong>${comp.domain}</strong></td>
-        <td>${comp.overallScore || "—"}/100</td>
+        <td>${comp.status === "NOT_ASSESSED" || comp.overallScore == null ? "NOT ASSESSED" : `${comp.overallScore}/100`}</td>
         <td>${comp.dataProvenance}</td>
-        <td>Public Surface Benchmark</td>
+        <td>${comp.status === "NOT_ASSESSED" ? "Pending Scan" : "Public Surface Benchmark"}</td>
       </tr>`
         )
         .join("")}
@@ -619,7 +621,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <div class="page-break"></div>
 
   <!-- SECTION 17: FINDING LEDGER -->
-  <h2>11. Diagnostic Finding Ledger (Prioritized Top Issues)</h2>
+  <h2>11. Diagnostic Finding Ledger (Top 15 of ${report.findings.filter((f) => f.status === "FAIL" || f.status === "WARNING").length} Total Issues — Full Ledger in Export)</h2>
   <table>
     <thead>
       <tr>
@@ -696,7 +698,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <h2>13. Cryptographic Integrity Sign-Off & Manifest</h2>
   <div class="card" style="margin-top: 10px;">
     <div><strong>Export ID:</strong> ${report.exportManifest.exportId}</div>
-    <div><strong>Manifest Hash:</strong> <span style="font-family: monospace; font-size: 8pt;">${report.exportManifest.checksum || "Verified"}</span></div>
+    <div><strong>Manifest Hash:</strong> <span style="font-family: monospace; font-size: 8pt;">${report.exportManifest.checksum || "NOT_GENERATED"}</span></div>
     <div><strong>Generated At:</strong> ${report.exportManifest.generatedAt}</div>
     <div><strong>Auditor Sign-off:</strong> Autonomous Verification Engine — SiteIntel Pulse v2.0.0</div>
   </div>

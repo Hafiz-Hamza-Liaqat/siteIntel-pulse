@@ -1,5 +1,15 @@
 import { RuleDefinition } from "../types";
-import { AssessmentResult } from "@/types";
+import { AssessmentResult, PageObservation } from "@/types";
+
+export function getHtmlPages(pages: PageObservation[]): PageObservation[] {
+  return pages.filter(
+    (p) =>
+      !p.isXmlSitemap &&
+      p.documentType !== "xml_sitemap" &&
+      !(p.contentType || "").toLowerCase().includes("xml") &&
+      !p.finalUrl.toLowerCase().endsWith(".xml")
+  );
+}
 
 export const seoRules: RuleDefinition[] = [
   {
@@ -14,7 +24,7 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Provide every page with a unique, descriptive title between 30 and 60 characters containing primary keywords and brand.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
+      const pages = getHtmlPages(ctx.pages);
       if (pages.length === 0) {
         return {
           testId: "SEO-01",
@@ -113,7 +123,7 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Add clear, persuasive meta descriptions (70–160 chars) highlighting your core offering and call to action.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
+      const pages = getHtmlPages(ctx.pages);
       if (pages.length === 0) {
         return {
           testId: "SEO-02",
@@ -202,7 +212,7 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Ensure every page has exactly one prominent H1 representing its core topic, followed by hierarchical H2 and H3 subheadings.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
+      const pages = getHtmlPages(ctx.pages);
       if (pages.length === 0) {
         return {
           testId: "SEO-03",
@@ -290,7 +300,7 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Declare self-referencing canonical tags on primary pages and point parameterized variants to the canonical URL.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
+      const pages = getHtmlPages(ctx.pages);
       if (pages.length === 0) {
         return {
           testId: "SEO-04",
@@ -374,7 +384,7 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Adopt lowercase, hyphen-delimited descriptive slugs without trailing query parameter clutter.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
+      const pages = getHtmlPages(ctx.pages);
       if (pages.length === 0) {
         return {
           testId: "SEO-05",
@@ -595,7 +605,7 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Expand key landing and product pages with comprehensive, helpful answers, specifications, and FAQs.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
+      const pages = getHtmlPages(ctx.pages);
       if (pages.length === 0) {
         return {
           testId: "SEO-09",

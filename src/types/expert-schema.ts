@@ -194,7 +194,8 @@ export type IntegrationDiagnostic = z.infer<typeof IntegrationDiagnosticSchema>;
 export const ResponsiveDiagnosticSchema = z.object({
   viewport: z.number().int(),
   pageUrl: z.string(),
-  horizontalOverflow: z.boolean(),
+  status: z.enum(["TESTED", "NOT_TESTED", "SKIPPED"]).default("TESTED").optional(),
+  horizontalOverflow: z.boolean().default(false),
   overflowElements: z.array(z.string()).default([]),
   touchTargetIssues: z.number().int().default(0),
   touchTargetSelectors: z.array(z.string()).default([]),
@@ -203,6 +204,7 @@ export const ResponsiveDiagnosticSchema = z.object({
   screenshotAvailable: z.boolean().default(false),
   screenshotPath: z.string().optional(),
   severity: SeveritySchema,
+  notes: z.string().optional(),
 });
 export type ResponsiveDiagnostic = z.infer<typeof ResponsiveDiagnosticSchema>;
 
@@ -241,10 +243,12 @@ export const AuthenticationDiagnosticSchema = z.object({
     })
   ).default([]),
   sessionSecurity: z.object({
-    cookieSecure: z.boolean(),
-    cookieHttpOnly: z.boolean(),
-    cookieSameSite: z.string(),
-    expiryObserved: z.string(),
+    cookieSecure: z.boolean().nullable().optional(),
+    cookieHttpOnly: z.boolean().nullable().optional(),
+    cookieSameSite: z.string().nullable().optional(),
+    expiryObserved: z.string().nullable().optional(),
+    cookiesObserved: z.number().int().default(0).optional(),
+    status: z.enum(["OBSERVED", "NO_COOKIES_OBSERVED", "UNKNOWN"]).default("UNKNOWN").optional(),
   }),
   mfaIndicators: z.object({
     observed: z.boolean(),
@@ -258,8 +262,9 @@ export type AuthenticationDiagnostic = z.infer<typeof AuthenticationDiagnosticSc
 // 11. CompetitorComparison Schema
 export const CompetitorComparisonSchema = z.object({
   domain: z.string(),
-  overallScore: z.number().min(0).max(100),
-  categoryScores: z.record(z.string(), z.number()),
+  status: z.enum(["AVAILABLE", "NOT_ASSESSED"]).default("NOT_ASSESSED").optional(),
+  overallScore: z.number().min(0).max(100).nullable().optional(),
+  categoryScores: z.record(z.string(), z.number()).optional(),
   detectedTechnologies: z.array(z.string()).default([]),
   keyStrengths: z.array(z.string()).default([]),
   keyWeaknesses: z.array(z.string()).default([]),
@@ -280,6 +285,7 @@ export const ExternalMetricSchema = z.object({
     "UNAVAILABLE",
     "ESTIMATED",
     "UNKNOWN",
+    "NOT_TESTED",
   ]),
   period: z.string().optional(),
   retrievedAt: z.string().optional(),

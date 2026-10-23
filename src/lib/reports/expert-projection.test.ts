@@ -139,10 +139,13 @@ describe("Milestone 2: Expert Report Projection & Schema Invariants", () => {
   it("strictly redacts credentials and authorization secrets in metadata and export output", () => {
     const expertReport = projectExpertReport("scan_unit_002", scanRequest, crawlResult, assessmentResults);
 
-    // Check metadata serialization does not contain raw password
+    // Check metadata serialization does not contain raw password or credential fields
     const serialized = JSON.stringify(expertReport);
     expect(serialized).not.toContain("s3cr3t_p@ssw0rd!");
-    expect(serialized).not.toContain("password");
+    expect(JSON.stringify(expertReport.metadata)).not.toContain("s3cr3t_p@ssw0rd!");
+    expect(JSON.stringify(expertReport.metadata)).not.toContain("password");
+    expect(serialized).not.toContain('"password":');
+    expect(serialized).not.toContain('"authCredentialsRedacted":');
   });
 
   it("generates technical findings with structured evidence and reproduction steps", () => {

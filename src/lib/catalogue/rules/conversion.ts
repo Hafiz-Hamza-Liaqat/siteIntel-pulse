@@ -15,8 +15,22 @@ export const conversionRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const entry = ctx.pages[0];
+      const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
       const hasCtaLink = entry?.links.some((l) => {
         const text = l.anchorText.toLowerCase();
+        if (isJobBoard) {
+          return (
+            text.includes("search") ||
+            text.includes("apply") ||
+            text.includes("view job") ||
+            text.includes("find job") ||
+            text.includes("browse") ||
+            text.includes("post a job") ||
+            text.includes("hire") ||
+            text.includes("sign up") ||
+            text.includes("get started")
+          );
+        }
         return (
           text.includes("shop") ||
           text.includes("buy") ||
@@ -77,11 +91,27 @@ export const conversionRules: RuleDefinition[] = [
       const now = new Date().toISOString();
       const allLinks = ctx.pages.flatMap((p) => p.links);
       const isEcommerce = ctx.businessCategory === "ecommerce";
+      const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
 
       const hasConversionPath = allLinks.some((l) => {
         const t = l.targetUrl.toLowerCase();
+        const text = (l.anchorText || "").toLowerCase();
         if (isEcommerce) {
           return t.includes("cart") || t.includes("checkout") || t.includes("bag") || t.includes("basket");
+        }
+        if (isJobBoard) {
+          return (
+            t.includes("/jobs/") ||
+            t.includes("/job/") ||
+            t.includes("search") ||
+            t.includes("post-a-job") ||
+            t.includes("post_a_job") ||
+            t.includes("hire") ||
+            t.includes("apply") ||
+            text.includes("apply") ||
+            text.includes("view job") ||
+            text.includes("browse")
+          );
         }
         return t.includes("contact") || t.includes("book") || t.includes("demo") || t.includes("pricing") || t.includes("signup");
       });
@@ -96,7 +126,7 @@ export const conversionRules: RuleDefinition[] = [
           severity: "INFORMATIONAL",
           maxPoints: 1,
           earnedPoints: 1,
-          title: `Active ${isEcommerce ? "Cart / Checkout" : "Lead / Inquiry"} Pathway Confirmed`,
+          title: `Active ${isEcommerce ? "Cart / Checkout" : isJobBoard ? "Job Search / Application" : "Lead / Inquiry"} Pathway Confirmed`,
           summary: `Navigable conversion pathway verified matching business model (${ctx.businessCategory}).`,
           timestamp: now,
           confidence: "HIGH",
@@ -113,7 +143,7 @@ export const conversionRules: RuleDefinition[] = [
         maxPoints: 1,
         earnedPoints: 0.5,
         title: "Conversion Pathway Hard to Locate",
-        summary: `Did not observe direct links to ${isEcommerce ? "cart or checkout" : "inquiry or signup"} in main navigation.`,
+        summary: `Did not observe direct links to ${isEcommerce ? "cart or checkout" : isJobBoard ? "job search, listings, or application flows" : "inquiry or signup"} in main navigation.`,
         timestamp: now,
         confidence: "MEDIUM",
       };
@@ -162,9 +192,27 @@ export const conversionRules: RuleDefinition[] = [
       const now = new Date().toISOString();
       const allLinks = ctx.pages.flatMap((p) => p.links);
       const isEcommerce = ctx.businessCategory === "ecommerce";
+      const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
 
       const hasPolicyOrPricing = allLinks.some((l) => {
         const t = l.targetUrl.toLowerCase();
+        const text = (l.anchorText || "").toLowerCase();
+        if (isJobBoard) {
+          return (
+            t.includes("pricing") ||
+            t.includes("post-a-job") ||
+            t.includes("employers") ||
+            t.includes("hire") ||
+            t.includes("terms") ||
+            t.includes("privacy") ||
+            t.includes("faq") ||
+            t.includes("about") ||
+            text.includes("pricing") ||
+            text.includes("post a job") ||
+            text.includes("faq") ||
+            text.includes("employers")
+          );
+        }
         return t.includes("pricing") || t.includes("plans") || t.includes("shipping") || t.includes("returns") || t.includes("faq");
       });
 
@@ -179,7 +227,7 @@ export const conversionRules: RuleDefinition[] = [
           maxPoints: 1,
           earnedPoints: 1,
           title: "Transparent Customer Policies Discovered",
-          summary: `Identified customer policy links (${isEcommerce ? "Shipping/Returns" : "Pricing/Terms"}) supporting buyer confidence.`,
+          summary: `Identified customer policy links (${isEcommerce ? "Shipping/Returns" : isJobBoard ? "Employer Pricing / Terms" : "Pricing/Terms"}) supporting buyer confidence.`,
           timestamp: now,
           confidence: "HIGH",
         };

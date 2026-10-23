@@ -414,8 +414,8 @@ export function generateReportHtml(report: OwnerReport): string {
       </tr>
       <tr>
         <td><strong>Performance &amp; Viewports</strong></td>
-        <td><span class="badge badge-pass">RESPONSIVE</span></td>
-        <td>Mobile lab score: ~${report.performanceAndResponsiveSummary.mobileLabScore}/100. Desktop: ~${report.performanceAndResponsiveSummary.desktopLabScore}/100. Tested across 7 screen widths (320px–1440px).</td>
+        <td>${report.performanceAndResponsiveSummary.mobileLabScore != null ? '<span class="badge badge-pass">MEASURED</span>' : '<span class="badge badge-warning">NOT CONNECTED</span>'}</td>
+        <td>Mobile lab score: ${report.performanceAndResponsiveSummary.mobileLabScore != null ? `${report.performanceAndResponsiveSummary.mobileLabScore}/100` : "Provider not configured"}. Tested viewports: ${report.performanceAndResponsiveSummary.testedViewports.length > 0 ? `${report.performanceAndResponsiveSummary.testedViewports.join(", ")}px` : "Passive public crawl (browser runner not executed)"}.</td>
       </tr>
       <tr>
         <td><strong>Public Security Posture</strong></td>
@@ -453,10 +453,10 @@ export function generateReportHtml(report: OwnerReport): string {
       ${report.competitorSnapshot.map((c) => `
         <tr>
           <td>${c.domain}</td>
-          <td>${c.overallScore || "N/A"}/100</td>
-          <td>${c.keyMetrics.seoScore || "N/A"}%</td>
-          <td>${c.keyMetrics.performanceScore || "N/A"}%</td>
-          <td>${c.keyMetrics.httpsActive ? "HTTPS Active" : "HTTP"}</td>
+          <td>${c.status === "NOT_ASSESSED" || c.overallScore == null ? "NOT ASSESSED" : `${c.overallScore}/100`}</td>
+          <td>${c.keyMetrics.seoScore != null ? `${c.keyMetrics.seoScore}%` : "Pending Scan"}</td>
+          <td>${c.keyMetrics.performanceScore != null ? `${c.keyMetrics.performanceScore}%` : "Pending Scan"}</td>
+          <td>${c.status === "NOT_ASSESSED" ? "Pending Scan" : (c.keyMetrics.httpsActive ? "HTTPS Active" : "HTTP")}</td>
         </tr>
       `).join("")}
     </tbody>
@@ -465,7 +465,7 @@ export function generateReportHtml(report: OwnerReport): string {
     * Benchmarks reflect uniform public scan observations under identical catalogue rules v1.0.0.
   </div>` : ""}
 
-  <h2 class="section-title">7. Methodology &amp; Next Steps</h2>
+  <h2 class="section-title">${report.competitorSnapshot && report.competitorSnapshot.length > 0 ? "7" : "6"}. Methodology &amp; Next Steps</h2>
   <div class="no-break" style="font-size: 9pt; color: #475569; line-height: 1.6;">
     <p><strong>Scan Scope:</strong> ${report.methodologyAndLimitations.scanScope}</p>
     <p><strong>Evidence Integrity:</strong> Measured public HTML, robots.txt, and HTTP headers strictly recorded without artificial score inflation.</p>

@@ -242,6 +242,7 @@ export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }:
             className="w-full px-3 py-2.5 rounded-lg bg-brand-surface border border-brand-border focus:border-brand-teal text-white text-sm"
           >
             <option value="ecommerce">E-Commerce &amp; Online Retail</option>
+            <option value="job_board">Job Board &amp; Remote Work Marketplace</option>
             <option value="saas">SaaS &amp; Software Platform</option>
             <option value="marketplace">Marketplace &amp; Directory</option>
             <option value="publisher">Publisher &amp; Media Blog</option>

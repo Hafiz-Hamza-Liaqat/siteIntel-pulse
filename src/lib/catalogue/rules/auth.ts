@@ -1,6 +1,38 @@
 import { RuleDefinition } from "../types";
 import { AssessmentResult } from "@/types";
 
+export function isAuthUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    const path = u.pathname.toLowerCase();
+    // Exclude job listings, blogs, articles, or other content slugs containing 'account' (e.g. account-executive, accountant)
+    if (
+      path.includes("/jobs/") ||
+      path.includes("/job/") ||
+      path.includes("/blog/") ||
+      path.includes("/articles/") ||
+      path.includes("/news/") ||
+      path.includes("/careers/") ||
+      path.includes("/roles/") ||
+      path.includes("/categories/")
+    ) {
+      return false;
+    }
+    // Check specific authentication path patterns
+    const authRegex = /(?:^|\/)(login|signin|sign-in|signup|sign-up|register|registration|oauth|auth|user\/login|app\/login|portal\/login|my-account)(?:\/|$|\?)/i;
+    if (authRegex.test(path)) return true;
+    if (path === "/account" || path.startsWith("/account/")) {
+      const afterAccount = path.slice(8);
+      if (!afterAccount || afterAccount.startsWith("/") || afterAccount.startsWith("?")) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export const authRules: RuleDefinition[] = [
   {
     id: "AUTH-01",
@@ -15,10 +47,7 @@ export const authRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const authLinks = ctx.pages.flatMap((p) =>
-        p.links.filter((l) => {
-          const t = l.targetUrl.toLowerCase();
-          return t.includes("login") || t.includes("signin") || t.includes("signup") || t.includes("register") || t.includes("account");
-        })
+        p.links.filter((l) => isAuthUrl(l.targetUrl))
       );
 
       if (authLinks.length > 0) {
@@ -55,6 +84,7 @@ export const authRules: RuleDefinition[] = [
           timestamp: now,
           confidence: "HIGH",
           affectedUrlsCount: insecureAuthLinks.length,
+          sampleEvidence: insecureAuthLinks.slice(0, 3).map((l) => l.targetUrl),
         };
       }
 
@@ -115,6 +145,46 @@ export const authRules: RuleDefinition[] = [
     remediationAdvice: "Set HttpOnly, Secure, and SameSite=Lax on all session identification cookies.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      const allCookies = ctx.pages.flatMap((p) => p.cookieAttributes || []);
+
+      if (allCookies.length === 0) {
+        return {
+          testId: "AUTH-03",
+          testVersion: "1.0.0",
+          testName: "Session and Cookie Security Indicators",
+          category: "authentication_posture",
+          status: "UNKNOWN",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "No Public Session Cookies Observed",
+          summary: "No session or authentication cookies were observed in response headers during discovery. Cookie security flags (HttpOnly, Secure, SameSite) remain unobserved / unknown.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "No Set-Cookie response headers observed during passive crawl. Attributes cannot be verified without cookie issuance.",
+        };
+      }
+
+      const insecureCookies = allCookies.filter((c) => !c.secure || !c.httpOnly);
+      if (insecureCookies.length > 0) {
+        return {
+          testId: "AUTH-03",
+          testVersion: "1.0.0",
+          testName: "Session and Cookie Security Indicators",
+          category: "authentication_posture",
+          status: "WARNING",
+          severity: "HIGH",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Insecure Cookie Attributes Detected",
+          summary: `${insecureCookies.length} observed cookie(s) lack required Secure or HttpOnly security flags.`,
+          timestamp: now,
+          confidence: "HIGH",
+          sampleEvidence: insecureCookies.slice(0, 3).map((c) => `Cookie '${c.name}': Secure=${c.secure}, HttpOnly=${c.httpOnly}`),
+          affectedUrlsCount: insecureCookies.length,
+        };
+      }
+
       return {
         testId: "AUTH-03",
         testVersion: "1.0.0",
@@ -125,9 +195,10 @@ export const authRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 2,
         title: "Public Session Attributes Healthy",
-        summary: "Public cookies set during discovery adhere to standard transport security requirements.",
+        summary: `All ${allCookies.length} observed cookies adhere to standard transport security requirements (Secure and HttpOnly flags enforced).`,
         timestamp: now,
-        confidence: "MEDIUM",
+        confidence: "HIGH",
+        sampleEvidence: allCookies.slice(0, 3).map((c) => `Cookie '${c.name}': Secure=${c.secure}, HttpOnly=${c.httpOnly}, SameSite=${c.sameSite || "Unspecified"}`),
       };
     },
   },

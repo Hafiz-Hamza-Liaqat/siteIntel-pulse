@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   ExpertReport,
   ExpertReportMetadata,
@@ -25,7 +26,9 @@ import {
 } from "@/types";
 import { computeAuditScores } from "../scoring/engine";
 import { CrawlResult } from "../scanner/crawler";
-import { CATEGORY_ALLOCATED_WEIGHTS } from "../catalogue/registry";
+import { CATEGORY_ALLOCATED_WEIGHTS, assessmentRegistry } from "../catalogue/registry";
+import { isAuthUrl } from "../catalogue/rules/auth";
+import { PageSpeedResult } from "../providers/types";
 
 export interface ExpertAuditOptions {
   isAuthorizedForAuthScan?: boolean;
@@ -34,6 +37,9 @@ export interface ExpertAuditOptions {
   targetSearchTerms?: string[];
   companyBName?: string;
   companyBRole?: string;
+  pageSpeedData?: { mobile?: PageSpeedResult; desktop?: PageSpeedResult };
+  browserResponsiveResults?: ResponsiveDiagnostic[];
+  competitorScans?: CompetitorComparison[];
 }
 
 export function projectExpertReport(
@@ -285,22 +291,10 @@ export function projectExpertReport(
   ];
 
   // 5. Responsive Diagnostics (ResponsiveDiagnostic[])
-  const standardViewports = [320, 360, 390, 768, 1024, 1280, 1440];
-  const responsiveDiagnostics: ResponsiveDiagnostic[] = standardViewports.map((vp) => {
-    const isMobile = vp < 768;
-    return {
-      viewport: vp,
-      pageUrl: request.targetUrl,
-      horizontalOverflow: false,
-      overflowElements: [],
-      touchTargetIssues: isMobile ? 1 : 0,
-      touchTargetSelectors: isMobile ? ["a.footer-link", "button.nav-toggle"] : [],
-      clippingIssues: 0,
-      accessibleNameIssues: isMobile ? 1 : 0,
-      screenshotAvailable: false,
-      severity: isMobile ? "LOW" : "INFORMATIONAL",
-    };
-  });
+  const responsiveDiagnostics: ResponsiveDiagnostic[] =
+    options.browserResponsiveResults && options.browserResponsiveResults.length > 0
+      ? options.browserResponsiveResults
+      : [];
 
   // 6. Security Diagnostics (SecurityDiagnostic[])
   const securityDiagnostics: SecurityDiagnostic[] = [
@@ -367,9 +361,9 @@ export function projectExpertReport(
   ];
 
   // 7. Authentication Assessment (AuthenticationDiagnostic)
-  const authSurfaces = internalLinks.filter(
-    (l) => l.targetUrl.includes("login") || l.targetUrl.includes("signin") || l.targetUrl.includes("account")
-  );
+  const authSurfaces = internalLinks.filter((l) => isAuthUrl(l.targetUrl));
+  const allCookies = crawl.pages.flatMap((p) => p.cookieAttributes || []);
+  const hasCookies = allCookies.length > 0;
 
   const authenticationAssessment: AuthenticationDiagnostic = {
     isAuthorized: Boolean(options.isAuthorizedForAuthScan),
@@ -377,8 +371,8 @@ export function projectExpertReport(
     publicLoginSurfaces: authSurfaces.map((s) => ({
       url: s.targetUrl,
       isHttps: s.targetUrl.startsWith("https://"),
-      hasCsrfClue: true,
-      hasAutocompleteProtection: true,
+      hasCsrfClue: false,
+      hasAutocompleteProtection: false,
     })),
     testedFlows: options.isAuthorizedForAuthScan
       ? [
@@ -389,10 +383,12 @@ export function projectExpertReport(
           { flowName: "Active Dynamic Authentication Test", status: "NOT_TESTED", details: "Requires explicit owner testing authorization and dedicated test credentials." },
         ],
     sessionSecurity: {
-      cookieSecure: entry?.cookieAttributes && entry.cookieAttributes.length > 0 ? entry.cookieAttributes.every((c: { secure: boolean }) => c.secure) : true,
-      cookieHttpOnly: entry?.cookieAttributes && entry.cookieAttributes.length > 0 ? entry.cookieAttributes.every((c: { httpOnly: boolean }) => c.httpOnly) : true,
-      cookieSameSite: entry?.cookieAttributes?.[0]?.sameSite || "Lax",
-      expiryObserved: "Session duration bound to browser lifetime",
+      cookieSecure: hasCookies ? allCookies.every((c) => c.secure) : null,
+      cookieHttpOnly: hasCookies ? allCookies.every((c) => c.httpOnly) : null,
+      cookieSameSite: hasCookies ? allCookies[0]?.sameSite || "Lax" : null,
+      expiryObserved: hasCookies ? "Observed in response headers" : null,
+      cookiesObserved: allCookies.length,
+      status: hasCookies ? "OBSERVED" : "NO_COOKIES_OBSERVED",
     },
     mfaIndicators: {
       observed: authSurfaces.length > 0,
@@ -407,30 +403,19 @@ export function projectExpertReport(
   };
 
   // 8. Competitor Comparison
-  const competitorComparisons: CompetitorComparison[] = (request.competitors || []).map((compDomain) => {
-    return {
-      domain: compDomain,
-      overallScore: 78,
-      categoryScores: {
-        technical_health: 85,
-        seo: 76,
-        performance: 70,
-        responsive_accessibility: 88,
-        public_security: 80,
-        authentication_posture: 75,
-        content_quality: 82,
-        geo_aeo_ai: 65,
-        analytics_tracking: 80,
-        conversion_marketing: 75,
-        competitor_comparison: 100,
-      },
-      detectedTechnologies: ["Modern Web Architecture", "Google Tag Manager"],
-      keyStrengths: ["Fast initial response time", "Clean semantic heading hierarchy"],
-      keyWeaknesses: ["Missing structured data on key product templates", "No CSP header deployed"],
-      dataProvenance: "Uniform SiteIntel Pulse Public Assessment Framework (Comparable Ruleset)",
-      isEstimated: true,
-    };
-  });
+  const competitorComparisons: CompetitorComparison[] = options.competitorScans && options.competitorScans.length > 0
+    ? options.competitorScans
+    : (request.competitors || []).map((compDomain) => ({
+        domain: compDomain,
+        status: "NOT_ASSESSED" as const,
+        overallScore: null,
+        categoryScores: undefined,
+        detectedTechnologies: [],
+        keyStrengths: [],
+        keyWeaknesses: [],
+        dataProvenance: "No comparable scan executed for this competitor domain.",
+        isEstimated: false,
+      }));
 
   // 9. External Metrics (Honest Disclosures)
   const analyticsAndMetrics: ExternalMetric[] = [
@@ -502,6 +487,33 @@ export function projectExpertReport(
     else if (r.severity === "CRITICAL") estimatedEffort = "STRATEGIC";
 
     const findingId = `EXP-${r.testId}-${String(idx + 1).padStart(3, "0")}`;
+    const ruleDef = assessmentRegistry.getRule(r.testId);
+
+    // Resolve accurate affected URLs from actual test evidence
+    let affectedUrls: string[] = [];
+    if (r.sampleEvidence && r.sampleEvidence.length > 0) {
+      const urlMatches = r.sampleEvidence
+        .flatMap((ev) => {
+          const m = ev.match(/https?:\/\/[^\s,"']+/g);
+          return m || [];
+        })
+        .filter(Boolean);
+      if (urlMatches.length > 0) {
+        affectedUrls = Array.from(new Set(urlMatches));
+      }
+    }
+    if (affectedUrls.length === 0 && r.evidenceReferences && r.evidenceReferences.length > 0) {
+      affectedUrls = r.evidenceReferences.filter((ref) => ref.startsWith("http"));
+    }
+    if (affectedUrls.length === 0) {
+      affectedUrls = [request.targetUrl];
+    }
+
+    // Resolve remediation text from rule definition - NEVER placeholder text
+    const remediationText =
+      r.remediationTheme && !r.remediationTheme.toLowerCase().includes("follow documented remediation")
+        ? r.remediationTheme
+        : ruleDef?.remediationAdvice || ruleDef?.description || `Apply standard security and SEO remediation for ${r.testId}.`;
 
     const evidence: TechnicalEvidence[] = [
       {
@@ -511,14 +523,14 @@ export function projectExpertReport(
           id: `SRC-${findingId}`,
           type: "html_parser",
           timestamp: now,
-          location: request.targetUrl,
+          location: affectedUrls[0] || request.targetUrl,
           confidence: r.confidence,
         },
         observedValue: r.summary,
         expectedCondition: `Standard rule compliance for ${r.testId}`,
         discrepancy: r.status === "PASS" ? "None. Requirement satisfied." : `Finding detected: ${r.summary}`,
         reproductionSteps: [
-          `1. Inspect target URL headers and DOM elements for ${r.testId}.`,
+          `1. Inspect target URL (${affectedUrls[0] || request.targetUrl}) headers and DOM elements for rule ${r.testId}.`,
           `2. Execute rule validation assertion against page snapshot.`,
           `3. Compare observed value against required condition.`,
         ],
@@ -536,11 +548,11 @@ export function projectExpertReport(
       status: r.status,
       severity: r.severity,
       confidence: r.confidence,
-      affectedUrls: [request.targetUrl],
+      affectedUrls,
       affectedElements: r.sampleEvidence || [],
       technicalImpact: `Affects ${r.category} scoring weight (${r.maxPoints} pts). ${r.summary}`,
-      businessImpact: r.summary,
-      remediation: r.remediationTheme || "Follow documented remediation procedures for this test rule.",
+      businessImpact: ruleDef?.businessImpactSummary || r.summary,
+      remediation: remediationText,
       validationProcedure: `Execute verification scan with rule ${r.testId}. Expected earned points: ${r.maxPoints}.`,
       workstream,
       estimatedEffort,
@@ -622,13 +634,24 @@ export function projectExpertReport(
     ineligibleCategories: scoresOutput.coverage.ineligibleCategories,
   };
 
-  // 14. Export Manifest
+  // 14. Export Manifest with Genuine SHA-256 Checksum
+  const manifestPayload = {
+    reportId,
+    scanId,
+    generatedAt: now,
+    overallScore: scoresOutput.overallScore.score,
+    findingsCount: findings.length,
+    testedPages: reportCoverage.testedPages,
+  };
+  const checksum = `sha256:${crypto.createHash("sha256").update(JSON.stringify(manifestPayload)).digest("hex")}`;
+
   const exportManifest: ExpertExportManifest = {
     exportId: `exp_mnf_${Date.now()}`,
     reportId,
     scanId,
     version: "2.0.0",
     generatedAt: now,
+    checksum,
     formats: ["pdf", "json", "csv"],
     dataSourceLimitations: [
       "Public-only passive HTTP/HTML crawl by default.",
@@ -694,16 +717,19 @@ export function projectExpertReport(
     integrations,
     performanceDiagnostics: {
       labScores: {
-        mobile: 78,
-        desktop: 92,
-        ttfbMs: entry?.responseTimeMs || 240,
+        mobile: options.pageSpeedData?.mobile?.performanceScore ?? null,
+        desktop: options.pageSpeedData?.desktop?.performanceScore ?? null,
+        ttfbMs: entry?.responseTimeMs ?? null,
+        status: options.pageSpeedData?.mobile?.isAvailable ? "AVAILABLE" : "NOT_CONNECTED",
+        reason: options.pageSpeedData?.mobile?.source || "PageSpeed API provider is not configured or connected.",
       },
       coreWebVitals: {
-        fcp: "1.2s (Lab)",
-        lcp: "2.4s (Lab)",
-        cls: "0.02 (Lab)",
-        inp: "80ms (Lab)",
-        status: "Lab diagnostic estimated (Field CrUX pending authorized traffic)",
+        fcp: options.pageSpeedData?.mobile?.cruxFieldData?.lcpMs ? `${options.pageSpeedData.mobile.cruxFieldData.lcpMs}ms (Field)` : null,
+        lcp: options.pageSpeedData?.mobile?.cruxFieldData?.lcpMs ? `${options.pageSpeedData.mobile.cruxFieldData.lcpMs}ms (Field)` : null,
+        cls: options.pageSpeedData?.mobile?.cruxFieldData?.cls != null ? String(options.pageSpeedData.mobile.cruxFieldData.cls) : null,
+        inp: options.pageSpeedData?.mobile?.cruxFieldData?.inpMs ? `${options.pageSpeedData.mobile.cruxFieldData.inpMs}ms (Field)` : null,
+        status: options.pageSpeedData?.mobile?.cruxFieldData ? "AVAILABLE" : "NOT_CONNECTED",
+        reason: "Field Core Web Vitals require verified traffic volume in Google CrUX dataset and active API connection.",
       },
       blockingResources: (entry?.resources || []).filter((r) => r.isRenderBlocking),
       imageDiagnostics: (entry?.resources || [])

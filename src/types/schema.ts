@@ -48,6 +48,8 @@ export const BusinessCategorySchema = z.enum([
   "ecommerce",
   "saas",
   "marketplace",
+  "job_board",
+  "jobs_marketplace",
   "publisher",
   "local_service",
   "portfolio",
@@ -192,6 +194,8 @@ export const PageObservationSchema = z.object({
   discoveredAtDepth: z.number().int().default(0),
   discoverySource: z.enum(["entry", "sitemap", "internal_link"]).default("entry"),
   consoleErrors: z.array(z.string()).default([]),
+  isXmlSitemap: z.boolean().default(false).optional(),
+  documentType: z.enum(["html", "xml_sitemap", "xml", "other"]).default("html").optional(),
 });
 export type PageObservation = z.infer<typeof PageObservationSchema>;
 
@@ -304,13 +308,14 @@ export type OverallScore = z.infer<typeof OverallScoreSchema>;
 export const CompetitorAssessmentSchema = z.object({
   domain: z.string(),
   normalizedUrl: z.string(),
-  overallScore: z.number().min(0).max(100).optional(),
+  status: z.enum(["AVAILABLE", "NOT_ASSESSED"]).default("NOT_ASSESSED").optional(),
+  overallScore: z.number().min(0).max(100).nullable().optional(),
   ratingBand: z.string().optional(),
   coverage: ScanCoverageSchema.optional(),
   keyMetrics: z.object({
-    technicalHealthScore: z.number().optional(),
-    seoScore: z.number().optional(),
-    performanceScore: z.number().optional(),
+    technicalHealthScore: z.number().nullable().optional(),
+    seoScore: z.number().nullable().optional(),
+    performanceScore: z.number().nullable().optional(),
     httpsActive: z.boolean().default(true),
     mobileFriendly: z.boolean().default(true),
   }),

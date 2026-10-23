@@ -5,16 +5,26 @@ import {
   AssessmentResult,
   OpportunityTheme,
   CompetitorAssessment,
+  ResponsiveDiagnostic,
 } from "@/types";
 import { computeAuditScores } from "../scoring/engine";
 import { CrawlResult } from "../scanner/crawler";
+import { isAuthUrl } from "../catalogue/rules/auth";
+import { PageSpeedResult } from "../providers/types";
+
+export interface OwnerProjectionOptions {
+  pageSpeedData?: { mobile?: PageSpeedResult; desktop?: PageSpeedResult };
+  browserResponsiveResults?: ResponsiveDiagnostic[];
+  competitorScans?: CompetitorAssessment[];
+}
 
 export function projectOwnerReport(
   scanId: string,
   request: ScanRequest,
   crawl: CrawlResult,
   results: AssessmentResult[],
-  tenantId?: string
+  tenantId?: string,
+  options?: OwnerProjectionOptions
 ): OwnerReport {
   const scoresOutput = computeAuditScores(results);
   const now = new Date().toISOString();
@@ -85,6 +95,8 @@ export function projectOwnerReport(
     });
   }
 
+  const isJobBoard = request.businessCategory === "job_board" || (request.businessCategory as any) === "jobs_marketplace";
+
   // Mobile / Performance Opportunity
   const perfIssues = failResults.filter((r) => r.category === "performance" || r.category === "responsive_accessibility");
   if (perfIssues.length > 0 || !priorityOpportunities.some((o) => o.id === "opp_perf")) {
@@ -92,11 +104,15 @@ export function projectOwnerReport(
       id: "opp_perf",
       rank: rank++,
       title: "Accelerate Page Speed and Mobile Rendering",
-      businessImpact: "Faster loading times directly increase checkout conversions and lower visitor bounce rates.",
+      businessImpact: isJobBoard
+        ? "Faster loading times directly increase job application conversions, reduce candidate bounce rates, and improve listing engagement."
+        : "Faster loading times directly increase customer conversions and lower visitor bounce rates.",
       potentialServiceCategory: "Performance Engineering & Frontend Optimization",
       urgency: "HIGH",
       relatedTestIds: ["PERF-01", "PERF-04", "RSP-02"],
-      recommendedAction: "Minify JavaScript, compress images with WebP format, and eliminate render-blocking CSS stylesheets.",
+      recommendedAction: isJobBoard
+        ? "Minify JavaScript, compress job listing media with WebP format, and eliminate render-blocking CSS stylesheets."
+        : "Minify JavaScript, compress images with WebP format, and eliminate render-blocking CSS stylesheets.",
     });
   }
 
@@ -148,27 +164,28 @@ export function projectOwnerReport(
   const affectedPagesCount = results.reduce((acc, r) => acc + (r.affectedUrlsCount || 0), 0);
 
   // 4. Competitor Assessments (Grounded in owner-supplied domains)
-  const competitorSnapshot: CompetitorAssessment[] = (request.competitors || []).map((cDomain) => {
-    return {
-      domain: cDomain,
-      normalizedUrl: `https://${cDomain}`,
-      overallScore: 74, // Comparable baseline estimated from same rule set
-      ratingBand: "Needs improvement",
-      keyMetrics: {
-        technicalHealthScore: 82,
-        seoScore: 76,
-        performanceScore: 68,
-        httpsActive: true,
-        mobileFriendly: true,
-      },
-      dataProvenance: {
-        source: "Uniform SiteIntel Pulse Public Assessment Framework v1.0",
-        measuredAt: now,
-        isEstimated: true,
-      },
-      disclaimer: "Competitor comparison reflects non-invasive public observations and is provided for benchmark context only.",
-    };
-  });
+  const competitorSnapshot: CompetitorAssessment[] = options?.competitorScans && options.competitorScans.length > 0
+    ? options.competitorScans
+    : (request.competitors || []).map((cDomain) => ({
+        domain: cDomain,
+        normalizedUrl: `https://${cDomain}`,
+        status: "NOT_ASSESSED" as const,
+        overallScore: null,
+        ratingBand: "NOT_ASSESSED",
+        keyMetrics: {
+          technicalHealthScore: null,
+          seoScore: null,
+          performanceScore: null,
+          httpsActive: true,
+          mobileFriendly: true,
+        },
+        dataProvenance: {
+          source: "SiteIntel Pulse Public Assessment Framework",
+          measuredAt: now,
+          isEstimated: false,
+        },
+        disclaimer: "Competitor comparison has not been executed. Real comparison requires a dedicated competitor scan.",
+      }));
 
   // 5. Build Owner Report
   const report: OwnerReport = {
@@ -221,24 +238,35 @@ export function projectOwnerReport(
       structuredDataPresent: crawl.pages.some((p) => ((p.structuredData || (p as any).schemaObjects || []).length > 0)),
     },
     performanceAndResponsiveSummary: {
-      mobileLabScore: 76,
-      desktopLabScore: 89,
-      coreWebVitalsStatus: "Lab diagnostic estimated (Field CrUX pending authorized traffic)",
-      testedViewports: [320, 360, 390, 768, 1024, 1280, 1440],
-      horizontalOverflowFound: false,
+      mobileLabScore: options?.pageSpeedData?.mobile?.performanceScore ?? null,
+      desktopLabScore: options?.pageSpeedData?.desktop?.performanceScore ?? null,
+      coreWebVitalsStatus: options?.pageSpeedData?.mobile?.cruxFieldData
+        ? "Field CrUX metrics available"
+        : "NOT_CONNECTED (PageSpeed / CrUX API provider not configured)",
+      testedViewports: options?.browserResponsiveResults
+        ? options.browserResponsiveResults.filter((r) => r.status === "TESTED" || (!r.status && r.viewport)).map((r) => r.viewport)
+        : [],
+      horizontalOverflowFound: options?.browserResponsiveResults
+        ? options.browserResponsiveResults.some((r) => r.horizontalOverflow)
+        : false,
     },
     securityAndAuthSummary: {
       httpsEnforced: entry?.finalUrl.startsWith("https://") ?? true,
       securityHeadersConfigured: Object.keys(entry?.headers || {}).filter((k) => k.includes("security") || k.includes("strict") || k.includes("x-")).length,
       totalSecurityHeadersChecked: 5,
-      authSurfacesFound: crawl.pages.flatMap((p: any) => p.links || []).filter((l: any) => l.targetUrl && (l.targetUrl.includes("login") || l.targetUrl.includes("account"))).length,
+      authSurfacesFound: crawl.pages.flatMap((p: any) => p.links || []).filter((l: any) => l.targetUrl && isAuthUrl(l.targetUrl)).length,
       publicCookieIssues: 0,
       limitationsNote: "Passive public configuration audit only. Internal passwords, databases, and authenticated controls were not probed.",
     },
     contentTrustAiSummary: {
       blogOrResourcePresent: crawl.pages.flatMap((p: any) => p.links || []).some((l: any) => l.targetUrl && (l.targetUrl.includes("blog") || l.targetUrl.includes("faq"))),
       aiCrawlerPolicy: (typeof crawl.robotsTxt === "string" ? crawl.robotsTxt : ((crawl.robotsTxt as any)?.raw || "")).includes("GPTBot") ? "Selective Bot Directives Detected" : "Standard Open AI Crawl Permissions",
-      entitySchemaPresent: crawl.pages.some((p: any) => (p.structuredData || p.schemaObjects || []).some((s: any) => s["@type"] === "Organization")),
+      entitySchemaPresent: crawl.pages.some((p: any) =>
+        (p.structuredData || p.schemaObjects || []).some((s: any) => {
+          const t = String(s["@type"] || "").toLowerCase();
+          return t.includes("organization") || t.includes("brand");
+        })
+      ),
       contactOrTrustSignalsPresent: crawl.pages.flatMap((p: any) => p.links || []).some((l: any) => l.targetUrl && (l.targetUrl.includes("about") || l.targetUrl.includes("contact"))),
     },
     analyticsAndTrackingSummary: {

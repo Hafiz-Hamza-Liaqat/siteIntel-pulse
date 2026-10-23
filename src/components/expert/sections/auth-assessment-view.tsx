@@ -42,10 +42,18 @@ export function AuthAssessmentView({ auth }: AuthAssessmentViewProps) {
               </div>
               <span
                 className={`font-bold font-mono ${
-                  auth.sessionSecurity.cookieSecure ? "text-emerald-400" : "text-rose-400"
+                  auth.sessionSecurity.cookieSecure === null
+                    ? "text-slate-400"
+                    : auth.sessionSecurity.cookieSecure
+                    ? "text-emerald-400"
+                    : "text-rose-400"
                 }`}
               >
-                {auth.sessionSecurity.cookieSecure ? "ENFORCED" : "VULNERABLE"}
+                {auth.sessionSecurity.cookieSecure === null
+                  ? "UNKNOWN"
+                  : auth.sessionSecurity.cookieSecure
+                  ? "ENFORCED"
+                  : "VULNERABLE"}
               </span>
             </div>
 
@@ -58,10 +66,18 @@ export function AuthAssessmentView({ auth }: AuthAssessmentViewProps) {
               </div>
               <span
                 className={`font-bold font-mono ${
-                  auth.sessionSecurity.cookieHttpOnly ? "text-emerald-400" : "text-rose-400"
+                  auth.sessionSecurity.cookieHttpOnly === null
+                    ? "text-slate-400"
+                    : auth.sessionSecurity.cookieHttpOnly
+                    ? "text-emerald-400"
+                    : "text-rose-400"
                 }`}
               >
-                {auth.sessionSecurity.cookieHttpOnly ? "ENFORCED" : "VULNERABLE"}
+                {auth.sessionSecurity.cookieHttpOnly === null
+                  ? "UNKNOWN"
+                  : auth.sessionSecurity.cookieHttpOnly
+                  ? "ENFORCED"
+                  : "VULNERABLE"}
               </span>
             </div>
 
@@ -73,7 +89,7 @@ export function AuthAssessmentView({ auth }: AuthAssessmentViewProps) {
                 </span>
               </div>
               <span className="text-brand-cyan font-bold font-mono">
-                {auth.sessionSecurity.cookieSameSite}
+                {auth.sessionSecurity.cookieSameSite || "UNKNOWN"}
               </span>
             </div>
           </div>

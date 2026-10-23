@@ -52,15 +52,27 @@ export function parsePageHtml(
   const parsedUrl = new URL(pageUrl);
   const baseHostname = parsedUrl.hostname.toLowerCase();
 
+  // XML / Sitemap Content Detection
+  const rawContentType = (headers["content-type"] || "").toLowerCase();
+  const isXmlByHeader = rawContentType.includes("xml");
+  const isXmlByExtension = parsedUrl.pathname.toLowerCase().endsWith(".xml");
+  const isXmlByContent = html.trim().startsWith("<?xml") || html.includes("<urlset") || html.includes("<sitemapindex>");
+  const isXmlSitemap = isXmlByExtension || isXmlByContent || (isXmlByHeader && (html.includes("<urlset") || html.includes("<sitemapindex>")));
+  const documentType = isXmlSitemap ? "xml_sitemap" : isXmlByHeader ? "xml" : "html";
+
+  // Helper for whitespace normalization
+  const cleanText = (s?: string) => (s ? s.replace(/\s+/g, " ").trim() : undefined);
+
   // 1. Title & Meta Description
-  const title = $("title").first().text().trim() || undefined;
-  const metaDescription =
-    $('meta[name="description" i]').attr("content")?.trim() ||
-    $('meta[property="og:description" i]').attr("content")?.trim() ||
-    undefined;
+  const title = !isXmlSitemap ? cleanText($("title").first().text()) : undefined;
+  const metaDescription = !isXmlSitemap ? (
+    cleanText($('meta[name="description" i]').attr("content")) ||
+    cleanText($('meta[property="og:description" i]').attr("content")) ||
+    undefined
+  ) : undefined;
 
   // 2. Canonical URL
-  const canonicalCandidate = $('link[rel="canonical" i]').attr("href")?.trim() || undefined;
+  const canonicalCandidate = !isXmlSitemap ? cleanText($('link[rel="canonical" i]').attr("href")) : undefined;
 
   // 3. Robots directives
   const robotsDirectives: string[] = [];
@@ -74,14 +86,17 @@ export function parsePageHtml(
   }
 
   // 4. Headings Outline
-  const headings = {
-    h1: $("h1").map((_, el) => $(el).text().trim()).get().filter(Boolean),
-    h2: $("h2").map((_, el) => $(el).text().trim()).get().filter(Boolean),
-    h3: $("h3").map((_, el) => $(el).text().trim()).get().filter(Boolean),
-    h4: $("h4").map((_, el) => $(el).text().trim()).get().filter(Boolean),
-    h5: $("h5").map((_, el) => $(el).text().trim()).get().filter(Boolean),
-    h6: $("h6").map((_, el) => $(el).text().trim()).get().filter(Boolean),
-  };
+  const cleanHeading = (s: string) => s.replace(/\s+/g, " ").trim();
+  const headings = isXmlSitemap
+    ? { h1: [], h2: [], h3: [], h4: [], h5: [], h6: [] }
+    : {
+        h1: $("h1").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h2: $("h2").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h3: $("h3").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h4: $("h4").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h5: $("h5").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h6: $("h6").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+      };
 
   // 5. Visible Text & Word Count
   // Clone and remove scripts, styles, noscript, svg
@@ -287,5 +302,7 @@ export function parsePageHtml(
     discoveredAtDepth: 0,
     discoverySource: "entry",
     consoleErrors: [],
+    isXmlSitemap,
+    documentType,
   };
 }

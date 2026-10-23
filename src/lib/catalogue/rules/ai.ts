@@ -1,6 +1,80 @@
 import { RuleDefinition } from "../types";
 import { AssessmentResult } from "@/types";
 
+export function parseRobotsForAi(robotsTxt: string): {
+  blocksGpt: boolean;
+  blocksClaude: boolean;
+  blocksPerplexity: boolean;
+  wildcardDisallowsAll: boolean;
+} {
+  const lines = robotsTxt.split(/\r?\n/);
+  let currentAgents: string[] = [];
+  let inDirectives = false;
+  const agentRules = new Map<string, { disallowRoot: boolean; allowRoot: boolean }>();
+
+  for (const rawLine of lines) {
+    const line = rawLine.split("#")[0].trim();
+    if (!line) {
+      if (inDirectives) {
+        currentAgents = [];
+        inDirectives = false;
+      }
+      continue;
+    }
+
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+
+    const directive = line.slice(0, colonIdx).trim().toLowerCase();
+    const value = line.slice(colonIdx + 1).trim();
+
+    if (directive === "user-agent") {
+      if (inDirectives) {
+        currentAgents = [];
+        inDirectives = false;
+      }
+      const agent = value.toLowerCase();
+      currentAgents.push(agent);
+      if (!agentRules.has(agent)) {
+        agentRules.set(agent, { disallowRoot: false, allowRoot: false });
+      }
+    } else if (directive === "disallow") {
+      inDirectives = true;
+      const isRoot = value === "/" || value === "/*";
+      for (const agent of currentAgents) {
+        const rules = agentRules.get(agent)!;
+        if (isRoot) rules.disallowRoot = true;
+      }
+    } else if (directive === "allow") {
+      inDirectives = true;
+      const isRoot = value === "/" || value === "/*";
+      for (const agent of currentAgents) {
+        const rules = agentRules.get(agent)!;
+        if (isRoot) rules.allowRoot = true;
+      }
+    }
+  }
+
+  const wildcard = agentRules.get("*");
+  const wildcardDisallowsAll = Boolean(wildcard?.disallowRoot && !wildcard?.allowRoot);
+
+  const isBlocked = (agentName: string) => {
+    const specific = agentRules.get(agentName.toLowerCase());
+    if (specific) {
+      if (specific.allowRoot) return false;
+      if (specific.disallowRoot) return true;
+    }
+    return wildcardDisallowsAll;
+  };
+
+  return {
+    blocksGpt: isBlocked("gptbot"),
+    blocksClaude: isBlocked("claudebot"),
+    blocksPerplexity: isBlocked("perplexitybot"),
+    wildcardDisallowsAll,
+  };
+}
+
 export const aiRules: RuleDefinition[] = [
   {
     id: "AI-01",
@@ -14,11 +88,8 @@ export const aiRules: RuleDefinition[] = [
     remediationAdvice: "Review your robots.txt policy: allow GPTBot and PerplexityBot if you want AI search citations, or disallow them if protecting proprietary data.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const robots = (ctx.robotsTxt || "").toLowerCase();
-
-      const blocksGpt = robots.includes("user-agent: gptbot\ndisallow: /");
-      const blocksClaude = robots.includes("user-agent: claudebot\ndisallow: /");
-      const blocksPerplexity = robots.includes("user-agent: perplexitybot\ndisallow: /");
+      const robots = ctx.robotsTxt || "";
+      const { blocksGpt, blocksClaude, blocksPerplexity, wildcardDisallowsAll } = parseRobotsForAi(robots);
 
       const blockedCount = [blocksGpt, blocksClaude, blocksPerplexity].filter(Boolean).length;
 
@@ -50,11 +121,13 @@ export const aiRules: RuleDefinition[] = [
         severity: "LOW",
         maxPoints: 2,
         earnedPoints: 1,
-        title: "Selected AI Search Crawlers Blocked",
-        summary: `robots.txt contains disallow rules for ${blockedCount} AI crawlers (${blocksGpt ? "GPTBot " : ""}${blocksClaude ? "ClaudeBot " : ""}${blocksPerplexity ? "PerplexityBot" : ""}).`,
+        title: wildcardDisallowsAll ? "All AI Crawlers Blocked by Wildcard Disallow" : "Selected AI Search Crawlers Blocked",
+        summary: wildcardDisallowsAll
+          ? "robots.txt contains a global 'Disallow: /' directive that blocks all AI crawlers by default."
+          : `robots.txt contains specific disallow rules for ${blockedCount} AI crawlers (${blocksGpt ? "GPTBot " : ""}${blocksClaude ? "ClaudeBot " : ""}${blocksPerplexity ? "PerplexityBot" : ""}).`,
         timestamp: now,
         confidence: "HIGH",
-        sampleEvidence: [`Blocked AI bots count: ${blockedCount}`],
+        sampleEvidence: [`Blocked AI bots count: ${blockedCount}`, wildcardDisallowsAll ? "Wildcard Disallow: / enforced" : "Specific user-agent blocks"],
       };
     },
   },
@@ -119,12 +192,13 @@ export const aiRules: RuleDefinition[] = [
     remediationAdvice: "Provide JSON-LD schema with @type Organization or LocalBusiness defining your official name, logo, and sameAs social profiles.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const hasEntitySchema = ctx.pages.some((p) =>
-        p.structuredData.some((s) => {
-          const t = String(s["@type"] || "").toLowerCase();
-          return t.includes("organization") || t.includes("localbusiness") || t.includes("product") || t.includes("brand");
-        })
-      );
+      const allSchemas = ctx.pages.flatMap((p) => p.structuredData || []);
+      const detectedTypes = Array.from(new Set(allSchemas.map((s) => String(s["@type"] || "")).filter(Boolean)));
+
+      const hasEntitySchema = detectedTypes.some((t) => {
+        const lower = t.toLowerCase();
+        return lower.includes("organization") || lower.includes("localbusiness") || lower.includes("brand") || lower.includes("corporation");
+      });
 
       if (hasEntitySchema) {
         return {
@@ -137,13 +211,14 @@ export const aiRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 2,
           title: "Entity Schema Configured for Knowledge Graphs",
-          summary: "Identified machine-readable Organization/Product entity definitions in structured JSON-LD.",
+          summary: `Identified machine-readable Organization/Brand entity definitions (${detectedTypes.join(", ")}) in structured JSON-LD.`,
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: ["Organization/Entity schema found"],
+          sampleEvidence: detectedTypes.slice(0, 4),
         };
       }
 
+      const hasOtherSchemas = detectedTypes.length > 0;
       return {
         testId: "AI-03",
         testVersion: "1.0.0",
@@ -153,10 +228,13 @@ export const aiRules: RuleDefinition[] = [
         severity: "MEDIUM",
         maxPoints: 2,
         earnedPoints: 1,
-        title: "Missing Entity Schema Markup",
-        summary: "No Organization or Brand schema detected to anchor your entity in LLM knowledge graphs.",
+        title: hasOtherSchemas ? "Missing Core Organization / Brand Entity Schema" : "Missing Entity Schema Markup",
+        summary: hasOtherSchemas
+          ? `Detected structured data schemas (${detectedTypes.join(", ")}), but dedicated Organization or Brand entity schema was not observed to anchor your platform in LLM knowledge graphs.`
+          : "No Organization or Brand schema detected to anchor your entity in LLM knowledge graphs.",
         timestamp: now,
         confidence: "HIGH",
+        sampleEvidence: hasOtherSchemas ? detectedTypes.slice(0, 4) : undefined,
       };
     },
   },
