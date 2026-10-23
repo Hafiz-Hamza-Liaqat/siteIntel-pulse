@@ -3,6 +3,7 @@ export interface PageSpeedResult {
   strategy: "mobile" | "desktop";
   performanceScore?: number; // 0 - 100
   cruxFieldData?: {
+    fcpMs?: number;
     lcpMs?: number;
     inpMs?: number;
     cls?: number;

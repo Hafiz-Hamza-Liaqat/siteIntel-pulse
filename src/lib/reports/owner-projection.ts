@@ -99,7 +99,8 @@ export function projectOwnerReport(
 
   // Mobile / Performance Opportunity
   const perfIssues = failResults.filter((r) => r.category === "performance" || r.category === "responsive_accessibility");
-  if (perfIssues.length > 0 || !priorityOpportunities.some((o) => o.id === "opp_perf")) {
+  if (perfIssues.length > 0) {
+    const isHighUrgency = perfIssues.some((r) => r.severity === "CRITICAL" || r.severity === "HIGH");
     priorityOpportunities.push({
       id: "opp_perf",
       rank: rank++,
@@ -108,8 +109,8 @@ export function projectOwnerReport(
         ? "Faster loading times directly increase job application conversions, reduce candidate bounce rates, and improve listing engagement."
         : "Faster loading times directly increase customer conversions and lower visitor bounce rates.",
       potentialServiceCategory: "Performance Engineering & Frontend Optimization",
-      urgency: "HIGH",
-      relatedTestIds: ["PERF-01", "PERF-04", "RSP-02"],
+      urgency: isHighUrgency ? "HIGH" : "MEDIUM",
+      relatedTestIds: perfIssues.map((r) => r.testId),
       recommendedAction: isJobBoard
         ? "Minify JavaScript, compress job listing media with WebP format, and eliminate render-blocking CSS stylesheets."
         : "Minify JavaScript, compress images with WebP format, and eliminate render-blocking CSS stylesheets.",
@@ -176,8 +177,8 @@ export function projectOwnerReport(
           technicalHealthScore: null,
           seoScore: null,
           performanceScore: null,
-          httpsActive: true,
-          mobileFriendly: true,
+          httpsActive: null,
+          mobileFriendly: null,
         },
         dataProvenance: {
           source: "SiteIntel Pulse Public Assessment Framework",
@@ -246,18 +247,41 @@ export function projectOwnerReport(
       testedViewports: options?.browserResponsiveResults
         ? options.browserResponsiveResults.filter((r) => r.status === "TESTED" || (!r.status && r.viewport)).map((r) => r.viewport)
         : [],
-      horizontalOverflowFound: options?.browserResponsiveResults
+      horizontalOverflowFound: options?.browserResponsiveResults && options.browserResponsiveResults.length > 0
         ? options.browserResponsiveResults.some((r) => r.horizontalOverflow)
-        : false,
+        : null,
+      responsiveStatus: options?.browserResponsiveResults && options.browserResponsiveResults.length > 0
+        ? "TESTED"
+        : "NOT_TESTED",
     },
-    securityAndAuthSummary: {
-      httpsEnforced: entry?.finalUrl.startsWith("https://") ?? true,
-      securityHeadersConfigured: Object.keys(entry?.headers || {}).filter((k) => k.includes("security") || k.includes("strict") || k.includes("x-")).length,
-      totalSecurityHeadersChecked: 5,
-      authSurfacesFound: crawl.pages.flatMap((p: any) => p.links || []).filter((l: any) => l.targetUrl && isAuthUrl(l.targetUrl)).length,
-      publicCookieIssues: 0,
-      limitationsNote: "Passive public configuration audit only. Internal passwords, databases, and authenticated controls were not probed.",
-    },
+    securityAndAuthSummary: (() => {
+      const EXPECTED_SECURITY_HEADERS = [
+        "strict-transport-security",
+        "content-security-policy",
+        "x-content-type-options",
+        "x-frame-options",
+        "referrer-policy",
+      ];
+      const entryHeaders = entry?.headers || {};
+      const presentSecurityHeaders = EXPECTED_SECURITY_HEADERS.filter((h) => Boolean(entryHeaders[h]));
+      const allCookies = crawl.pages.flatMap((p) => p.cookieAttributes || []);
+      const hasCookies = allCookies.length > 0;
+      const cookieIssuesCount = hasCookies
+        ? allCookies.filter((c) => !c.secure || !c.httpOnly).length
+        : null;
+
+      return {
+        httpsEnforced: entry?.finalUrl.startsWith("https://") ?? true,
+        securityHeadersConfigured: presentSecurityHeaders.length,
+        totalSecurityHeadersChecked: EXPECTED_SECURITY_HEADERS.length,
+        authSurfacesFound: crawl.pages.flatMap((p: any) => p.links || []).filter((l: any) => l.targetUrl && isAuthUrl(l.targetUrl)).length,
+        publicCookieIssues: cookieIssuesCount,
+        cookieAssessmentStatus: hasCookies
+          ? (cookieIssuesCount! > 0 ? ("ISSUES_OBSERVED" as const) : ("OBSERVED_CLEAN" as const))
+          : ("NO_COOKIES_OBSERVED" as const),
+        limitationsNote: "Passive public configuration audit only. Internal passwords, databases, and authenticated controls were not probed.",
+      };
+    })(),
     contentTrustAiSummary: {
       blogOrResourcePresent: crawl.pages.flatMap((p: any) => p.links || []).some((l: any) => l.targetUrl && (l.targetUrl.includes("blog") || l.targetUrl.includes("faq"))),
       aiCrawlerPolicy: (typeof crawl.robotsTxt === "string" ? crawl.robotsTxt : ((crawl.robotsTxt as any)?.raw || "")).includes("GPTBot") ? "Selective Bot Directives Detected" : "Standard Open AI Crawl Permissions",

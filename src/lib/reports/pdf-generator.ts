@@ -206,6 +206,8 @@ export function generateReportHtml(report: OwnerReport): string {
     .badge-warning { background: #FEF3C7; color: #92400E; }
     .badge-fail { background: #FEE2E2; color: #991B1B; }
     .badge-info { background: #E0F2FE; color: #075985; }
+    .badge-not-tested { background: #F1F5F9; color: #475569; }
+    .badge-unknown { background: #FEF3C7; color: #78350F; }
     .opportunity-card {
       border-left: 4px solid #0F9D91;
       background: #F8FAFC;
@@ -413,14 +415,19 @@ export function generateReportHtml(report: OwnerReport): string {
         <td>Internal links verified during crawl. ${report.technicalHealthAndSeoSummary.brokenLinksCount} dead ends found.</td>
       </tr>
       <tr>
-        <td><strong>Performance &amp; Viewports</strong></td>
+        <td><strong>Performance Lab Scores</strong></td>
         <td>${report.performanceAndResponsiveSummary.mobileLabScore != null ? '<span class="badge badge-pass">MEASURED</span>' : '<span class="badge badge-warning">NOT CONNECTED</span>'}</td>
-        <td>Mobile lab score: ${report.performanceAndResponsiveSummary.mobileLabScore != null ? `${report.performanceAndResponsiveSummary.mobileLabScore}/100` : "Provider not configured"}. Tested viewports: ${report.performanceAndResponsiveSummary.testedViewports.length > 0 ? `${report.performanceAndResponsiveSummary.testedViewports.join(", ")}px` : "Passive public crawl (browser runner not executed)"}.</td>
+        <td>Mobile lab: ${report.performanceAndResponsiveSummary.mobileLabScore != null ? `${report.performanceAndResponsiveSummary.mobileLabScore}/100` : "PageSpeed provider not configured"}. Desktop lab: ${report.performanceAndResponsiveSummary.desktopLabScore != null ? `${report.performanceAndResponsiveSummary.desktopLabScore}/100` : "PageSpeed provider not configured"}.</td>
+      </tr>
+      <tr>
+        <td><strong>Responsive Breakpoints</strong></td>
+        <td>${report.performanceAndResponsiveSummary.testedViewports.length > 0 ? (report.performanceAndResponsiveSummary.horizontalOverflowFound ? '<span class="badge badge-warning">OVERFLOW DETECTED</span>' : '<span class="badge badge-pass">PASS</span>') : '<span class="badge badge-not-tested">NOT TESTED</span>'}</td>
+        <td>${report.performanceAndResponsiveSummary.testedViewports.length > 0 ? `Tested viewports: ${report.performanceAndResponsiveSummary.testedViewports.join(", ")}px. Horizontal overflow: ${report.performanceAndResponsiveSummary.horizontalOverflowFound ? "Yes" : "No"}.` : "Automated browser viewport runner not executed; layout overflow unmeasured."}</td>
       </tr>
       <tr>
         <td><strong>Public Security Posture</strong></td>
-        <td>${report.securityAndAuthSummary.httpsEnforced ? '<span class="badge badge-pass">HTTPS ENFORCED</span>' : '<span class="badge badge-fail">INSECURE</span>'}</td>
-        <td>${report.securityAndAuthSummary.securityHeadersConfigured}/${report.securityAndAuthSummary.totalSecurityHeadersChecked} recommended security response headers active.</td>
+        <td>${report.securityAndAuthSummary.httpsEnforced ? (report.securityAndAuthSummary.securityHeadersConfigured >= 3 ? '<span class="badge badge-pass">PASS</span>' : '<span class="badge badge-warning">REVIEW</span>') : '<span class="badge badge-fail">FAIL</span>'}</td>
+        <td>HTTPS: ${report.securityAndAuthSummary.httpsEnforced ? "Enforced" : "Insecure"}. Security response headers: ${report.securityAndAuthSummary.securityHeadersConfigured} of ${report.securityAndAuthSummary.totalSecurityHeadersChecked} verified. Cookies: ${report.securityAndAuthSummary.publicCookieIssues != null ? `${report.securityAndAuthSummary.publicCookieIssues} issues detected` : "No session cookies observed on public crawl"}.</td>
       </tr>
       <tr>
         <td><strong>AI / AEO Search Readiness</strong></td>
@@ -456,7 +463,7 @@ export function generateReportHtml(report: OwnerReport): string {
           <td>${c.status === "NOT_ASSESSED" || c.overallScore == null ? "NOT ASSESSED" : `${c.overallScore}/100`}</td>
           <td>${c.keyMetrics.seoScore != null ? `${c.keyMetrics.seoScore}%` : "Pending Scan"}</td>
           <td>${c.keyMetrics.performanceScore != null ? `${c.keyMetrics.performanceScore}%` : "Pending Scan"}</td>
-          <td>${c.status === "NOT_ASSESSED" ? "Pending Scan" : (c.keyMetrics.httpsActive ? "HTTPS Active" : "HTTP")}</td>
+          <td>${c.status === "NOT_ASSESSED" || c.keyMetrics.httpsActive == null ? "NOT ASSESSED" : (c.keyMetrics.httpsActive ? "HTTPS Active" : "HTTP")}</td>
         </tr>
       `).join("")}
     </tbody>

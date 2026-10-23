@@ -8,6 +8,11 @@ import { assessmentRegistry } from "../catalogue/registry";
 import { isAuthUrl } from "../catalogue/rules/auth";
 import { parseRobotsForAi } from "../catalogue/rules/ai";
 import {
+  computeCanonicalReportDigest,
+  verifyReportDigest,
+  computePdfDigest,
+} from "./manifest-integrity";
+import {
   ScanRequest,
   PageObservation,
   LinkObservation,
@@ -272,26 +277,46 @@ describe("Milestone 3 & 4 Evidence Integrity & Business-Model Calibration", () =
 
   // 4. Findings identify the actual failing URL/resource and have meaningful remediation text
   it("4. Findings identify the actual failing URL/resource and have meaningful remediation text", () => {
+    const pageWithFails: PageObservation = {
+      ...sampleHtmlPage,
+      id: "pg_fail_seo",
+      requestedUrl: "https://www.caferemote.com/jobs/missing-title",
+      normalizedUrl: "https://www.caferemote.com/jobs/missing-title",
+      finalUrl: "https://www.caferemote.com/jobs/missing-title",
+      title: "", // Fails SEO-01
+      metaDescription: "", // Fails SEO-02
+    };
+
+    const testCrawl = {
+      ...crawlResult,
+      pages: [sampleHtmlPage, pageWithFails],
+    };
+
     const evalContext = {
       targetUrl: scanRequest.targetUrl,
       domain: "www.caferemote.com",
       businessCategory: scanRequest.businessCategory,
-      pages: crawlResult.pages,
-      robotsTxt: crawlResult.robotsTxt,
-      sitemapUrls: crawlResult.sitemapUrls,
-      externalLinksTested: crawlResult.externalLinksTested,
+      pages: testCrawl.pages,
+      robotsTxt: testCrawl.robotsTxt,
+      sitemapUrls: testCrawl.sitemapUrls,
+      externalLinksTested: testCrawl.externalLinksTested,
       competitors: scanRequest.competitors,
     };
     const results = assessmentRegistry.evaluateAll(evalContext);
-    const expert = projectExpertReport("scan_test_4", scanRequest, crawlResult, results);
+    const expert = projectExpertReport("scan_test_4", scanRequest, testCrawl, results);
 
     expect(expert.findings.length).toBeGreaterThan(0);
+    const failingFindingsWithUrls = expert.findings.filter((f) => f.affectedUrls.length > 0);
+    expect(failingFindingsWithUrls.length).toBeGreaterThan(0);
+    expect(failingFindingsWithUrls.some((f) => f.affectedUrls.includes("https://www.caferemote.com/jobs/missing-title"))).toBe(true);
+
     for (const f of expert.findings) {
       // Must not use generic placeholder text
       expect(f.remediation).not.toContain("Follow documented remediation procedures for this test rule.");
       expect(f.remediation.length).toBeGreaterThan(15);
-      expect(f.affectedUrls.length).toBeGreaterThan(0);
-      expect(f.affectedUrls.every((u) => u.startsWith("http"))).toBe(true);
+      if (f.affectedUrls.length > 0) {
+        expect(f.affectedUrls.every((u) => u.startsWith("http"))).toBe(true);
+      }
     }
   });
 
@@ -453,8 +478,27 @@ describe("Milestone 3 & 4 Evidence Integrity & Business-Model Calibration", () =
     const cro04 = results.find((r) => r.testId === "CRO-04")!;
     expect(cro04.status).toBe("PASS");
 
-    // Owner report recommendations must be calibrated for job boards
-    const owner = projectOwnerReport("scan_test_9", { ...scanRequest, businessCategory: "job_board", reportType: "owner" }, crawlResult, results);
+    // Owner report recommendations must be calibrated for job boards when opportunities are triggered
+    const mockPerfFail = {
+      testId: "PERF-01",
+      testVersion: "1.0.0",
+      testName: "Mobile Lab Score",
+      category: "performance" as const,
+      status: "WARNING" as const,
+      severity: "MEDIUM" as const,
+      maxPoints: 2,
+      earnedPoints: 1,
+      title: "Mobile Lab Score Needs Improvement",
+      summary: "Mobile lab score is moderate.",
+      timestamp: new Date().toISOString(),
+      confidence: "HIGH" as const,
+    };
+    const owner = projectOwnerReport(
+      "scan_test_9",
+      { ...scanRequest, businessCategory: "job_board", reportType: "owner" },
+      crawlResult,
+      [...results, mockPerfFail]
+    );
     const perfOpp = owner.executiveSnapshot.topOpportunities.find((o) => o.id === "opp_perf")!;
     expect(perfOpp.businessImpact).toContain("job application conversions");
     expect(perfOpp.businessImpact).not.toContain("checkout conversions");
@@ -486,16 +530,9 @@ describe("Milestone 3 & 4 Evidence Integrity & Business-Model Calibration", () =
 
     // Manifest SHA-256 integrity check
     expect(expert.exportManifest.checksum).toMatch(/^sha256:[a-f0-9]{64}$/);
-    const expectedManifestPayload = {
-      reportId: expert.metadata.reportId,
-      scanId: expert.metadata.scanId,
-      generatedAt: expert.metadata.generatedAt,
-      overallScore: expert.executiveSummary.overallScore.score,
-      findingsCount: expert.findings.length,
-      testedPages: expert.coverage.testedPages,
-    };
-    const expectedHash = `sha256:${crypto.createHash("sha256").update(JSON.stringify(expectedManifestPayload)).digest("hex")}`;
-    expect(expert.exportManifest.checksum).toBe(expectedHash);
+    const verification = verifyReportDigest(expert);
+    expect(verification.isValid).toBe(true);
+    expect(expert.exportManifest.checksum).toBe(verification.expectedChecksum);
 
     // CSV export consistency
     const csv = exportFindingsCsv(expert);
@@ -553,5 +590,286 @@ describe("Milestone 3 & 4 Evidence Integrity & Business-Model Calibration", () =
     expect(res2.wildcardDisallowsAll).toBe(true);
     expect(res2.blocksGpt).toBe(false); // Specifically allowed!
     expect(res2.blocksClaude).toBe(true); // Still blocked by wildcard!
+  });
+
+  // P0 Regression: Live H1 vs Meta-Description Distinction
+  it("13. Strictly differentiates SEO-02 (meta-description) from SEO-03 (heading hierarchy) and rejects validating H1 evidence against SEO-02", () => {
+    const testCrawl = {
+      pages: [sampleHtmlPage],
+      robotsTxt: "User-agent: *\nAllow: /",
+      sitemapUrls: [],
+      externalLinksTested: [],
+      discoveredPageUrls: ["https://www.caferemote.com/"],
+      coverage: baseCoverage,
+    };
+    const evalContext = {
+      targetUrl: scanRequest.targetUrl,
+      domain: "www.caferemote.com",
+      businessCategory: scanRequest.businessCategory,
+      pages: testCrawl.pages,
+      robotsTxt: testCrawl.robotsTxt,
+      sitemapUrls: testCrawl.sitemapUrls,
+      externalLinksTested: testCrawl.externalLinksTested,
+      competitors: scanRequest.competitors,
+    };
+    const results = assessmentRegistry.evaluateAll(evalContext);
+
+    const seo02 = results.find((r) => r.testId === "SEO-02");
+    const seo03 = results.find((r) => r.testId === "SEO-03");
+
+    expect(seo02).toBeDefined();
+    expect(seo03).toBeDefined();
+
+    // Verify rules are completely distinct
+    expect(seo02?.testName).toBe("Meta Description Presence and Quality");
+    expect(seo03?.testName).toBe("Heading Structure and Outline");
+
+    // SEO-02 must contain meta description evidence, never H1 evidence
+    expect(seo02?.sampleEvidence?.[0]).toContain("Find hand-curated remote jobs");
+    expect(seo02?.sampleEvidence?.[0]).not.toMatch(/^H1:/);
+
+    // SEO-03 must contain H1 heading evidence
+    expect(seo03?.sampleEvidence?.[0]).toMatch(/^H1:/);
+    expect(seo03?.sampleEvidence?.[0]).toContain("4,539 remote jobs you can do from anywhere");
+
+    // A validator function that mistakenly checks SEO-02 for H1 evidence MUST fail
+    const isH1InResult = (r: any) => Boolean(r?.sampleEvidence?.some((ev: string) => ev.startsWith("H1:")));
+    expect(isH1InResult(seo02)).toBe(false);
+    expect(isH1InResult(seo03)).toBe(true);
+  });
+
+  // P0 Regression: Core Web Vitals Field Mapping & No Cross-Mapping
+  it("14. Core Web Vitals strictly prevents FCP cross-mapping and maintains isolated metric provenance", () => {
+    const testCrawl = {
+      pages: [sampleHtmlPage],
+      robotsTxt: "User-agent: *\nAllow: /",
+      sitemapUrls: [],
+      externalLinksTested: [],
+      discoveredPageUrls: ["https://www.caferemote.com/"],
+      coverage: baseCoverage,
+    };
+
+    // Scenario A: CrUX has lcpMs but no fcpMs
+    const expertWithoutFcp = projectExpertReport(
+      "scan_crux_test_1",
+      scanRequest,
+      testCrawl,
+      [],
+      {
+        pageSpeedData: {
+          mobile: {
+            isAvailable: true,
+            strategy: "mobile",
+            performanceScore: 82,
+            cruxFieldData: {
+              lcpMs: 2450,
+              inpMs: 130,
+              cls: 0.04,
+              category: "FAST",
+            },
+            source: "CrUX API",
+            measuredAt: new Date().toISOString(),
+          },
+        },
+      }
+    );
+
+    const cwvA = expertWithoutFcp.performanceDiagnostics.coreWebVitals;
+    // FCP MUST BE NULL - never populated from lcpMs!
+    expect(cwvA.fcp).toBeNull();
+    expect(cwvA.lcp).toBe("2450ms (Field)");
+    expect(cwvA.inp).toBe("130ms (Field)");
+    expect(cwvA.cls).toBe("0.04");
+    expect(cwvA.status).toBe("AVAILABLE");
+
+    // Scenario B: CrUX supplies distinct FCP and LCP
+    const expertWithFcp = projectExpertReport(
+      "scan_crux_test_2",
+      scanRequest,
+      testCrawl,
+      [],
+      {
+        pageSpeedData: {
+          mobile: {
+            isAvailable: true,
+            strategy: "mobile",
+            performanceScore: 85,
+            cruxFieldData: {
+              fcpMs: 950,
+              lcpMs: 1900,
+              inpMs: 80,
+              cls: 0.02,
+              category: "FAST",
+            },
+            source: "CrUX API",
+            measuredAt: new Date().toISOString(),
+          },
+        },
+      }
+    );
+
+    const cwvB = expertWithFcp.performanceDiagnostics.coreWebVitals;
+    expect(cwvB.fcp).toBe("950ms (Field)");
+    expect(cwvB.lcp).toBe("1900ms (Field)");
+    expect(cwvB.fcp).not.toBe(cwvB.lcp);
+  });
+
+  // P1 Regression: Owner Summary Defaults & Unmeasured States
+  it("15. Owner summary correctly reflects unmeasured states (horizontal overflow null, cookie issues null, 5 security headers checked)", () => {
+    const testCrawl = {
+      pages: [sampleHtmlPage],
+      robotsTxt: "User-agent: *\nAllow: /",
+      sitemapUrls: [],
+      externalLinksTested: [],
+      discoveredPageUrls: ["https://www.caferemote.com/"],
+      coverage: baseCoverage,
+    };
+    const evalContext = {
+      targetUrl: scanRequest.targetUrl,
+      domain: "www.caferemote.com",
+      businessCategory: scanRequest.businessCategory,
+      pages: testCrawl.pages,
+      robotsTxt: testCrawl.robotsTxt,
+      sitemapUrls: testCrawl.sitemapUrls,
+      externalLinksTested: testCrawl.externalLinksTested,
+      competitors: scanRequest.competitors,
+    };
+    const results = assessmentRegistry.evaluateAll(evalContext);
+
+    // Scenario: No browser responsive results provided
+    const owner = projectOwnerReport("scan_owner_test_15", scanRequest, testCrawl, results);
+
+    // Horizontal overflow must be null (unmeasured), NOT false!
+    expect(owner.performanceAndResponsiveSummary.horizontalOverflowFound).toBeNull();
+    expect(owner.performanceAndResponsiveSummary.responsiveStatus).toBe("NOT_TESTED");
+
+    // Public cookies: sampleHtmlPage has empty cookieAttributes
+    expect(owner.securityAndAuthSummary.publicCookieIssues).toBeNull();
+    expect(owner.securityAndAuthSummary.cookieAssessmentStatus).toBe("NO_COOKIES_OBSERVED");
+
+    // Security headers: Exactly 5 headers checked, no x- inflation
+    expect(owner.securityAndAuthSummary.totalSecurityHeadersChecked).toBe(5);
+    expect(owner.securityAndAuthSummary.securityHeadersConfigured).toBeLessThanOrEqual(5);
+
+    // No unconditional HIGH-priority performance opportunity if performance issues are absent
+    const perfOpp = owner.priorityOpportunities.find((o) => o.id === "opp_perf");
+    const hasPerfFails = results.some(
+      (r) => (r.category === "performance" || r.category === "responsive_accessibility") && (r.status === "FAIL" || r.status === "WARNING")
+    );
+    if (!hasPerfFails) {
+      expect(perfOpp).toBeUndefined();
+    }
+  });
+
+  // P1 Regression: Competitor Unassessed Assumptions
+  it("16. Competitor status 'NOT_ASSESSED' preserves null for httpsActive and mobileFriendly", () => {
+    const reqWithCompetitors: ScanRequest = {
+      ...scanRequest,
+      competitors: ["remoteok.com", "weworkremotely.com"],
+    };
+    const testCrawl = {
+      pages: [sampleHtmlPage],
+      robotsTxt: "User-agent: *\nAllow: /",
+      sitemapUrls: [],
+      externalLinksTested: [],
+      discoveredPageUrls: ["https://www.caferemote.com/"],
+      coverage: baseCoverage,
+    };
+    const owner = projectOwnerReport("scan_comp_test_16", reqWithCompetitors, testCrawl, []);
+
+    expect(owner.competitorSnapshot.length).toBe(2);
+    for (const comp of owner.competitorSnapshot) {
+      expect(comp.status).toBe("NOT_ASSESSED");
+      expect(comp.overallScore).toBeNull();
+      // Crucial P1 fix: httpsActive and mobileFriendly must be null, NOT assumed true!
+      expect(comp.keyMetrics.httpsActive).toBeNull();
+      expect(comp.keyMetrics.mobileFriendly).toBeNull();
+      expect(comp.keyMetrics.technicalHealthScore).toBeNull();
+      expect(comp.keyMetrics.seoScore).toBeNull();
+      expect(comp.keyMetrics.performanceScore).toBeNull();
+    }
+  });
+
+  // P1 Regression: Finding Affected URL Accuracy
+  it("17. Findings accurately map affected URLs, distinguish site-wide scope, and never assign targetUrl to passing rules", () => {
+    const testCrawl = {
+      pages: [sampleHtmlPage],
+      robotsTxt: "User-agent: *\nAllow: /",
+      sitemapUrls: [],
+      externalLinksTested: [],
+      discoveredPageUrls: ["https://www.caferemote.com/"],
+      coverage: baseCoverage,
+    };
+    const evalContext = {
+      targetUrl: scanRequest.targetUrl,
+      domain: "www.caferemote.com",
+      businessCategory: scanRequest.businessCategory,
+      pages: testCrawl.pages,
+      robotsTxt: testCrawl.robotsTxt,
+      sitemapUrls: testCrawl.sitemapUrls,
+      externalLinksTested: testCrawl.externalLinksTested,
+      competitors: scanRequest.competitors,
+    };
+    const results = assessmentRegistry.evaluateAll(evalContext);
+    const expert = projectExpertReport("scan_urls_test_17", scanRequest, testCrawl, results);
+
+    for (const finding of expert.findings) {
+      if (finding.status === "PASS") {
+        // PASSING rules must NEVER list affected URLs
+        expect(finding.affectedUrls).toEqual([]);
+      } else {
+        // Failing rules must have valid scope and bounded URLs
+        expect(["site_wide", "page_specific", "unspecified"]).toContain(finding.scope);
+        expect(finding.affectedUrls.length).toBeLessThanOrEqual(10);
+      }
+    }
+  });
+
+  // P1 Regression: Cryptographic Manifest Verification & Tamper Detection
+  it("18. Cryptographic manifest validates canonical audit payload and reliably detects tampered data", () => {
+    const testCrawl = {
+      pages: [sampleHtmlPage],
+      robotsTxt: "User-agent: *\nAllow: /",
+      sitemapUrls: [],
+      externalLinksTested: [],
+      discoveredPageUrls: ["https://www.caferemote.com/"],
+      coverage: baseCoverage,
+    };
+    const evalContext = {
+      targetUrl: scanRequest.targetUrl,
+      domain: "www.caferemote.com",
+      businessCategory: scanRequest.businessCategory,
+      pages: testCrawl.pages,
+      robotsTxt: testCrawl.robotsTxt,
+      sitemapUrls: testCrawl.sitemapUrls,
+      externalLinksTested: testCrawl.externalLinksTested,
+      competitors: scanRequest.competitors,
+    };
+    const results = assessmentRegistry.evaluateAll(evalContext);
+    const expert = projectExpertReport("scan_manifest_test_18", scanRequest, testCrawl, results);
+
+    // Initial valid report must pass cryptographic verification
+    const verification = verifyReportDigest(expert);
+    expect(verification.isValid).toBe(true);
+    expect(verification.expectedChecksum).toBe(expert.exportManifest.checksum);
+
+    // Tamper Test 1: Inflating overallScore
+    const tamperedScore = JSON.parse(JSON.stringify(expert));
+    tamperedScore.executiveSummary.overallScore.score = 99;
+    const scoreVerification = verifyReportDigest(tamperedScore);
+    expect(scoreVerification.isValid).toBe(false);
+
+    // Tamper Test 2: Altering a finding status
+    const tamperedFinding = JSON.parse(JSON.stringify(expert));
+    if (tamperedFinding.findings.length > 0) {
+      tamperedFinding.findings[0].status = tamperedFinding.findings[0].status === "PASS" ? "FAIL" : "PASS";
+      const findingVerification = verifyReportDigest(tamperedFinding);
+      expect(findingVerification.isValid).toBe(false);
+    }
+
+    // Binary PDF digest check
+    const mockPdfBytes = Buffer.from("%PDF-1.4 mock pdf data");
+    const pdfDigest = computePdfDigest(mockPdfBytes);
+    expect(pdfDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 });

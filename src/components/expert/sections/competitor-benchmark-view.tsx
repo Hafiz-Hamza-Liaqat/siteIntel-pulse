@@ -76,18 +76,24 @@ export function CompetitorBenchmarkView({
                 <tr key={comp.domain} className="hover:bg-brand-surface/40 transition-colors">
                   <td className="py-3 px-4 font-mono text-white">{comp.domain}</td>
                   <td className="py-3 px-3">
-                    <span className="font-bold text-slate-200">
-                      {comp.overallScore}/100
-                    </span>
+                    {comp.status === "NOT_ASSESSED" || comp.overallScore == null ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                        NOT ASSESSED
+                      </span>
+                    ) : (
+                      <span className="font-bold text-slate-200">
+                        {comp.overallScore}/100
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-3 text-brand-textMuted">
                     {comp.dataProvenance}
                   </td>
                   <td className="py-3 px-3 text-slate-300">
-                    {comp.keyStrengths.join(", ") || "Standard Baseline"}
+                    {comp.status === "NOT_ASSESSED" ? "NOT ASSESSED" : (comp.keyStrengths.join(", ") || "Standard Baseline")}
                   </td>
                   <td className="py-3 px-3 text-slate-400">
-                    {comp.keyWeaknesses.join(", ") || "Standard Baseline"}
+                    {comp.status === "NOT_ASSESSED" ? "NOT ASSESSED" : (comp.keyWeaknesses.join(", ") || "Standard Baseline")}
                   </td>
                 </tr>
               ))

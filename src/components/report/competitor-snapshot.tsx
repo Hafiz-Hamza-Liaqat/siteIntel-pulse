@@ -87,13 +87,33 @@ export function CompetitorSnapshot({ report }: CompetitorSnapshotProps) {
             {competitors.map((c, idx) => (
               <tr key={idx} className="text-brand-text hover:bg-brand-surface/40">
                 <td className="p-3 font-medium text-white">{c.domain}</td>
-                <td className="p-3 font-mono text-brand-textMuted">{c.overallScore || "N/A"}/100</td>
-                <td className="p-3 font-mono">{c.keyMetrics.technicalHealthScore || "N/A"}%</td>
-                <td className="p-3 font-mono">{c.keyMetrics.seoScore || "N/A"}%</td>
-                <td className="p-3 font-mono">{c.keyMetrics.performanceScore || "N/A"}%</td>
+                <td className="p-3 font-mono text-brand-textMuted">
+                  {c.status === "NOT_ASSESSED" || c.overallScore == null ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                      NOT ASSESSED
+                    </span>
+                  ) : (
+                    `${c.overallScore}/100`
+                  )}
+                </td>
+                <td className="p-3 font-mono">
+                  {c.status === "NOT_ASSESSED" || c.keyMetrics.technicalHealthScore == null ? "NOT ASSESSED" : `${c.keyMetrics.technicalHealthScore}%`}
+                </td>
+                <td className="p-3 font-mono">
+                  {c.status === "NOT_ASSESSED" || c.keyMetrics.seoScore == null ? "NOT ASSESSED" : `${c.keyMetrics.seoScore}%`}
+                </td>
+                <td className="p-3 font-mono">
+                  {c.status === "NOT_ASSESSED" || c.keyMetrics.performanceScore == null ? "NOT ASSESSED" : `${c.keyMetrics.performanceScore}%`}
+                </td>
                 <td className="p-3 text-brand-textMuted text-xs flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-status-pass" />
-                  <span>Active</span>
+                  {c.status === "NOT_ASSESSED" || c.keyMetrics.httpsActive == null ? (
+                    <span className="text-slate-400 text-xs">NOT ASSESSED</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className={`w-3.5 h-3.5 ${c.keyMetrics.httpsActive ? "text-status-pass" : "text-status-fail"}`} />
+                      <span>{c.keyMetrics.httpsActive ? "Active" : "Insecure"}</span>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}

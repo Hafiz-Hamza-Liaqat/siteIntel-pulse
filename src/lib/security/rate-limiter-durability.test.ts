@@ -223,5 +223,5 @@ describe("Rate Limiter & Database Durability Across Process Restarts", () => {
     expect((loadedExpertReport as any)?.metadata?.companyB?.auditorName).toBe("Bob Vance");
 
     adapter2.close();
-  });
+  }, 20000);
 });

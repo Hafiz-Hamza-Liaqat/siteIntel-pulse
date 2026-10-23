@@ -29,6 +29,7 @@ import { CrawlResult } from "../scanner/crawler";
 import { CATEGORY_ALLOCATED_WEIGHTS, assessmentRegistry } from "../catalogue/registry";
 import { isAuthUrl } from "../catalogue/rules/auth";
 import { PageSpeedResult } from "../providers/types";
+import { computeCanonicalReportDigest } from "./manifest-integrity";
 
 export interface ExpertAuditOptions {
   isAuthorizedForAuthScan?: boolean;
@@ -489,25 +490,37 @@ export function projectExpertReport(
     const findingId = `EXP-${r.testId}-${String(idx + 1).padStart(3, "0")}`;
     const ruleDef = assessmentRegistry.getRule(r.testId);
 
-    // Resolve accurate affected URLs from actual test evidence
+    // Identify if finding is inherently site-wide (infrastructure, robots, DNS, TLS)
+    const isSiteWideRule =
+      r.category === "public_security" ||
+      r.category === "geo_aeo_ai" ||
+      ["AI-01", "AI-02", "AI-03", "AI-04", "SEC-01", "SEC-02", "SEC-03", "SEC-04", "SEC-05", "SEO-05", "TRK-01", "DNS-01"].includes(r.testId);
+
+    let scope: ExpertAssessmentResult["scope"] = isSiteWideRule ? "site_wide" : "page_specific";
+
+    // Resolve accurate affected URLs from actual test evidence (only for failing/warning findings)
     let affectedUrls: string[] = [];
-    if (r.sampleEvidence && r.sampleEvidence.length > 0) {
-      const urlMatches = r.sampleEvidence
-        .flatMap((ev) => {
-          const m = ev.match(/https?:\/\/[^\s,"']+/g);
-          return m || [];
-        })
-        .filter(Boolean);
-      if (urlMatches.length > 0) {
-        affectedUrls = Array.from(new Set(urlMatches));
+    if (r.status === "FAIL" || r.status === "WARNING") {
+      if (r.sampleEvidence && r.sampleEvidence.length > 0) {
+        const urlMatches = r.sampleEvidence
+          .flatMap((ev) => {
+            const m = ev.match(/https?:\/\/[^\s,"']+/g);
+            return m || [];
+          })
+          .filter(Boolean);
+        if (urlMatches.length > 0) {
+          affectedUrls = Array.from(new Set(urlMatches));
+        }
       }
+      if (affectedUrls.length === 0 && r.evidenceReferences && r.evidenceReferences.length > 0) {
+        affectedUrls = r.evidenceReferences.filter((ref) => ref.startsWith("http"));
+      }
+      // If no specific page URL in evidence, do NOT fabricate the homepage as an affected URL.
+      // Retain empty affectedUrls for site-wide configuration issues or unlocated findings.
     }
-    if (affectedUrls.length === 0 && r.evidenceReferences && r.evidenceReferences.length > 0) {
-      affectedUrls = r.evidenceReferences.filter((ref) => ref.startsWith("http"));
-    }
-    if (affectedUrls.length === 0) {
-      affectedUrls = [request.targetUrl];
-    }
+
+    const totalAffectedPages = r.affectedUrlsCount ?? affectedUrls.length;
+    const boundedAffectedUrls = affectedUrls.slice(0, 10);
 
     // Resolve remediation text from rule definition - NEVER placeholder text
     const remediationText =
@@ -523,18 +536,18 @@ export function projectExpertReport(
           id: `SRC-${findingId}`,
           type: "html_parser",
           timestamp: now,
-          location: affectedUrls[0] || request.targetUrl,
+          location: boundedAffectedUrls[0] || (isSiteWideRule ? request.targetUrl : "Site-wide observation"),
           confidence: r.confidence,
         },
         observedValue: r.summary,
-        expectedCondition: `Standard rule compliance for ${r.testId}`,
+        expectedCondition: ruleDef?.description || `Standard rule compliance for ${r.testId}`,
         discrepancy: r.status === "PASS" ? "None. Requirement satisfied." : `Finding detected: ${r.summary}`,
         reproductionSteps: [
-          `1. Inspect target URL (${affectedUrls[0] || request.targetUrl}) headers and DOM elements for rule ${r.testId}.`,
-          `2. Execute rule validation assertion against page snapshot.`,
+          `1. Inspect target endpoint (${boundedAffectedUrls[0] || request.targetUrl}) for rule ${r.testId} (${r.testName}).`,
+          `2. Execute rule evaluation assertion: verify ${ruleDef?.description || "expected criteria"}.`,
           `3. Compare observed value against required condition.`,
         ],
-        validationAssertion: `Retest rule ${r.testId} returns status PASS upon fix deployment.`,
+        validationAssertion: `Retest rule ${r.testId} returns status PASS upon fix deployment. Expected score: ${r.maxPoints}/${r.maxPoints} pts.`,
       },
     ];
 
@@ -548,12 +561,14 @@ export function projectExpertReport(
       status: r.status,
       severity: r.severity,
       confidence: r.confidence,
-      affectedUrls,
+      scope,
+      totalAffectedPages,
+      affectedUrls: boundedAffectedUrls,
       affectedElements: r.sampleEvidence || [],
       technicalImpact: `Affects ${r.category} scoring weight (${r.maxPoints} pts). ${r.summary}`,
       businessImpact: ruleDef?.businessImpactSummary || r.summary,
       remediation: remediationText,
-      validationProcedure: `Execute verification scan with rule ${r.testId}. Expected earned points: ${r.maxPoints}.`,
+      validationProcedure: `Retest rule ${r.testId} (${r.testName}): verify ${ruleDef?.description || "expected condition"} is satisfied. Target: ${r.maxPoints}/${r.maxPoints} pts.`,
       workstream,
       estimatedEffort,
       evidence,
@@ -634,16 +649,30 @@ export function projectExpertReport(
     ineligibleCategories: scoresOutput.coverage.ineligibleCategories,
   };
 
-  // 14. Export Manifest with Genuine SHA-256 Checksum
-  const manifestPayload = {
+  // 14. Export Manifest with Canonical SHA-256 Checksum
+  const canonicalPayload = {
     reportId,
     scanId,
-    generatedAt: now,
+    targetUrl: request.targetUrl,
     overallScore: scoresOutput.overallScore.score,
-    findingsCount: findings.length,
-    testedPages: reportCoverage.testedPages,
+    ratingBand: scoresOutput.overallScore.ratingBand,
+    categoryScores: (scoresOutput.categoryScores || []).map((c) => ({
+      category: c.category,
+      earnedPoints: c.earnedPoints,
+      allocatedWeight: c.allocatedWeight,
+      scorePercentage: c.scorePercentage,
+    })),
+    findings: findings.map((f) => ({
+      id: f.id,
+      testId: f.testId,
+      status: f.status,
+      severity: f.severity,
+      title: f.title,
+    })),
+    urlCount: urlInventory.length,
+    cmsCategory,
   };
-  const checksum = `sha256:${crypto.createHash("sha256").update(JSON.stringify(manifestPayload)).digest("hex")}`;
+  const checksum = computeCanonicalReportDigest(canonicalPayload);
 
   const exportManifest: ExpertExportManifest = {
     exportId: `exp_mnf_${Date.now()}`,
@@ -651,7 +680,10 @@ export function projectExpertReport(
     scanId,
     version: "2.0.0",
     generatedAt: now,
+    digestScope: "Canonical JSON representation of report core: metadata, executiveSummary, categoryScores, findings, urlCount, and platformProfile",
     checksum,
+    pdfSha256: null,
+    verificationStatus: "DIGEST_GENERATED",
     formats: ["pdf", "json", "csv"],
     dataSourceLimitations: [
       "Public-only passive HTTP/HTML crawl by default.",
@@ -724,12 +756,24 @@ export function projectExpertReport(
         reason: options.pageSpeedData?.mobile?.source || "PageSpeed API provider is not configured or connected.",
       },
       coreWebVitals: {
-        fcp: options.pageSpeedData?.mobile?.cruxFieldData?.lcpMs ? `${options.pageSpeedData.mobile.cruxFieldData.lcpMs}ms (Field)` : null,
-        lcp: options.pageSpeedData?.mobile?.cruxFieldData?.lcpMs ? `${options.pageSpeedData.mobile.cruxFieldData.lcpMs}ms (Field)` : null,
-        cls: options.pageSpeedData?.mobile?.cruxFieldData?.cls != null ? String(options.pageSpeedData.mobile.cruxFieldData.cls) : null,
-        inp: options.pageSpeedData?.mobile?.cruxFieldData?.inpMs ? `${options.pageSpeedData.mobile.cruxFieldData.inpMs}ms (Field)` : null,
+        fcp: options.pageSpeedData?.mobile?.cruxFieldData?.fcpMs != null
+          ? `${options.pageSpeedData.mobile.cruxFieldData.fcpMs}ms (Field)`
+          : null,
+        lcp: options.pageSpeedData?.mobile?.cruxFieldData?.lcpMs != null
+          ? `${options.pageSpeedData.mobile.cruxFieldData.lcpMs}ms (Field)`
+          : null,
+        cls: options.pageSpeedData?.mobile?.cruxFieldData?.cls != null
+          ? String(options.pageSpeedData.mobile.cruxFieldData.cls)
+          : null,
+        inp: options.pageSpeedData?.mobile?.cruxFieldData?.inpMs != null
+          ? `${options.pageSpeedData.mobile.cruxFieldData.inpMs}ms (Field)`
+          : null,
         status: options.pageSpeedData?.mobile?.cruxFieldData ? "AVAILABLE" : "NOT_CONNECTED",
-        reason: "Field Core Web Vitals require verified traffic volume in Google CrUX dataset and active API connection.",
+        reason: options.pageSpeedData?.mobile?.cruxFieldData
+          ? (options.pageSpeedData.mobile.cruxFieldData.fcpMs == null
+              ? "CrUX field metrics available for LCP/INP/CLS; FCP metric not supplied by provider response."
+              : "Field Core Web Vitals measured from Google CrUX real-user experience dataset.")
+          : "Field Core Web Vitals require verified traffic volume in Google CrUX dataset and active API connection.",
       },
       blockingResources: (entry?.resources || []).filter((r) => r.isRenderBlocking),
       imageDiagnostics: (entry?.resources || [])

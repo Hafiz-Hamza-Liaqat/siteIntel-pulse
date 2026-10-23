@@ -1,6 +1,7 @@
 import type { ExpertReport } from "../../types";
 import path from "node:path";
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 
 export function generateExpertReportHtml(report: ExpertReport): string {
   const meta = report.metadata;
@@ -698,9 +699,11 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <h2>13. Cryptographic Integrity Sign-Off & Manifest</h2>
   <div class="card" style="margin-top: 10px;">
     <div><strong>Export ID:</strong> ${report.exportManifest.exportId}</div>
-    <div><strong>Manifest Hash:</strong> <span style="font-family: monospace; font-size: 8pt;">${report.exportManifest.checksum || "NOT_GENERATED"}</span></div>
+    <div><strong>Audit Core Manifest Hash:</strong> <span style="font-family: monospace; font-size: 8pt;">${report.exportManifest.checksum || "NOT_GENERATED"}</span></div>
+    <div><strong>Digest Scope:</strong> Canonical serialization of audit dataset (scanId, targetUrl, overallScore, categoryScores, findings ledger, and platformProfile).</div>
+    <div><strong>Verification Status:</strong> <span style="font-family: monospace; font-size: 8.5pt; font-weight: 700; color: #0D9488;">${report.exportManifest.verificationStatus || "DIGEST_GENERATED"}</span></div>
     <div><strong>Generated At:</strong> ${report.exportManifest.generatedAt}</div>
-    <div><strong>Auditor Sign-off:</strong> Autonomous Verification Engine — SiteIntel Pulse v2.0.0</div>
+    <div style="font-size: 8pt; color: #64748B; margin-top: 6px;">* Binary artifact note: The manifest hash verifies the structured report data model. Generated PDF bytes have an independent byte-level SHA-256 calculated upon binary rendering.</div>
   </div>
 
   <div class="footer">
@@ -740,6 +743,12 @@ export class ExpertPdfGenerator {
         printBackground: true,
         margin: { top: "14mm", bottom: "14mm", left: "14mm", right: "14mm" },
       });
+
+      // Compute independent SHA-256 of generated PDF artifact
+      const pdfSha256 = "sha256:" + crypto.createHash("sha256").update(pdfBuffer).digest("hex");
+      if (report.exportManifest) {
+        report.exportManifest.pdfSha256 = pdfSha256;
+      }
 
       await fs.writeFile(targetFile, pdfBuffer);
       return pdfBuffer;

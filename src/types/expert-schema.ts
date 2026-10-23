@@ -63,6 +63,8 @@ export const ExpertAssessmentResultSchema = z.object({
   severity: SeveritySchema,
   confidence: ConfidenceSchema,
   affectedUrls: z.array(z.string()).default([]),
+  totalAffectedPages: z.number().int().default(0).optional(),
+  scope: z.enum(["site_wide", "page_specific", "unspecified"]).default("unspecified").optional(),
   affectedElements: z.array(z.string()).default([]),
   technicalImpact: z.string(),
   businessImpact: z.string(),
@@ -269,7 +271,7 @@ export const CompetitorComparisonSchema = z.object({
   keyStrengths: z.array(z.string()).default([]),
   keyWeaknesses: z.array(z.string()).default([]),
   dataProvenance: z.string(),
-  isEstimated: z.boolean().default(true),
+  isEstimated: z.boolean().default(false),
 });
 export type CompetitorComparison = z.infer<typeof CompetitorComparisonSchema>;
 
@@ -406,7 +408,10 @@ export const ExpertExportManifestSchema = z.object({
   scanId: z.string(),
   version: z.string().default("2.0.0"),
   generatedAt: z.string(),
+  digestScope: z.string().default("Canonical JSON representation of report core: metadata, executiveSummary, findings, platformProfile, and scoring").optional(),
   checksum: z.string().optional(),
+  pdfSha256: z.string().nullable().optional(),
+  verificationStatus: z.enum(["DIGEST_GENERATED", "VERIFIED", "TAMPERED", "NOT_VERIFIED"]).default("DIGEST_GENERATED").optional(),
   formats: z.array(z.enum(["pdf", "json", "csv"])).default(["pdf", "json", "csv"]),
   dataSourceLimitations: z.array(z.string()).default([]),
 });

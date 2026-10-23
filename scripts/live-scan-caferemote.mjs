@@ -3,6 +3,7 @@ import { jobManager } from "../src/lib/scanner/job-manager.ts";
 import { scanDb } from "../src/lib/persistence/db.ts";
 import { pdfGenerator } from "../src/lib/reports/pdf-generator.ts";
 import { expertPdfGenerator } from "../src/lib/reports/expert-pdf-generator.ts";
+import { verifyReportDigest } from "../src/lib/reports/manifest-integrity.ts";
 import { createHash } from "node:crypto";
 
 async function runCafeRemoteValidation() {
@@ -95,14 +96,54 @@ async function runCafeRemoteValidation() {
   // Check 4: Auth surfaces found ignores job slugs
   console.log(`  Auth Surfaces:     ${ownerReport.securityAndAuthSummary.authSurfacesFound}`);
 
-  // Check 5: Extracted H1 has clean normalized whitespace from SEO-02 result
-  const h1Result = ownerReport.results.find((r) => r.testId === "SEO-02");
-  console.log(`  SEO-02 (H1) Status: ${h1Result?.status} (Score: ${h1Result?.awardedPoints}/${h1Result?.allocatedPoints})`);
-  console.log(`  SEO-02 Evidence:    ${JSON.stringify(h1Result?.sampleEvidence)}`);
-  for (const ev of h1Result?.sampleEvidence || []) {
-    if (ev.includes("\n") || ev.includes("  ")) {
-      throw new Error(`Whitespace normalization failure in H1 evidence: ${ev}`);
-    }
+  // Check 5A: SEO-02 Meta Description Assessment
+  const metaDescResult = ownerReport.results.find((r) => r.testId === "SEO-02");
+  console.log(`  SEO-02 (Meta Description) Status: ${metaDescResult?.status}`);
+  console.log(`  SEO-02 Evidence:                  ${JSON.stringify(metaDescResult?.sampleEvidence)}`);
+  if (!metaDescResult || metaDescResult.testName !== "Meta Description Presence and Quality") {
+    throw new Error("Integrity error: SEO-02 is not correctly identified as Meta Description Presence and Quality!");
+  }
+
+  // Check 5B: SEO-03 Heading Structure & H1 Assessment (Grounded in Heading Evidence)
+  const headingResult = ownerReport.results.find((r) => r.testId === "SEO-03");
+  console.log(`  SEO-03 (Heading Outline) Status:  ${headingResult?.status}`);
+  console.log(`  SEO-03 Evidence:                  ${JSON.stringify(headingResult?.sampleEvidence)}`);
+  if (!headingResult || headingResult.testName !== "Heading Structure and Outline") {
+    throw new Error("Integrity error: SEO-03 is not correctly identified as Heading Structure and Outline!");
+  }
+  if (!headingResult.sampleEvidence || headingResult.sampleEvidence.length === 0) {
+    throw new Error("Integrity error: SEO-03 result has no heading sampleEvidence!");
+  }
+  const h1Sample = headingResult.sampleEvidence.find((ev) => ev.startsWith("H1:"));
+  if (!h1Sample) {
+    throw new Error(`Integrity error: SEO-03 sampleEvidence does not contain H1 heading evidence: ${JSON.stringify(headingResult.sampleEvidence)}`);
+  }
+  console.log(`  SEO-03 Verified H1 Evidence:      ${h1Sample}`);
+  if (h1Sample.includes("\n") || h1Sample.includes("  ")) {
+    throw new Error(`Whitespace normalization failure in H1 evidence: ${h1Sample}`);
+  }
+
+  // Check 5C: Owner summary unmeasured defaults verification
+  const overflowState = ownerReport.performanceAndResponsiveSummary.horizontalOverflowFound;
+  const responsiveStatus = ownerReport.performanceAndResponsiveSummary.responsiveStatus;
+  console.log(`  Horizontal Overflow State:        ${overflowState} (Expected: null when unmeasured)`);
+  console.log(`  Responsive Assessment Status:     ${responsiveStatus} (Expected: NOT_TESTED)`);
+  if (overflowState !== null) {
+    throw new Error(`Integrity error: Expected horizontalOverflowFound to be null when unmeasured, got ${overflowState}`);
+  }
+
+  // Check 5D: Verified security response headers (no arbitrary x- header inflation)
+  const secHeadersConfigured = ownerReport.securityAndAuthSummary.securityHeadersConfigured;
+  const secHeadersChecked = ownerReport.securityAndAuthSummary.totalSecurityHeadersChecked;
+  const cookieIssues = ownerReport.securityAndAuthSummary.publicCookieIssues;
+  const cookieStatus = ownerReport.securityAndAuthSummary.cookieAssessmentStatus;
+  console.log(`  Security Headers Configured:      ${secHeadersConfigured}/${secHeadersChecked}`);
+  console.log(`  Public Cookie Issues:             ${cookieIssues} (Status: ${cookieStatus})`);
+  if (secHeadersChecked !== 5) {
+    throw new Error(`Integrity error: Expected totalSecurityHeadersChecked === 5, got ${secHeadersChecked}`);
+  }
+  if (cookieIssues !== null && cookieStatus === "NO_COOKIES_OBSERVED") {
+    throw new Error(`Integrity error: publicCookieIssues should be null when NO_COOKIES_OBSERVED, got ${cookieIssues}`);
   }
 
   // Check 6: Single-Report Invariant
@@ -187,10 +228,23 @@ async function runCafeRemoteValidation() {
   console.log(`  Cookie HttpOnly:     ${expertReport.authenticationAssessment.sessionSecurity.cookieHttpOnly}`);
   console.log(`  Cookie SameSite:     ${expertReport.authenticationAssessment.sessionSecurity.cookieSameSite}`);
 
-  // Check 3: Cryptographic Manifest
+  // Check 3: Cryptographic Manifest Verification
   console.log(`  Manifest Digest:     ${expertReport.exportManifest.checksum}`);
+  console.log(`  Digest Scope:        ${expertReport.exportManifest.digestScope}`);
   if (!expertReport.exportManifest.checksum?.startsWith("sha256:")) {
     throw new Error("Integrity error: Export manifest checksum does not start with 'sha256:'");
+  }
+  const manifestVerification = verifyReportDigest(expertReport);
+  console.log(`  Digest Validated:    ${manifestVerification.isValid} (Matches canonical report payload)`);
+  if (!manifestVerification.isValid) {
+    throw new Error(`Integrity error: Export manifest failed validation against canonical audit core! Expected: ${manifestVerification.expectedChecksum}, Actual: ${manifestVerification.actualChecksum}`);
+  }
+
+  // Check 3B: Core Web Vitals Field Mapping (No cross-mapping)
+  console.log(`  CWV FCP:             ${expertReport.performanceDiagnostics.coreWebVitals.fcp} (Must be null when provider unconfigured)`);
+  console.log(`  CWV LCP:             ${expertReport.performanceDiagnostics.coreWebVitals.lcp}`);
+  if (expertReport.performanceDiagnostics.coreWebVitals.fcp !== null) {
+    throw new Error(`FABRICATION DETECTED: Expected FCP to be null when unconfigured, got ${expertReport.performanceDiagnostics.coreWebVitals.fcp}`);
   }
 
   // Check 4: Remediation Advice integrity - zero placeholders
@@ -220,12 +274,16 @@ async function runCafeRemoteValidation() {
   }
   console.log("  Single-Report OK:  Verified Expert Report present; Owner Report strictly absent.");
 
-  // Check 7: Expert PDF Generation
+  // Check 7: Expert PDF Generation & Binary Artifact SHA-256
   console.log("  Testing Expert PDF generation...");
   const expertPdfBuffer = await expertPdfGenerator.generatePdf(expertReport);
-  console.log(`  Expert PDF Size:   ${expertPdfBuffer.length} bytes (Header: ${expertPdfBuffer.subarray(0, 5).toString()})`);
+  console.log(`  Expert PDF Size:     ${expertPdfBuffer.length} bytes (Header: ${expertPdfBuffer.subarray(0, 5).toString()})`);
+  console.log(`  Expert PDF SHA-256:  ${expertReport.exportManifest.pdfSha256}`);
   if (!expertPdfBuffer.subarray(0, 5).toString().startsWith("%PDF-")) {
     throw new Error("Expert PDF did not produce a valid %PDF header!");
+  }
+  if (!expertReport.exportManifest.pdfSha256?.startsWith("sha256:")) {
+    throw new Error("Integrity error: Expert PDF artifact SHA-256 was not populated after PDF generation!");
   }
   console.log("  [PASS] Expert Diagnostic Report validated successfully.");
 
