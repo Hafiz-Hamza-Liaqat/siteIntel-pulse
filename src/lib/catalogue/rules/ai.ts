@@ -88,7 +88,25 @@ export const aiRules: RuleDefinition[] = [
     remediationAdvice: "Review your robots.txt policy: allow GPTBot and PerplexityBot if you want AI search citations, or disallow them if protecting proprietary data.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const robots = ctx.robotsTxt || "";
+      if (!ctx.robotsTxt || ctx.robotsTxt.trim().length === 0) {
+        return {
+          testId: "AI-01",
+          testVersion: "1.0.0",
+          testName: "AI Crawler Access Policy",
+          category: "geo_aeo_ai",
+          status: "UNKNOWN",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Robots.txt Policy Unobserved",
+          summary: "Robots.txt was not discovered or could not be fetched; AI crawler access policy is unknown.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Robots.txt is required to evaluate declared AI crawler policies.",
+        };
+      }
+
+      const robots = ctx.robotsTxt;
       const { blocksGpt, blocksClaude, blocksPerplexity, wildcardDisallowsAll } = parseRobotsForAi(robots);
 
       const blockedCount = [blocksGpt, blocksClaude, blocksPerplexity].filter(Boolean).length;
@@ -104,10 +122,10 @@ export const aiRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 2,
           title: "AI Search Bots Permitted to Index Content",
-          summary: "No blocking disallow rules found for leading AI engines (GPTBot, ClaudeBot, PerplexityBot).",
+          summary: "robots.txt verified: no blocking disallow rules found for leading AI engines (GPTBot, ClaudeBot, PerplexityBot).",
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: ["robots.txt permits general crawling by AI user-agents"],
+          sampleEvidence: ["Explicit robots.txt permits AI crawlers"],
           limitations: "Allowing crawler access does not guarantee citations or rankings in AI answers.",
         };
       }
@@ -144,7 +162,24 @@ export const aiRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const entry = ctx.pages[0];
-      const wordCount = entry?.visibleWordCount || 0;
+      if (!entry) {
+        return {
+          testId: "AI-02",
+          testVersion: "1.0.0",
+          testName: "Main-Content Crawlability",
+          category: "geo_aeo_ai",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Content Unobservable",
+          summary: "No entry page data available to evaluate initial HTML crawlability.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
+      const wordCount = entry.visibleWordCount || 0;
 
       if (wordCount >= 200) {
         return {
@@ -192,6 +227,23 @@ export const aiRules: RuleDefinition[] = [
     remediationAdvice: "Provide JSON-LD schema with @type Organization or LocalBusiness defining your official name, logo, and sameAs social profiles.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "AI-03",
+          testVersion: "1.0.0",
+          testName: "Entity and Structured Data Clarity",
+          category: "geo_aeo_ai",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Structured Data Unobservable",
+          summary: "No page data available to evaluate entity schema markup.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const allSchemas = ctx.pages.flatMap((p) => p.structuredData || []);
       const detectedTypes = Array.from(new Set(allSchemas.map((s) => String(s["@type"] || "")).filter(Boolean)));
 
@@ -250,8 +302,25 @@ export const aiRules: RuleDefinition[] = [
     remediationAdvice: "Add an FAQ section with clear, direct 1–2 sentence answers to frequent customer questions.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "AI-04",
+          testVersion: "1.0.0",
+          testName: "Answer-Ready Content Evidence",
+          category: "geo_aeo_ai",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Q&A Patterns Unobservable",
+          summary: "No page data available to evaluate answer-ready content.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const hasFaqSchema = ctx.pages.some((p) =>
-        p.structuredData.some((s) => String(s["@type"] || "").toLowerCase().includes("faqpage"))
+        (p.structuredData || []).some((s) => String(s["@type"] || "").toLowerCase().includes("faqpage"))
       );
 
       const hasFaqText = ctx.pages.some((p) => {

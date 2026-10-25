@@ -210,6 +210,47 @@ export const ResponsiveDiagnosticSchema = z.object({
 });
 export type ResponsiveDiagnostic = z.infer<typeof ResponsiveDiagnosticSchema>;
 
+// Visual Design Diagnostic Schema
+export const VisualDesignDiagnosticSchema = z.object({
+  status: z.enum(["TESTED", "NOT_TESTED", "SKIPPED"]).default("NOT_TESTED"),
+  colorContrast: z.object({
+    status: z.enum(["PASS", "WARNING", "FAIL", "NOT_TESTED"]).default("NOT_TESTED"),
+    testedElementsCount: z.number().int().default(0),
+    contrastFailuresCount: z.number().int().default(0),
+    sampleRatio: z.string().optional(),
+    failingSelectors: z.array(z.string()).default([]),
+  }),
+  typography: z.object({
+    status: z.enum(["PASS", "WARNING", "FAIL", "NOT_TESTED"]).default("NOT_TESTED"),
+    bodyFontSizeMobilePx: z.number().nullable().optional(),
+    bodyFontSizeDesktopPx: z.number().nullable().optional(),
+    headingHierarchyMaintained: z.boolean().default(true),
+    notes: z.string().optional(),
+  }),
+  layoutAndSpacing: z.object({
+    status: z.enum(["PASS", "WARNING", "FAIL", "NOT_TESTED"]).default("NOT_TESTED"),
+    unintendedOverlapCount: z.number().int().default(0),
+    clippingCount: z.number().int().default(0),
+    brokenImagesCount: z.number().int().default(0),
+    brokenImageUrls: z.array(z.string()).default([]),
+  }),
+  controlsAndConsistency: z.object({
+    status: z.enum(["PASS", "WARNING", "FAIL", "NOT_TESTED"]).default("NOT_TESTED"),
+    touchTargetDefectsCount: z.number().int().default(0),
+    accessibleNameDefectsCount: z.number().int().default(0),
+    defectiveSelectors: z.array(z.string()).default([]),
+  }),
+  themeAdaptability: z.object({
+    themeColorMeta: z.string().nullable().optional(),
+    supportsDarkMode: z.boolean().default(false),
+    prefersColorSchemeObserved: z.boolean().default(false),
+    observableThemeVariant: z.string().optional(),
+  }),
+  testedViewportWidths: z.array(z.number().int()).default([]),
+  limitations: z.string().default("Automated visual heuristic measurement; does not replace human aesthetic design evaluation."),
+});
+export type VisualDesignDiagnostic = z.infer<typeof VisualDesignDiagnosticSchema>;
+
 // 9. SecurityDiagnostic Schema
 export const SecurityDiagnosticSchema = z.object({
   id: z.string(),
@@ -453,6 +494,7 @@ export const ExpertReportSchema = z.object({
     imageDiagnostics: z.array(z.record(z.string(), z.any())).default([]),
   }),
   responsiveDiagnostics: z.array(ResponsiveDiagnosticSchema).default([]),
+  visualDesign: VisualDesignDiagnosticSchema.optional(),
   securityDiagnostics: z.array(SecurityDiagnosticSchema).default([]),
   authenticationAssessment: AuthenticationDiagnosticSchema,
   geoAeoDiagnostics: z.object({

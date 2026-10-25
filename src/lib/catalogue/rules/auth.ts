@@ -46,8 +46,25 @@ export const authRules: RuleDefinition[] = [
     remediationAdvice: "Enforce HTTPS with HSTS on all login, signup, and account management surfaces.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "AUTH-01",
+          testVersion: "1.0.0",
+          testName: "Authentication Surfaces and HTTPS",
+          category: "authentication_posture",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Authentication Surfaces Unobservable",
+          summary: "No page data available to detect authentication surfaces.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const authLinks = ctx.pages.flatMap((p) =>
-        p.links.filter((l) => isAuthUrl(l.targetUrl))
+        (p.links || []).filter((l) => isAuthUrl(l.targetUrl))
       );
 
       if (authLinks.length > 0) {
@@ -63,7 +80,7 @@ export const authRules: RuleDefinition[] = [
             maxPoints: 2,
             earnedPoints: 2,
             title: "Authentication Surfaces Protected by HTTPS",
-            summary: `Discovered login/account navigation links are strictly protected over secure HTTPS.`,
+            summary: "Discovered login/account navigation links are strictly protected over secure HTTPS.",
             timestamp: now,
             confidence: "HIGH",
             sampleEvidence: authLinks.slice(0, 2).map((l) => l.targetUrl),
@@ -80,7 +97,7 @@ export const authRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 0,
           title: "Insecure Authentication Links Detected",
-          summary: `Found authentication surfaces communicating over unencrypted HTTP.`,
+          summary: "Found authentication surfaces communicating over unencrypted HTTP.",
           timestamp: now,
           confidence: "HIGH",
           affectedUrlsCount: insecureAuthLinks.length,
@@ -93,14 +110,15 @@ export const authRules: RuleDefinition[] = [
         testVersion: "1.0.0",
         testName: "Authentication Surfaces and HTTPS",
         category: "authentication_posture",
-        status: "PASS",
+        status: "NOT_APPLICABLE",
         severity: "INFORMATIONAL",
         maxPoints: 2,
-        earnedPoints: 2,
-        title: "Entire Platform Operates over HTTPS",
-        summary: "No dedicated public login links found, but platform operates entirely over secure HTTPS.",
+        earnedPoints: 0,
+        title: "No Public Authentication Links Discovered",
+        summary: "No dedicated login, signup, or registration links were identified during discovery. Authentication link security not applicable to public crawl scope.",
         timestamp: now,
-        confidence: "MEDIUM",
+        confidence: "HIGH",
+        limitations: "No public authentication routes discovered in crawl boundaries.",
       };
     },
   },
@@ -116,6 +134,63 @@ export const authRules: RuleDefinition[] = [
     remediationAdvice: "Always submit credentials via POST to an HTTPS endpoint with input type='password'.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "AUTH-02",
+          testVersion: "1.0.0",
+          testName: "Login Form Transport and Fields",
+          category: "authentication_posture",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Forms Unobservable",
+          summary: "No page data available to evaluate form transport attributes.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
+      const allForms = ctx.pages.flatMap((p) => p.forms || []);
+      const authForms = allForms.filter((f) => f.isAuthForm || f.hasPasswordInput);
+
+      if (authForms.length === 0) {
+        return {
+          testId: "AUTH-02",
+          testVersion: "1.0.0",
+          testName: "Login Form Transport and Fields",
+          category: "authentication_posture",
+          status: "NOT_APPLICABLE",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "No Public Login Forms Observed",
+          summary: "No login or authentication forms were discovered in public crawl scope. Form transport and password masking not applicable.",
+          timestamp: now,
+          confidence: "HIGH",
+          limitations: "No authentication forms observed on crawled pages.",
+        };
+      }
+
+      const insecureForms = authForms.filter((f) => f.method !== "POST" || !f.isSecureAction || !f.hasPasswordInput);
+      if (insecureForms.length > 0) {
+        return {
+          testId: "AUTH-02",
+          testVersion: "1.0.0",
+          testName: "Login Form Transport and Fields",
+          category: "authentication_posture",
+          status: "FAIL",
+          severity: "CRITICAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Insecure Authentication Form Detected",
+          summary: "Found login forms submitting credentials over insecure methods, unencrypted action targets, or without masked password inputs.",
+          timestamp: now,
+          confidence: "HIGH",
+          sampleEvidence: insecureForms.map((f) => `Form method: ${f.method}, secureAction: ${f.isSecureAction}, passwordInput: ${f.hasPasswordInput}`),
+        };
+      }
+
       return {
         testId: "AUTH-02",
         testVersion: "1.0.0",
@@ -125,11 +200,11 @@ export const authRules: RuleDefinition[] = [
         severity: "INFORMATIONAL",
         maxPoints: 2,
         earnedPoints: 2,
-        title: "Form Transport Security Maintained",
-        summary: "Observed forms submit over secure HTTPS using appropriate request methods.",
+        title: "Login Form Transport Security Verified",
+        summary: `Observed ${authForms.length} authentication form(s) submitting via POST to secure HTTPS endpoints with masked password fields.`,
         timestamp: now,
-        confidence: "MEDIUM",
-        limitations: "Public scan observes frontend HTML; does not submit test credentials or probe backend authentication logic.",
+        confidence: "HIGH",
+        sampleEvidence: authForms.map((f) => `Method: ${f.method}, passwordInput: ${f.hasPasswordInput}`),
       };
     },
   },
@@ -214,6 +289,23 @@ export const authRules: RuleDefinition[] = [
     remediationAdvice: "Offer modern Single Sign-On (Google/Apple) or Passkey authentication to reduce signup friction.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "AUTH-04",
+          testVersion: "1.0.0",
+          testName: "Public Evidence of MFA, SSO, or Passkey Options",
+          category: "authentication_posture",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "SSO Options Unobservable",
+          summary: "No page data available to detect SSO or authentication options.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const ssoClues = ctx.pages.some((p) => {
         const text = (p.visibleTextSample || "").toLowerCase();
         return text.includes("sign in with google") || text.includes("log in with apple") || text.includes("continue with google");

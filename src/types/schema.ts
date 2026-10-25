@@ -196,6 +196,24 @@ export const PageObservationSchema = z.object({
   consoleErrors: z.array(z.string()).default([]),
   isXmlSitemap: z.boolean().default(false).optional(),
   documentType: z.enum(["html", "xml_sitemap", "xml", "other"]).default("html").optional(),
+  metaViewport: z.string().optional(),
+  forms: z.array(
+    z.object({
+      id: z.string().optional(),
+      action: z.string().default(""),
+      method: z.string().default("GET"),
+      isSecureAction: z.boolean().default(true),
+      hasPasswordInput: z.boolean().default(false),
+      inputsCount: z.number().int().default(0),
+      hasLabels: z.boolean().default(true),
+      isAuthForm: z.boolean().default(false),
+    })
+  ).default([]).optional(),
+  themeClues: z.object({
+    themeColor: z.string().optional(),
+    hasDarkModeClass: z.boolean().default(false),
+    colorScheme: z.string().optional(),
+  }).optional(),
 });
 export type PageObservation = z.infer<typeof PageObservationSchema>;
 

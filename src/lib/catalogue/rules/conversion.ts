@@ -15,8 +15,25 @@ export const conversionRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const entry = ctx.pages[0];
+      if (!entry) {
+        return {
+          testId: "CRO-01",
+          testVersion: "1.0.0",
+          testName: "Primary Value Proposition and Call-to-Action",
+          category: "conversion_marketing",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "CTA Unobservable",
+          summary: "No page data available to evaluate Call-to-Action buttons.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
-      const hasCtaLink = entry?.links.some((l) => {
+      const hasCtaLink = entry.links.some((l) => {
         const text = l.anchorText.toLowerCase();
         if (isJobBoard) {
           return (
@@ -89,6 +106,23 @@ export const conversionRules: RuleDefinition[] = [
     remediationAdvice: "Streamline the checkout or lead submission flow to minimize clicks and form fields.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "CRO-02",
+          testVersion: "1.0.0",
+          testName: "Conversion and Transaction Pathways",
+          category: "conversion_marketing",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "Pathways Unobservable",
+          summary: "No page data available to evaluate conversion pathways.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const allLinks = ctx.pages.flatMap((p) => p.links);
       const isEcommerce = ctx.businessCategory === "ecommerce";
       const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
@@ -161,6 +195,60 @@ export const conversionRules: RuleDefinition[] = [
     remediationAdvice: "Provide explicit labels, inline validation feedback, and clear error explanations.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "CRO-03",
+          testVersion: "1.0.0",
+          testName: "Form Usability and Observable Validation",
+          category: "conversion_marketing",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "Forms Unobservable",
+          summary: "No page data available to evaluate form usability.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
+      const allForms = ctx.pages.flatMap((p) => p.forms || []);
+      if (allForms.length === 0) {
+        return {
+          testId: "CRO-03",
+          testVersion: "1.0.0",
+          testName: "Form Usability and Observable Validation",
+          category: "conversion_marketing",
+          status: "NOT_TESTED",
+          severity: "INFORMATIONAL",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "No Form Elements Discovered",
+          summary: "No interactive forms or input elements were detected on audited pages. Form usability evaluation not tested without observable form controls.",
+          timestamp: now,
+          confidence: "HIGH",
+          limitations: "No form markup observed on crawled pages.",
+        };
+      }
+
+      const unlabeledForms = allForms.filter((f) => !f.hasLabels);
+      if (unlabeledForms.length > 0) {
+        return {
+          testId: "CRO-03",
+          testVersion: "1.0.0",
+          testName: "Form Usability and Observable Validation",
+          category: "conversion_marketing",
+          status: "WARNING",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0.5,
+          title: "Form Inputs Missing Accessible Labels",
+          summary: `Discovered ${unlabeledForms.length} form(s) containing unlabeled inputs lacking associated labels, aria attributes, or placeholders.`,
+          timestamp: now,
+          confidence: "HIGH",
+        };
+      }
+
       return {
         testId: "CRO-03",
         testVersion: "1.0.0",
@@ -171,10 +259,10 @@ export const conversionRules: RuleDefinition[] = [
         maxPoints: 1,
         earnedPoints: 1,
         title: "Form Inputs Follow Usability Standards",
-        summary: "Observed form elements provide standard field labeling and submission attributes.",
+        summary: `Observed ${allForms.length} form(s) provide explicit field labeling, clear input types, and accessible submission attributes.`,
         timestamp: now,
-        confidence: "MEDIUM",
-        limitations: "Passive observation only; SiteIntel Pulse does not submit data to live forms.",
+        confidence: "HIGH",
+        sampleEvidence: allForms.slice(0, 3).map((f) => `Form #${f.id}: inputs=${f.inputsCount}, labeled=${f.hasLabels}`),
       };
     },
   },
@@ -190,6 +278,23 @@ export const conversionRules: RuleDefinition[] = [
     remediationAdvice: "Display transparent pricing tiers, return/refund policies, and security assurances near conversion points.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "CRO-04",
+          testVersion: "1.0.0",
+          testName: "Pricing, Trust, and Policy Transparency",
+          category: "conversion_marketing",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "Policies Unobservable",
+          summary: "No page data available to evaluate pricing and policy transparency.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const allLinks = ctx.pages.flatMap((p) => p.links);
       const isEcommerce = ctx.businessCategory === "ecommerce";
       const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);

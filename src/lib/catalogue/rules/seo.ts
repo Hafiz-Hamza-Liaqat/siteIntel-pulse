@@ -458,7 +458,24 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Add concise descriptive alt attributes to informative images and use empty alt='' for purely decorative elements.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const allImages = ctx.pages.flatMap((p) => p.resources.filter((r) => r.type === "image"));
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "SEO-06",
+          testVersion: "1.0.0",
+          testName: "Image Accessibility and Optimization Indicators",
+          category: "seo",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Images Unobservable",
+          summary: "No page data available to evaluate image accessibility.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
+      const allImages = ctx.pages.flatMap((p) => (p.resources || []).filter((r) => r.type === "image"));
 
       if (allImages.length === 0) {
         return {
@@ -466,18 +483,37 @@ export const seoRules: RuleDefinition[] = [
           testVersion: "1.0.0",
           testName: "Image Accessibility and Optimization Indicators",
           category: "seo",
-          status: "PASS",
+          status: "NOT_APPLICABLE",
           severity: "INFORMATIONAL",
           maxPoints: 2,
-          earnedPoints: 2,
-          title: "No Image Accessibility Deficiencies Detected",
-          summary: "No unoptimized or problematic images detected.",
+          earnedPoints: 0,
+          title: "No Image Resources Discovered",
+          summary: "No image elements were detected across audited pages. Image accessibility checks not applicable.",
           timestamp: now,
-          confidence: "MEDIUM",
+          confidence: "HIGH",
         };
       }
 
-      // Check for presence of alt attributes across pages
+      const brokenImages = allImages.filter((r) => r.isFailed);
+      if (brokenImages.length > 0) {
+        return {
+          testId: "SEO-06",
+          testVersion: "1.0.0",
+          testName: "Image Accessibility and Optimization Indicators",
+          category: "seo",
+          status: "WARNING",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Broken or Inaccessible Image Resources Detected",
+          summary: `${brokenImages.length} image resources failed to load cleanly across scanned pages.`,
+          timestamp: now,
+          confidence: "HIGH",
+          affectedUrlsCount: brokenImages.length,
+          sampleEvidence: brokenImages.slice(0, 3).map((r) => r.url),
+        };
+      }
+
       return {
         testId: "SEO-06",
         testVersion: "1.0.0",
@@ -488,7 +524,7 @@ export const seoRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 2,
         title: "Images Formatted with Descriptive Elements",
-        summary: `Evaluated ${allImages.length} images across pages. Descriptive tags and responsive attributes observed.`,
+        summary: `Evaluated ${allImages.length} image resources across pages. Asset loading verified.`,
         timestamp: now,
         confidence: "HIGH",
         sampleEvidence: [`Total images scanned: ${allImages.length}`],
@@ -507,7 +543,41 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Add descriptive anchor text to all links and apply rel='noopener noreferrer' to external targets.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const allLinks = ctx.pages.flatMap((p) => p.links);
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "SEO-07",
+          testVersion: "1.0.0",
+          testName: "Internal/External Link Hygiene and Rel Attributes",
+          category: "seo",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Links Unobservable",
+          summary: "No page data available to evaluate link hygiene.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
+      const allLinks = ctx.pages.flatMap((p) => p.links || []);
+      if (allLinks.length === 0) {
+        return {
+          testId: "SEO-07",
+          testVersion: "1.0.0",
+          testName: "Internal/External Link Hygiene and Rel Attributes",
+          category: "seo",
+          status: "NOT_APPLICABLE",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "No Links Discovered",
+          summary: "No navigation or content links were detected on audited pages. Link hygiene check not applicable.",
+          timestamp: now,
+          confidence: "HIGH",
+        };
+      }
+
       const emptyAnchors = allLinks.filter((l) => !l.anchorText || l.anchorText.trim().length === 0);
 
       if (emptyAnchors.length === 0) {
@@ -556,6 +626,23 @@ export const seoRules: RuleDefinition[] = [
     remediationAdvice: "Implement schema.org JSON-LD structured data representing Organization, Product, Article, or LocalBusiness.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "SEO-08",
+          testVersion: "1.0.0",
+          testName: "Structured Data Detection and Validation",
+          category: "seo",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Structured Data Unobservable",
+          summary: "No page data available to evaluate structured data.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const pagesWithSchema = ctx.pages.filter((p) => p.structuredData && p.structuredData.length > 0);
 
       if (pagesWithSchema.length > 0) {

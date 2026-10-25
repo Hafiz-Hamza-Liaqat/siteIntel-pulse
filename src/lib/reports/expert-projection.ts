@@ -10,6 +10,7 @@ import {
   TagDiagnostic,
   IntegrationDiagnostic,
   ResponsiveDiagnostic,
+  VisualDesignDiagnostic,
   SecurityDiagnostic,
   AuthenticationDiagnostic,
   CompetitorComparison,
@@ -40,6 +41,7 @@ export interface ExpertAuditOptions {
   companyBRole?: string;
   pageSpeedData?: { mobile?: PageSpeedResult; desktop?: PageSpeedResult };
   browserResponsiveResults?: ResponsiveDiagnostic[];
+  visualDesign?: VisualDesignDiagnostic;
   competitorScans?: CompetitorComparison[];
 }
 
@@ -130,11 +132,117 @@ export function projectExpertReport(
     repositoryClues: options.repositoryUrl || undefined,
   };
 
-  // 2. Full URL Inventory (PageDiagnostic[])
+  // 2. Expert Findings Registry (ExpertAssessmentResult[])
+  const findings: ExpertAssessmentResult[] = results.map((r, idx) => {
+    let workstream: ExpertAssessmentResult["workstream"] = "engineering";
+    if (r.category === "seo") workstream = "seo";
+    else if (r.category === "performance") workstream = "performance";
+    else if (r.category === "public_security") workstream = "security";
+    else if (r.category === "authentication_posture") workstream = "security";
+    else if (r.category === "responsive_accessibility") workstream = "accessibility";
+    else if (r.category === "analytics_tracking") workstream = "analytics";
+    else if (r.category === "content_quality") workstream = "content";
+    else if (r.category === "geo_aeo_ai") workstream = "ai_automation";
+
+    let estimatedEffort: ExpertAssessmentResult["estimatedEffort"] = "MODERATE";
+    if (r.severity === "LOW" || r.severity === "INFORMATIONAL") estimatedEffort = "QUICK_FIX";
+    else if (r.severity === "HIGH") estimatedEffort = "COMPLEX";
+    else if (r.severity === "CRITICAL") estimatedEffort = "STRATEGIC";
+
+    const findingId = `EXP-${r.testId}-${String(idx + 1).padStart(3, "0")}`;
+    const ruleDef = assessmentRegistry.getRule(r.testId);
+
+    // Identify if finding is inherently site-wide (infrastructure, robots, DNS, TLS)
+    const isSiteWideRule =
+      r.category === "public_security" ||
+      r.category === "geo_aeo_ai" ||
+      ["AI-01", "AI-02", "AI-03", "AI-04", "SEC-01", "SEC-02", "SEC-03", "SEC-04", "SEC-05", "SEO-05", "TRK-01", "DNS-01"].includes(r.testId);
+
+    let scope: ExpertAssessmentResult["scope"] = isSiteWideRule ? "site_wide" : "page_specific";
+
+    // Resolve accurate affected URLs from actual test evidence (only for failing/warning findings)
+    let affectedUrls: string[] = [];
+    if (r.status === "FAIL" || r.status === "WARNING") {
+      if (r.sampleEvidence && r.sampleEvidence.length > 0) {
+        const urlMatches = r.sampleEvidence
+          .flatMap((ev) => {
+            const m = ev.match(/https?:\/\/[^\s,"']+/g);
+            return m || [];
+          })
+          .filter(Boolean);
+        if (urlMatches.length > 0) {
+          affectedUrls = Array.from(new Set(urlMatches));
+        }
+      }
+      if (affectedUrls.length === 0 && r.evidenceReferences && r.evidenceReferences.length > 0) {
+        affectedUrls = r.evidenceReferences.filter((ref) => ref.startsWith("http"));
+      }
+      // If no specific page URL in evidence, do NOT fabricate the homepage as an affected URL.
+      // Retain empty affectedUrls for site-wide configuration issues or unlocated findings.
+    }
+
+    const totalAffectedPages = r.affectedUrlsCount ?? affectedUrls.length;
+    const boundedAffectedUrls = affectedUrls.slice(0, 10);
+
+    // Resolve remediation text from rule definition - NEVER placeholder text
+    const remediationText =
+      r.remediationTheme && !r.remediationTheme.toLowerCase().includes("follow documented remediation")
+        ? r.remediationTheme
+        : ruleDef?.remediationAdvice || ruleDef?.description || `Apply standard security and SEO remediation for ${r.testId}.`;
+
+    const evidence: TechnicalEvidence[] = [
+      {
+        evidenceId: `EVD-${findingId}-1`,
+        findingId,
+        source: {
+          id: `SRC-${findingId}`,
+          type: "html_parser",
+          timestamp: now,
+          location: boundedAffectedUrls[0] || (isSiteWideRule ? request.targetUrl : "Site-wide observation"),
+          confidence: r.confidence,
+        },
+        observedValue: r.summary,
+        expectedCondition: ruleDef?.description || `Standard rule compliance for ${r.testId}`,
+        discrepancy: r.status === "PASS" ? "None. Requirement satisfied." : `Finding detected: ${r.summary}`,
+        reproductionSteps: [
+          `1. Inspect target endpoint (${boundedAffectedUrls[0] || request.targetUrl}) for rule ${r.testId} (${r.testName}).`,
+          `2. Execute rule evaluation assertion: verify ${ruleDef?.description || "expected criteria"}.`,
+          `3. Compare observed value against required condition.`,
+        ],
+        validationAssertion: `Retest rule ${r.testId} returns status PASS upon fix deployment. Expected score: ${r.maxPoints}/${r.maxPoints} pts.`,
+      },
+    ];
+
+    return {
+      id: findingId,
+      testId: r.testId,
+      testVersion: r.testVersion,
+      category: r.category,
+      categoryName: r.category,
+      title: r.title,
+      status: r.status,
+      severity: r.severity,
+      confidence: r.confidence,
+      scope,
+      totalAffectedPages,
+      affectedUrls: boundedAffectedUrls,
+      affectedElements: r.sampleEvidence || [],
+      technicalImpact: `Affects ${r.category} scoring weight (${r.maxPoints} pts). ${r.summary}`,
+      businessImpact: ruleDef?.businessImpactSummary || r.summary,
+      remediation: remediationText,
+      validationProcedure: `Retest rule ${r.testId} (${r.testName}): verify ${ruleDef?.description || "expected condition"} is satisfied. Target: ${r.maxPoints}/${r.maxPoints} pts.`,
+      workstream,
+      estimatedEffort,
+      evidence,
+      dependencies: [],
+    };
+  });
+
+  // 3. Full URL Inventory (PageDiagnostic[])
   const urlInventory: PageDiagnostic[] = crawl.pages.map((p, idx) => {
     const pageUrl = p.finalUrl || p.requestedUrl;
     const isSeed = idx === 0 || pageUrl === request.targetUrl;
-    const isSitemap = crawl.sitemapUrls.includes(pageUrl);
+    const isSitemap = crawl.sitemapUrls.includes(pageUrl) || (p.contentType && p.contentType.includes("xml")) || pageUrl.endsWith(".xml");
     const discoverySource = isSeed ? "seed_url" : isSitemap ? "sitemap" : "internal_link";
 
     const isNoIndex =
@@ -162,38 +270,66 @@ export function projectExpertReport(
       if (s["@type"]) structuredDataTypes.push(s["@type"]);
     }
 
+    let testStatus: PageDiagnostic["testStatus"] = "FULLY_TESTED";
+    if (p.statusCode >= 400) {
+      testStatus = "FAILED";
+    } else if (p.statusCode >= 300) {
+      testStatus = "SKIPPED";
+    } else if (isSitemap || (p.contentType && p.contentType.includes("xml"))) {
+      testStatus = "PARTIALLY_TESTED";
+    } else if (p.contentType && !p.contentType.includes("text/html")) {
+      testStatus = "PARTIALLY_TESTED";
+    } else {
+      testStatus = "FULLY_TESTED";
+    }
+
+    // Derive per-page finding counts directly from matched findings for this page URL
+    const pageUrlNormalized = p.normalizedUrl || pageUrl;
+    const matchedFindings = findings.filter(
+      (f) =>
+        (f.status === "FAIL" || f.status === "WARNING") &&
+        f.affectedUrls.some((u) => u === pageUrl || u === pageUrlNormalized)
+    );
+
+    const criticalFindings = matchedFindings.filter((f) => f.severity === "CRITICAL").length;
+    const highFindings = matchedFindings.filter((f) => f.severity === "HIGH").length;
+    const mediumFindings = matchedFindings.filter((f) => f.severity === "MEDIUM").length;
+    const lowFindings = matchedFindings.filter((f) => f.severity === "LOW").length;
+
     return {
       url: pageUrl,
       normalizedUrl: p.normalizedUrl,
       statusCode: p.statusCode,
-      responseTimeMs: p.responseTimeMs || (p as any).loadTimeMs || 250,
+      responseTimeMs: p.responseTimeMs ?? (p as any).loadTimeMs ?? 0,
       contentType: p.contentType || "text/html",
       discoverySource,
       crawlDepth: (p as any).crawlDepth ?? (isSeed ? 0 : 1),
       indexabilityStatus,
       canonicalCandidate,
       canonicalStatus,
-      title: p.title,
-      titleLength: p.title?.length || 0,
-      metaDescription: p.metaDescription,
-      metaDescriptionLength: p.metaDescription?.length || 0,
-      headingsOutline: {
-        h1: p.headings?.h1 || [],
-        h2: p.headings?.h2 || [],
-        h3: p.headings?.h3 || [],
-      },
-      wordCount: p.visibleWordCount || 0,
+      title: isSitemap ? undefined : p.title,
+      titleLength: isSitemap ? 0 : (p.title?.length || 0),
+      metaDescription: isSitemap ? undefined : p.metaDescription,
+      metaDescriptionLength: isSitemap ? 0 : (p.metaDescription?.length || 0),
+      headingsOutline: isSitemap
+        ? { h1: [], h2: [], h3: [] }
+        : {
+            h1: p.headings?.h1 || [],
+            h2: p.headings?.h2 || [],
+            h3: p.headings?.h3 || [],
+          },
+      wordCount: isSitemap ? 0 : (p.visibleWordCount || 0),
       internalLinksCount: (p.links || []).filter((l) => l.isInternal).length,
       outboundLinksCount: (p.links || []).filter((l) => !l.isInternal).length,
       resourcesCount: (p.resources || []).length,
       structuredDataTypes,
       findingsCount: {
-        critical: 0,
-        high: p.statusCode >= 400 ? 1 : 0,
-        medium: !p.title || (p.title?.length || 0) < 25 ? 1 : 0,
-        low: !p.metaDescription ? 1 : 0,
+        critical: criticalFindings,
+        high: highFindings,
+        medium: mediumFindings,
+        low: lowFindings,
       },
-      testStatus: "FULLY_TESTED",
+      testStatus,
     };
   });
 
@@ -359,6 +495,18 @@ export function projectExpertReport(
       exploitabilityNote: "Exposing runtime versions aids automated vulnerability scanners in targeting known CVEs.",
       remediation: "Suppress Server and X-Powered-By banners in web server configuration.",
     },
+    {
+      id: "SEC-DIAG-06",
+      title: "Referrer-Policy Header",
+      scope: "public_passive",
+      testedEndpoint: request.targetUrl,
+      headerName: "Referrer-Policy",
+      observedValue: allHeaders["referrer-policy"] || undefined,
+      expectedValue: "strict-origin-when-cross-origin or no-referrer",
+      severity: allHeaders["referrer-policy"] ? "LOW" : "MEDIUM",
+      exploitabilityNote: "Missing Referrer-Policy may leak private URL paths or query parameters to third-party endpoints.",
+      remediation: "Deploy Referrer-Policy: strict-origin-when-cross-origin to prevent leakage across origin boundaries.",
+    },
   ];
 
   // 7. Authentication Assessment (AuthenticationDiagnostic)
@@ -375,14 +523,15 @@ export function projectExpertReport(
       hasCsrfClue: false,
       hasAutocompleteProtection: false,
     })),
-    testedFlows: options.isAuthorizedForAuthScan
-      ? [
-          { flowName: "Test Account Login Handshake", status: "PASS", details: "HTTPS enforced; Session token set with Secure/HttpOnly flags." },
-          { flowName: "Session Expiration & Logout", status: "PASS", details: "Cookie invalidated upon explicit sign-out action." },
-        ]
-      : [
-          { flowName: "Active Dynamic Authentication Test", status: "NOT_TESTED", details: "Requires explicit owner testing authorization and dedicated test credentials." },
-        ],
+    testedFlows: [
+      {
+        flowName: "Active Dynamic Authentication Test",
+        status: "NOT_TESTED",
+        details: options.isAuthorizedForAuthScan
+          ? "Dedicated test account authorized, but dynamic authentication flow execution was not conducted in this scan pass."
+          : "Requires explicit owner testing authorization and dedicated test credentials.",
+      },
+    ],
     sessionSecurity: {
       cookieSecure: hasCookies ? allCookies.every((c) => c.secure) : null,
       cookieHttpOnly: hasCookies ? allCookies.every((c) => c.httpOnly) : null,
@@ -469,112 +618,6 @@ export function projectExpertReport(
       provenanceNote: "Financial guessing and synthetic corporate valuations are strictly prohibited.",
     },
   ];
-
-  // 10. Expert Findings Registry (ExpertAssessmentResult[])
-  const findings: ExpertAssessmentResult[] = results.map((r, idx) => {
-    let workstream: ExpertAssessmentResult["workstream"] = "engineering";
-    if (r.category === "seo") workstream = "seo";
-    else if (r.category === "performance") workstream = "performance";
-    else if (r.category === "public_security") workstream = "security";
-    else if (r.category === "authentication_posture") workstream = "security";
-    else if (r.category === "responsive_accessibility") workstream = "accessibility";
-    else if (r.category === "analytics_tracking") workstream = "analytics";
-    else if (r.category === "content_quality") workstream = "content";
-    else if (r.category === "geo_aeo_ai") workstream = "ai_automation";
-
-    let estimatedEffort: ExpertAssessmentResult["estimatedEffort"] = "MODERATE";
-    if (r.severity === "LOW" || r.severity === "INFORMATIONAL") estimatedEffort = "QUICK_FIX";
-    else if (r.severity === "HIGH") estimatedEffort = "COMPLEX";
-    else if (r.severity === "CRITICAL") estimatedEffort = "STRATEGIC";
-
-    const findingId = `EXP-${r.testId}-${String(idx + 1).padStart(3, "0")}`;
-    const ruleDef = assessmentRegistry.getRule(r.testId);
-
-    // Identify if finding is inherently site-wide (infrastructure, robots, DNS, TLS)
-    const isSiteWideRule =
-      r.category === "public_security" ||
-      r.category === "geo_aeo_ai" ||
-      ["AI-01", "AI-02", "AI-03", "AI-04", "SEC-01", "SEC-02", "SEC-03", "SEC-04", "SEC-05", "SEO-05", "TRK-01", "DNS-01"].includes(r.testId);
-
-    let scope: ExpertAssessmentResult["scope"] = isSiteWideRule ? "site_wide" : "page_specific";
-
-    // Resolve accurate affected URLs from actual test evidence (only for failing/warning findings)
-    let affectedUrls: string[] = [];
-    if (r.status === "FAIL" || r.status === "WARNING") {
-      if (r.sampleEvidence && r.sampleEvidence.length > 0) {
-        const urlMatches = r.sampleEvidence
-          .flatMap((ev) => {
-            const m = ev.match(/https?:\/\/[^\s,"']+/g);
-            return m || [];
-          })
-          .filter(Boolean);
-        if (urlMatches.length > 0) {
-          affectedUrls = Array.from(new Set(urlMatches));
-        }
-      }
-      if (affectedUrls.length === 0 && r.evidenceReferences && r.evidenceReferences.length > 0) {
-        affectedUrls = r.evidenceReferences.filter((ref) => ref.startsWith("http"));
-      }
-      // If no specific page URL in evidence, do NOT fabricate the homepage as an affected URL.
-      // Retain empty affectedUrls for site-wide configuration issues or unlocated findings.
-    }
-
-    const totalAffectedPages = r.affectedUrlsCount ?? affectedUrls.length;
-    const boundedAffectedUrls = affectedUrls.slice(0, 10);
-
-    // Resolve remediation text from rule definition - NEVER placeholder text
-    const remediationText =
-      r.remediationTheme && !r.remediationTheme.toLowerCase().includes("follow documented remediation")
-        ? r.remediationTheme
-        : ruleDef?.remediationAdvice || ruleDef?.description || `Apply standard security and SEO remediation for ${r.testId}.`;
-
-    const evidence: TechnicalEvidence[] = [
-      {
-        evidenceId: `EVD-${findingId}-1`,
-        findingId,
-        source: {
-          id: `SRC-${findingId}`,
-          type: "html_parser",
-          timestamp: now,
-          location: boundedAffectedUrls[0] || (isSiteWideRule ? request.targetUrl : "Site-wide observation"),
-          confidence: r.confidence,
-        },
-        observedValue: r.summary,
-        expectedCondition: ruleDef?.description || `Standard rule compliance for ${r.testId}`,
-        discrepancy: r.status === "PASS" ? "None. Requirement satisfied." : `Finding detected: ${r.summary}`,
-        reproductionSteps: [
-          `1. Inspect target endpoint (${boundedAffectedUrls[0] || request.targetUrl}) for rule ${r.testId} (${r.testName}).`,
-          `2. Execute rule evaluation assertion: verify ${ruleDef?.description || "expected criteria"}.`,
-          `3. Compare observed value against required condition.`,
-        ],
-        validationAssertion: `Retest rule ${r.testId} returns status PASS upon fix deployment. Expected score: ${r.maxPoints}/${r.maxPoints} pts.`,
-      },
-    ];
-
-    return {
-      id: findingId,
-      testId: r.testId,
-      testVersion: r.testVersion,
-      category: r.category,
-      categoryName: r.category,
-      title: r.title,
-      status: r.status,
-      severity: r.severity,
-      confidence: r.confidence,
-      scope,
-      totalAffectedPages,
-      affectedUrls: boundedAffectedUrls,
-      affectedElements: r.sampleEvidence || [],
-      technicalImpact: `Affects ${r.category} scoring weight (${r.maxPoints} pts). ${r.summary}`,
-      businessImpact: ruleDef?.businessImpactSummary || r.summary,
-      remediation: remediationText,
-      validationProcedure: `Retest rule ${r.testId} (${r.testName}): verify ${ruleDef?.description || "expected condition"} is satisfied. Target: ${r.maxPoints}/${r.maxPoints} pts.`,
-      workstream,
-      estimatedEffort,
-      evidence,
-      dependencies: [],
-    };
-  });
 
   // 11. Prioritized Remediation Tasks & Workstream Estimates
   const remediationRegister: RemediationTask[] = [];
@@ -717,7 +760,7 @@ export function projectExpertReport(
       authorization: {
         isAuthorizedForAuthScan: Boolean(options.isAuthorizedForAuthScan),
         repositoryUrl: options.repositoryUrl,
-        repositoryAuthorized: Boolean(options.repositoryUrl),
+        repositoryAuthorized: false, // Repository URL alone does not grant verified authorization without credentials or tokens
         connectedIntegrations: [],
       },
       scopeAndBoundaries:
@@ -734,9 +777,9 @@ export function projectExpertReport(
     seoDiagnostics: {
       metadataFindings: findings.filter((f) => f.category === "seo"),
       headingHierarchy: {
-        pagesWithH1: urlInventory.filter((p) => p.headingsOutline.h1.length > 0).length,
-        pagesMissingH1: urlInventory.filter((p) => p.headingsOutline.h1.length === 0).length,
-        pagesMultipleH1: urlInventory.filter((p) => p.headingsOutline.h1.length > 1).length,
+        pagesWithH1: urlInventory.filter((p) => p.testStatus === "FULLY_TESTED" && p.headingsOutline.h1.length > 0).length,
+        pagesMissingH1: urlInventory.filter((p) => p.testStatus === "FULLY_TESTED" && p.headingsOutline.h1.length === 0).length,
+        pagesMultipleH1: urlInventory.filter((p) => p.testStatus === "FULLY_TESTED" && p.headingsOutline.h1.length > 1).length,
       },
       structuredDataEntities: urlInventory.flatMap((p) => p.structuredDataTypes).map((t) => ({ type: t })),
     },
@@ -781,6 +824,7 @@ export function projectExpertReport(
         .map((r) => ({ url: r.url, sizeBytes: r.sizeBytes, isOptimized: r.url.endsWith(".webp") || r.url.endsWith(".avif") })),
     },
     responsiveDiagnostics,
+    visualDesign: options.visualDesign,
     securityDiagnostics,
     authenticationAssessment,
     geoAeoDiagnostics: {

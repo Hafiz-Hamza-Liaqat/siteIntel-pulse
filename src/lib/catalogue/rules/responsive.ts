@@ -14,8 +14,8 @@ export const responsiveRules: RuleDefinition[] = [
     remediationAdvice: "Add `<meta name='viewport' content='width=device-width, initial-scale=1'>` to the `<head>` of all HTML pages.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pages = ctx.pages;
-      if (pages.length === 0) {
+      const entry = ctx.pages[0];
+      if (!entry) {
         return {
           testId: "RSP-01",
           testVersion: "1.0.0",
@@ -26,27 +26,65 @@ export const responsiveRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 0,
           title: "Viewport Unobservable",
-          summary: "No page data available.",
+          summary: "No page data available to inspect viewport meta configuration.",
           timestamp: now,
           confidence: "LOW",
         };
       }
 
-      // Check viewport configuration across pages
+      const viewportContent = entry.metaViewport || "";
+      const hasDeviceWidth = viewportContent.toLowerCase().includes("width=device-width");
+      const hasInitialScale = viewportContent.toLowerCase().includes("initial-scale=");
+
+      if (hasDeviceWidth && hasInitialScale) {
+        return {
+          testId: "RSP-01",
+          testVersion: "1.0.0",
+          testName: "Viewport and Responsive Configuration",
+          category: "responsive_accessibility",
+          status: "PASS",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 2,
+          title: "Mobile Viewport Meta Tag Configured",
+          summary: `Responsive viewport meta tag declared correctly ("${viewportContent}"), enabling dynamic mobile scaling.`,
+          timestamp: now,
+          confidence: "HIGH",
+          sampleEvidence: [`<meta name="viewport" content="${viewportContent}">`],
+        };
+      }
+
+      if (viewportContent) {
+        return {
+          testId: "RSP-01",
+          testVersion: "1.0.0",
+          testName: "Viewport and Responsive Configuration",
+          category: "responsive_accessibility",
+          status: "WARNING",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Viewport Meta Tag Partially Configured",
+          summary: `Viewport tag found ("${viewportContent}") but lacks recommended width=device-width or initial-scale parameters.`,
+          timestamp: now,
+          confidence: "HIGH",
+          sampleEvidence: [`<meta name="viewport" content="${viewportContent}">`],
+        };
+      }
+
       return {
         testId: "RSP-01",
         testVersion: "1.0.0",
         testName: "Viewport and Responsive Configuration",
         category: "responsive_accessibility",
-        status: "PASS",
-        severity: "INFORMATIONAL",
+        status: "FAIL",
+        severity: "HIGH",
         maxPoints: 2,
-        earnedPoints: 2,
-        title: "Mobile Viewport Meta Tag Configured",
-        summary: "Responsive viewport meta tags detected, enabling dynamic mobile scaling.",
+        earnedPoints: 0,
+        title: "Missing Responsive Viewport Meta Tag",
+        summary: "No `<meta name='viewport'>` tag was detected in document `<head>`. Mobile browsers will render desktop scale.",
         timestamp: now,
         confidence: "HIGH",
-        sampleEvidence: ["<meta name='viewport' content='width=device-width, initial-scale=1'>"],
       };
     },
   },
@@ -62,6 +100,69 @@ export const responsiveRules: RuleDefinition[] = [
     remediationAdvice: "Set max-width: 100% on images/tables and avoid fixed pixel widths exceeding 320px in CSS stylesheets.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      const results = ctx.browserResponsiveResults;
+
+      if (!results || results.length === 0 || results.every((r) => r.status === "NOT_TESTED" || r.status === "SKIPPED")) {
+        return {
+          testId: "RSP-02",
+          testVersion: "1.0.0",
+          testName: "Horizontal Overflow across Viewport Matrix",
+          category: "responsive_accessibility",
+          status: "NOT_TESTED",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Viewport Matrix Not Executed",
+          summary: "Browser responsive runner was not executed in this scan pass. Horizontal overflow cannot be evaluated without real viewport rendering.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Active browser execution required to measure document geometry across 7 viewport widths.",
+        };
+      }
+
+      const testedRuns = results.filter((r) => r.status === "TESTED");
+      if (testedRuns.length < 7) {
+        return {
+          testId: "RSP-02",
+          testVersion: "1.0.0",
+          testName: "Horizontal Overflow across Viewport Matrix",
+          category: "responsive_accessibility",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Viewport Matrix Incompletely Evaluated",
+          summary: `Only ${testedRuns.length} of 7 required viewport widths were tested; full responsive matrix could not be verified.`,
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Active headless browser execution across all 7 viewport widths is required.",
+        };
+      }
+
+      const overflowRuns = results.filter((r) => r.horizontalOverflow);
+
+      if (overflowRuns.length > 0) {
+        const offendingSelectors = Array.from(new Set(overflowRuns.flatMap((r) => r.overflowElements)));
+        return {
+          testId: "RSP-02",
+          testVersion: "1.0.0",
+          testName: "Horizontal Overflow across Viewport Matrix",
+          category: "responsive_accessibility",
+          status: "FAIL",
+          severity: "HIGH",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: `Horizontal Overflow Detected Across ${overflowRuns.length} Viewport Width(s)`,
+          summary: `Horizontal scrolling observed at widths: ${overflowRuns.map((r) => `${r.viewport}px`).join(", ")}. Content exceeds viewport boundary.`,
+          timestamp: now,
+          confidence: "HIGH",
+          affectedUrlsCount: overflowRuns.length,
+          sampleEvidence: offendingSelectors.slice(0, 4),
+        };
+      }
+
+      const testedWidths = results.filter((r) => r.status === "TESTED").map((r) => `${r.viewport}px`);
+
       return {
         testId: "RSP-02",
         testVersion: "1.0.0",
@@ -72,10 +173,10 @@ export const responsiveRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 2,
         title: "No Horizontal Overflow Detected Across Viewport Matrix",
-        summary: "Tested viewports (320, 360, 390, 768, 1024, 1280, 1440px) fit within viewport bounds without horizontal scrolling.",
+        summary: `Tested 7-viewport matrix (${testedWidths.join(", ")}) fits cleanly within viewport bounds without horizontal scrolling.`,
         timestamp: now,
         confidence: "HIGH",
-        sampleEvidence: ["Tested viewports: 320px, 360px, 390px, 768px, 1024px, 1280px, 1440px", "Scroll width equals client width"],
+        sampleEvidence: [`Tested viewports: ${testedWidths.join(", ")}`, "Scroll width equals client width across all viewports"],
       };
     },
   },
@@ -91,6 +192,65 @@ export const responsiveRules: RuleDefinition[] = [
     remediationAdvice: "Verify mobile hamburger menus and sticky headers do not obscure primary content.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      const results = ctx.browserResponsiveResults;
+
+      if (!results || results.length === 0 || results.every((r) => r.status === "NOT_TESTED" || r.status === "SKIPPED")) {
+        return {
+          testId: "RSP-03",
+          testVersion: "1.0.0",
+          testName: "Overlaps, Clipping, and Key Control Visibility",
+          category: "responsive_accessibility",
+          status: "NOT_TESTED",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Control Visibility Not Tested",
+          summary: "Active browser execution is required to measure element clipping and control geometry across viewports.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Active headless browser execution required.",
+        };
+      }
+
+      const testedRuns = results.filter((r) => r.status === "TESTED");
+      if (testedRuns.length < 7) {
+        return {
+          testId: "RSP-03",
+          testVersion: "1.0.0",
+          testName: "Overlaps, Clipping, and Key Control Visibility",
+          category: "responsive_accessibility",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Control Visibility Incompletely Evaluated",
+          summary: `Only ${testedRuns.length} of 7 required viewport widths were tested; control geometry across all devices could not be evaluated.`,
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Active headless browser execution across all 7 viewport widths is required.",
+        };
+      }
+
+      const clippingIssuesTotal = results.reduce((sum, r) => sum + (r.clippingIssues || 0), 0);
+
+      if (clippingIssuesTotal > 0) {
+        return {
+          testId: "RSP-03",
+          testVersion: "1.0.0",
+          testName: "Overlaps, Clipping, and Key Control Visibility",
+          category: "responsive_accessibility",
+          status: "WARNING",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Header / Control Clipping Detected",
+          summary: `Observed ${clippingIssuesTotal} navigation or header clipping instances across tested viewports.`,
+          timestamp: now,
+          confidence: "HIGH",
+          affectedUrlsCount: clippingIssuesTotal,
+        };
+      }
+
       return {
         testId: "RSP-03",
         testVersion: "1.0.0",
@@ -100,8 +260,8 @@ export const responsiveRules: RuleDefinition[] = [
         severity: "INFORMATIONAL",
         maxPoints: 2,
         earnedPoints: 2,
-        title: "Key Interactive Controls Visible",
-        summary: "Primary navigation links and action buttons are visible and free from unreadable clipping.",
+        title: "Key Interactive Controls Visible Across Viewports",
+        summary: "Primary navigation links and action buttons are visible and free from unreadable clipping across all tested viewports.",
         timestamp: now,
         confidence: "HIGH",
       };
@@ -114,11 +274,73 @@ export const responsiveRules: RuleDefinition[] = [
     category: "responsive_accessibility",
     categoryName: "Responsive & Accessibility",
     maxPoints: 2,
-    description: "Audits button/link touch target sizing (minimum 48x48px target recommended) and legible mobile font sizes (>= 16px).",
+    description: "Audits button/link touch target sizing (minimum 44x44px target recommended) and legible mobile font sizes (>= 14px).",
     businessImpactSummary: "Tiny buttons frustrate mobile shoppers, causing mis-taps and lost orders.",
-    remediationAdvice: "Provide at least 48x48px clickable tap areas on mobile buttons and form inputs.",
+    remediationAdvice: "Provide at least 44x44px clickable tap areas on mobile buttons and form inputs.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      const results = ctx.browserResponsiveResults;
+
+      if (!results || results.length === 0 || results.every((r) => r.status === "NOT_TESTED" || r.status === "SKIPPED")) {
+        return {
+          testId: "RSP-04",
+          testVersion: "1.0.0",
+          testName: "Touch Target, Text, and Form Usability Indicators",
+          category: "responsive_accessibility",
+          status: "NOT_TESTED",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Touch Targets and Mobile Typography Not Tested",
+          summary: "Touch target geometry and computed text sizing require active mobile viewport rendering.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Active headless browser execution required.",
+        };
+      }
+
+      const testedRuns = results.filter((r) => r.status === "TESTED");
+      if (testedRuns.length < 7) {
+        return {
+          testId: "RSP-04",
+          testVersion: "1.0.0",
+          testName: "Touch Target, Text, and Form Usability Indicators",
+          category: "responsive_accessibility",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Touch Target and Usability Matrix Incomplete",
+          summary: `Only ${testedRuns.length} of 7 required viewport widths were tested; mobile touch target compliance could not be evaluated.`,
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Active headless browser execution across all 7 viewport widths is required.",
+        };
+      }
+
+      const mobileResults = results.filter((r) => r.viewport <= 768);
+      const totalTouchIssues = mobileResults.reduce((sum, r) => sum + (r.touchTargetIssues || 0), 0);
+      const touchSelectors = Array.from(new Set(mobileResults.flatMap((r) => r.touchTargetSelectors || [])));
+
+      if (totalTouchIssues > 8) {
+        return {
+          testId: "RSP-04",
+          testVersion: "1.0.0",
+          testName: "Touch Target, Text, and Form Usability Indicators",
+          category: "responsive_accessibility",
+          status: "WARNING",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Undersized Touch Targets Detected on Mobile",
+          summary: `Identified ${totalTouchIssues} interactive elements smaller than 40x40px on mobile screens, increasing mis-tap friction.`,
+          timestamp: now,
+          confidence: "HIGH",
+          affectedUrlsCount: totalTouchIssues,
+          sampleEvidence: touchSelectors.slice(0, 3),
+        };
+      }
+
       return {
         testId: "RSP-04",
         testVersion: "1.0.0",
@@ -129,9 +351,9 @@ export const responsiveRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 2,
         title: "Touch Targets and Form Controls Well Sized",
-        summary: "Interactive links and form inputs provide accessible tap targets on mobile screens.",
+        summary: "Interactive links and form inputs provide accessible tap targets across tested mobile viewports.",
         timestamp: now,
-        confidence: "MEDIUM",
+        confidence: "HIGH",
       };
     },
   },
@@ -148,9 +370,36 @@ export const responsiveRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const entry = ctx.pages[0];
-      const hasLang = Boolean(entry?.language);
+      if (!entry) {
+        return {
+          testId: "RSP-05",
+          testVersion: "1.0.0",
+          testName: "Basic Accessibility Signals",
+          category: "responsive_accessibility",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Accessibility Signals Unobservable",
+          summary: "No page data available to evaluate basic accessibility signals.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
 
-      if (hasLang) {
+      const hasLang = Boolean(entry.language && entry.language.trim().length > 0);
+      const visual = ctx.browserVisualResults;
+      const contrast = visual?.colorContrast;
+
+      const evidence: string[] = [];
+      if (hasLang) evidence.push(`html lang="${entry.language}"`);
+      if (contrast?.status === "PASS" || contrast?.status === "WARNING") {
+        evidence.push(
+          `Color contrast heuristic: ${contrast.contrastFailuresCount} failure(s) across ${contrast.testedElementsCount} tested elements`
+        );
+      }
+
+      if (hasLang && (!contrast || contrast.contrastFailuresCount === 0)) {
         return {
           testId: "RSP-05",
           testVersion: "1.0.0",
@@ -161,10 +410,30 @@ export const responsiveRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 2,
           title: "Base Accessibility Attributes Present",
-          summary: `Document language declared as '${entry?.language}'. Form inputs and images include descriptive markup.`,
+          summary: `Document language declared as '${entry.language}'. Core structural markup and baseline contrast heuristics present for assistive technology.`,
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: [`html lang="${entry?.language}"`],
+          sampleEvidence: evidence,
+          limitations: "Automated color contrast and accessibility signals are heuristic indicators; does not constitute a full WCAG 2.1 AA/AAA compliance audit.",
+        };
+      }
+
+      if (hasLang && contrast && contrast.contrastFailuresCount > 0) {
+        return {
+          testId: "RSP-05",
+          testVersion: "1.0.0",
+          testName: "Basic Accessibility Signals",
+          category: "responsive_accessibility",
+          status: "WARNING",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Contrast Heuristic Issues Detected",
+          summary: `Document language is declared ('${entry.language}'), but automated visual heuristics identified ${contrast.contrastFailuresCount} low-contrast element(s).`,
+          timestamp: now,
+          confidence: "MEDIUM",
+          sampleEvidence: evidence,
+          limitations: "Contrast checks are automated heuristics, not an official WCAG certification.",
         };
       }
 
@@ -181,6 +450,7 @@ export const responsiveRules: RuleDefinition[] = [
         summary: "The root `<html>` element is missing a lang attribute (e.g. lang='en'), which screen readers require for correct pronunciation.",
         timestamp: now,
         confidence: "HIGH",
+        limitations: "Screen readers require document language declarations for proper speech synthesis.",
       };
     },
   },

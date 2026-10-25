@@ -103,7 +103,9 @@ describe("Login Abuse Protection & DoS Prevention", () => {
     }
 
     it("rate-limits brute-force login attempts and returns HTTP 429 with Retry-After header", async () => {
-      const attackerIp = "192.0.2.77";
+      const uniqueSuffix = Math.floor(Math.random() * 150) + 50;
+      const attackerIp = `192.0.2.${uniqueSuffix}`;
+      const legitIp = `203.0.113.${uniqueSuffix}`;
       const email = "admin@companya.test";
 
       // 5 failed password attempts return HTTP 401
@@ -124,7 +126,6 @@ describe("Login Abuse Protection & DoS Prevention", () => {
       expect(resBlocked.headers.get("Retry-After")).toBeTruthy();
 
       // Legitimate user from distinct IP can still log in with correct credentials
-      const legitIp = "203.0.113.88";
       const reqLegit = createLoginRequest(email, "CompanyA_Auditor_2026!", legitIp);
       const resLegit = await loginHandler(reqLegit);
       expect(resLegit.status).toBe(200);

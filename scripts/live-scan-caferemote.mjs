@@ -75,11 +75,26 @@ async function runCafeRemoteValidation() {
     throw new Error(`FABRICATION DETECTED: Expected null lab scores when PageSpeed provider is not connected, got ${mobScore}/${deskScore}`);
   }
 
-  // Check 2: No fabricated viewports
+  // Check 2: Responsive viewports verification
   const viewports = ownerReport.performanceAndResponsiveSummary.testedViewports;
   console.log(`  Tested Viewports:  ${JSON.stringify(viewports)}`);
-  if (viewports.length === 7) {
-    throw new Error("FABRICATION DETECTED: Fabricated 7-viewport mock matrix found in owner report!");
+  const overflowState = ownerReport.performanceAndResponsiveSummary.horizontalOverflowFound;
+  const responsiveStatus = ownerReport.performanceAndResponsiveSummary.responsiveStatus;
+  console.log(`  Horizontal Overflow State:        ${overflowState}`);
+  console.log(`  Responsive Assessment Status:     ${responsiveStatus}`);
+  if (responsiveStatus === "TESTED") {
+    if (viewports.length !== 7) {
+      throw new Error(`Expected all 7 viewports to be tested when responsiveStatus is TESTED, got ${viewports.length}`);
+    }
+    if (typeof overflowState !== "boolean") {
+      throw new Error(`Expected horizontalOverflowFound to be boolean when TESTED, got ${overflowState}`);
+    }
+    console.log("  [PASS] Verified genuine 7-width Playwright responsive evaluation evidence.");
+  } else {
+    if (overflowState !== null) {
+      throw new Error(`Expected horizontalOverflowFound to be null when unmeasured, got ${overflowState}`);
+    }
+    console.log("  [NOTE] Headless browser skipped or unmeasured; verified truthful NOT_TESTED state.");
   }
 
   // Check 3: Competitor assessment is truthful
@@ -123,16 +138,7 @@ async function runCafeRemoteValidation() {
     throw new Error(`Whitespace normalization failure in H1 evidence: ${h1Sample}`);
   }
 
-  // Check 5C: Owner summary unmeasured defaults verification
-  const overflowState = ownerReport.performanceAndResponsiveSummary.horizontalOverflowFound;
-  const responsiveStatus = ownerReport.performanceAndResponsiveSummary.responsiveStatus;
-  console.log(`  Horizontal Overflow State:        ${overflowState} (Expected: null when unmeasured)`);
-  console.log(`  Responsive Assessment Status:     ${responsiveStatus} (Expected: NOT_TESTED)`);
-  if (overflowState !== null) {
-    throw new Error(`Integrity error: Expected horizontalOverflowFound to be null when unmeasured, got ${overflowState}`);
-  }
-
-  // Check 5D: Verified security response headers (no arbitrary x- header inflation)
+  // Check 5C: Verified security response headers (no arbitrary x- header inflation)
   const secHeadersConfigured = ownerReport.securityAndAuthSummary.securityHeadersConfigured;
   const secHeadersChecked = ownerReport.securityAndAuthSummary.totalSecurityHeadersChecked;
   const cookieIssues = ownerReport.securityAndAuthSummary.publicCookieIssues;

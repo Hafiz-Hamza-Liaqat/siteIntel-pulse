@@ -1,0 +1,63 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Quality Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NODE_ENV: test
+      ADMIN_PASSWORD_HASH: "$pbkdf2-sha512$i=220000$siteintel-pulse-salt$da39a3ee5e6b4b0d3255bfef95601890afd80709"
+      SESSION_SECRET: "test-session-secret-key-32-chars-minimum-length-req"
+      TRUSTED_PROXIES: "loopback,private"
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime (v22)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: 1. TypeScript Static Typecheck
+        run: npm run typecheck
+
+      - name: 2. ESLint Code Standards
+        run: npm run lint
+
+      - name: 3. Unit & Integration Test Suite
+        run: npm test
+
+      - name: 4. PDF Generation & Digest Verification
+        run: npm run test:pdf
+
+      - name: 5. SQLite Backup & Recovery Verification
+        run: npm run db:verify
+
+      - name: 6. End-to-End Playwright Tests
+        run: npm run test:e2e
+
+      - name: 7. Production Next.js Build
+        run: npm run build

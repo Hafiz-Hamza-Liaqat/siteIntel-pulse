@@ -25,8 +25,25 @@ export const contentRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const entry = ctx.pages[0];
-      const h1Text = entry?.headings.h1[0] || "";
-      const textSample = entry?.visibleTextSample || "";
+      if (!entry) {
+        return {
+          testId: "CNT-01",
+          testVersion: "1.0.0",
+          testName: "Business Purpose and Service Clarity",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Entry Page Unobservable",
+          summary: "No entry page data available to evaluate business purpose clarity.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
+      const h1Text = entry.headings.h1[0] || "";
+      const textSample = entry.visibleTextSample || "";
 
       if (h1Text.length >= 10 && textSample.length > 50) {
         return {
@@ -75,6 +92,23 @@ export const contentRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const pages = getHtmlPages(ctx.pages);
+      if (pages.length === 0) {
+        return {
+          testId: "CNT-02",
+          testVersion: "1.0.0",
+          testName: "Content Structure and Readability",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Content Structure Unobservable",
+          summary: "No HTML pages available to evaluate content structure.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const wellStructured = pages.filter((p) => p.headings.h2.length >= 1 || p.headings.h3.length >= 1);
 
       if (wellStructured.length >= pages.length * 0.7) {
@@ -88,7 +122,7 @@ export const contentRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 2,
           title: "Clean Content Structure and Subheading Flow",
-          summary: `Evaluated pages utilize structured subheadings and paragraph formatting for scan-friendly reading.`,
+          summary: "Evaluated pages utilize structured subheadings and paragraph formatting for scan-friendly reading.",
           timestamp: now,
           confidence: "HIGH",
         };
@@ -122,6 +156,23 @@ export const contentRules: RuleDefinition[] = [
     remediationAdvice: "Link clearly to About, Contact, Privacy Policy, and Terms of Service in your footer navigation.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "CNT-03",
+          testVersion: "1.0.0",
+          testName: "Trust and Ownership Signals",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Trust Signals Unobservable",
+          summary: "No page data available to evaluate trust signals.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const allLinks = ctx.pages.flatMap((p) => p.links);
       const linkHrefs = allLinks.map((l) => l.targetUrl.toLowerCase());
 
@@ -196,6 +247,23 @@ export const contentRules: RuleDefinition[] = [
     isContextDependent: true,
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "CNT-04",
+          testVersion: "1.0.0",
+          testName: "Knowledge and Resource Content Opportunities",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Knowledge Hub Unobservable",
+          summary: "No page data available to evaluate educational content.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const allLinks = ctx.pages.flatMap((p) => p.links);
       const linkHrefs = allLinks.map((l) => l.targetUrl.toLowerCase());
 
@@ -248,7 +316,25 @@ export const contentRules: RuleDefinition[] = [
     remediationAdvice: "Search and replace any remaining 'Lorem Ipsum' or template placeholder copy with authentic company messaging.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const pagesWithLorem = ctx.pages.filter((p) =>
+      const pages = getHtmlPages(ctx.pages);
+      if (pages.length === 0) {
+        return {
+          testId: "CNT-05",
+          testVersion: "1.0.0",
+          testName: "Thin, Duplicate, or Stale Content Indicators",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Content Quality Unobservable",
+          summary: "No HTML pages available to audit placeholder or stale content.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
+      const pagesWithLorem = pages.filter((p) =>
         (p.visibleTextSample || "").toLowerCase().includes("lorem ipsum")
       );
 

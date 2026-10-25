@@ -18,6 +18,9 @@ export interface RuleEvaluationContext {
   pageSpeedMobile?: PageSpeedResult;
   pageSpeedDesktop?: PageSpeedResult;
   competitors?: string[];
+  browserResponsiveResults?: import("@/types").ResponsiveDiagnostic[];
+  browserVisualResults?: import("@/types").VisualDesignDiagnostic;
+  exposureResults?: import("../scanner/exposure-checker").ExposureCheckResult;
 }
 
 export interface RuleDefinition {

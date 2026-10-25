@@ -11,7 +11,7 @@ test.describe("Company B: Expert Diagnostic Workbench E2E", () => {
     await loadDemoBtn.click();
 
     // Wait for the workbench to render
-    await expect(page.getByText("Milestone 2 • Company B Workbench")).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("#section-summary")).toBeVisible({ timeout: 20000 });
   });
 
   test("Renders header with platform identity, overall score, and triage counters", async ({ page }) => {

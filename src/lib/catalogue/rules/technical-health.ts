@@ -173,6 +173,22 @@ export const technicalHealthRules: RuleDefinition[] = [
     remediationAdvice: "Verify that public production pages do not emit 'noindex' or 'none' in meta tags or HTTP headers.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "TCH-03",
+          testVersion: "1.0.0",
+          testName: "Crawlability and Indexability Signals",
+          category: "technical_health",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Pages Unobservable",
+          summary: "No page data available to evaluate crawlability and indexability directives.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
       const noindexPages = ctx.pages.filter((p) =>
         p.robotsDirectives.some((d) => d.includes("noindex") || d.includes("none"))
       );
@@ -246,6 +262,22 @@ export const technicalHealthRules: RuleDefinition[] = [
     remediationAdvice: "Fix or remove links pointing to 404 pages or create 301 redirects to active successor pages.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "TCH-04",
+          testVersion: "1.0.0",
+          testName: "Broken Internal Links",
+          category: "technical_health",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Links Unobservable",
+          summary: "No page data available to evaluate broken internal links.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
       const brokenPages = ctx.pages.filter((p) => p.statusCode === 404 || p.statusCode >= 500);
 
       if (brokenPages.length === 0) {
@@ -381,6 +413,22 @@ export const technicalHealthRules: RuleDefinition[] = [
     remediationAdvice: "Audit developer console network logs and resolve broken asset URLs.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "TCH-06",
+          testVersion: "1.0.0",
+          testName: "Failed or Blocked Resources and Server Errors",
+          category: "technical_health",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Resources Unobservable",
+          summary: "No page data available to evaluate failed or blocked resources.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
       const failedResourcesCount = ctx.pages.reduce(
         (sum, p) => sum + p.resources.filter((r) => r.isFailed).length,
         0

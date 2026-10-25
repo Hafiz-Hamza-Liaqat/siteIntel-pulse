@@ -217,7 +217,11 @@ export function projectOwnerReport(
     platformProfile: {
       detectedTechnologies: Array.from(new Set(detectedTechnologies)),
       totalPagesDiscovered: crawl.coverage.discoveredPages,
-      httpsStatus: entry?.finalUrl.startsWith("https://") ? "Enforced (HTTPS)" : "Unencrypted (HTTP)",
+      httpsStatus: !entry
+        ? "UNKNOWN (No page response observed)"
+        : entry.finalUrl.startsWith("https://")
+        ? "Enforced (HTTPS)"
+        : "Unencrypted (HTTP)",
       preferredHost: domain,
       primaryLanguage: entry?.language || request.preferredLanguage,
     },
@@ -234,7 +238,9 @@ export function projectOwnerReport(
       titlesHealthy: crawl.pages.filter((p) => p.title && p.title.length >= 25 && p.title.length <= 70).length,
       descriptionsHealthy: crawl.pages.filter((p) => p.metaDescription && p.metaDescription.length >= 60).length,
       canonicalsConsistent: crawl.pages.every((p) => Boolean(p.canonicalCandidate || (p as any).canonical)),
-      brokenLinksCount: crawl.coverage.failedPages,
+      brokenLinksCount:
+        crawl.pages.flatMap((p) => p.links || []).filter((l) => l.isBroken).length +
+        (crawl.externalLinksTested || []).filter((l) => l.isBroken).length,
       sitemapAccessible: crawl.sitemapUrls.length > 0,
       structuredDataPresent: crawl.pages.some((p) => ((p.structuredData || (p as any).schemaObjects || []).length > 0)),
     },
@@ -245,14 +251,16 @@ export function projectOwnerReport(
         ? "Field CrUX metrics available"
         : "NOT_CONNECTED (PageSpeed / CrUX API provider not configured)",
       testedViewports: options?.browserResponsiveResults
-        ? options.browserResponsiveResults.filter((r) => r.status === "TESTED" || (!r.status && r.viewport)).map((r) => r.viewport)
+        ? options.browserResponsiveResults.filter((r) => r.status === "TESTED").map((r) => r.viewport)
         : [],
-      horizontalOverflowFound: options?.browserResponsiveResults && options.browserResponsiveResults.length > 0
-        ? options.browserResponsiveResults.some((r) => r.horizontalOverflow)
-        : null,
-      responsiveStatus: options?.browserResponsiveResults && options.browserResponsiveResults.length > 0
-        ? "TESTED"
-        : "NOT_TESTED",
+      horizontalOverflowFound:
+        options?.browserResponsiveResults && options.browserResponsiveResults.some((r) => r.status === "TESTED")
+          ? options.browserResponsiveResults.filter((r) => r.status === "TESTED").some((r) => r.horizontalOverflow)
+          : null,
+      responsiveStatus:
+        options?.browserResponsiveResults && options.browserResponsiveResults.filter((r) => r.status === "TESTED").length === 7
+          ? "TESTED"
+          : "NOT_TESTED",
     },
     securityAndAuthSummary: (() => {
       const EXPECTED_SECURITY_HEADERS = [
@@ -271,7 +279,7 @@ export function projectOwnerReport(
         : null;
 
       return {
-        httpsEnforced: entry?.finalUrl.startsWith("https://") ?? true,
+        httpsEnforced: entry ? entry.finalUrl.startsWith("https://") : false,
         securityHeadersConfigured: presentSecurityHeaders.length,
         totalSecurityHeadersChecked: EXPECTED_SECURITY_HEADERS.length,
         authSurfacesFound: crawl.pages.flatMap((p: any) => p.links || []).filter((l: any) => l.targetUrl && isAuthUrl(l.targetUrl)).length,
@@ -284,7 +292,11 @@ export function projectOwnerReport(
     })(),
     contentTrustAiSummary: {
       blogOrResourcePresent: crawl.pages.flatMap((p: any) => p.links || []).some((l: any) => l.targetUrl && (l.targetUrl.includes("blog") || l.targetUrl.includes("faq"))),
-      aiCrawlerPolicy: (typeof crawl.robotsTxt === "string" ? crawl.robotsTxt : ((crawl.robotsTxt as any)?.raw || "")).includes("GPTBot") ? "Selective Bot Directives Detected" : "Standard Open AI Crawl Permissions",
+      aiCrawlerPolicy: (() => {
+        const raw = typeof crawl.robotsTxt === "string" ? crawl.robotsTxt : ((crawl.robotsTxt as any)?.raw || "");
+        if (!raw) return "UNKNOWN (Robots.txt unobserved or unavailable)";
+        return raw.includes("GPTBot") ? "Selective Bot Directives Detected" : "Standard Open AI Crawl Permissions";
+      })(),
       entitySchemaPresent: crawl.pages.some((p: any) =>
         (p.structuredData || p.schemaObjects || []).some((s: any) => {
           const t = String(s["@type"] || "").toLowerCase();

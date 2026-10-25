@@ -74,6 +74,72 @@ export function parsePageHtml(
   // 2. Canonical URL
   const canonicalCandidate = !isXmlSitemap ? cleanText($('link[rel="canonical" i]').attr("href")) : undefined;
 
+  // Viewport Meta Tag
+  const metaViewport = !isXmlSitemap ? cleanText($('meta[name="viewport" i]').attr("content")) : undefined;
+
+  // Forms Extraction & Usability Analysis
+  const forms: PageObservation["forms"] = [];
+  if (!isXmlSitemap) {
+    $("form").each((idx, el) => {
+      const formId = $(el).attr("id") || `form_${idx}`;
+      const rawAction = $(el).attr("action")?.trim() || "";
+      const method = ($(el).attr("method") || "GET").toUpperCase();
+      let isSecureAction = true;
+      if (rawAction) {
+        try {
+          const resolvedAction = new URL(rawAction, pageUrl);
+          isSecureAction = resolvedAction.protocol === "https:";
+        } catch {
+          isSecureAction = true;
+        }
+      } else {
+        isSecureAction = pageUrl.startsWith("https://");
+      }
+      const hasPasswordInput = $(el).find('input[type="password" i]').length > 0;
+      const inputs = $(el).find("input, select, textarea");
+      const inputsCount = inputs.length;
+      const unlabeledInputs = inputs.filter((_, inputEl) => {
+        const type = $(inputEl).attr("type")?.toLowerCase();
+        if (type === "hidden" || type === "submit" || type === "button") return false;
+        const id = $(inputEl).attr("id");
+        const hasAssociatedLabel = id ? $(`label[for="${id}"]`).length > 0 : false;
+        const hasParentLabel = $(inputEl).closest("label").length > 0;
+        const hasAria = Boolean($(inputEl).attr("aria-label") || $(inputEl).attr("aria-labelledby") || $(inputEl).attr("placeholder"));
+        return !hasAssociatedLabel && !hasParentLabel && !hasAria;
+      });
+      const hasLabels = unlabeledInputs.length === 0;
+      const formText = $(el).text().toLowerCase();
+      const isAuthForm = hasPasswordInput || formText.includes("login") || formText.includes("sign in") || formText.includes("register");
+      forms.push({
+        id: formId,
+        action: rawAction,
+        method,
+        isSecureAction,
+        hasPasswordInput,
+        inputsCount,
+        hasLabels,
+        isAuthForm,
+      });
+    });
+  }
+
+  // Theme & Observable Styling Clues
+  const themeColor = !isXmlSitemap ? $('meta[name="theme-color" i]').attr("content")?.trim() : undefined;
+  const htmlClass = $("html").attr("class") || "";
+  const bodyClass = $("body").attr("class") || "";
+  const hasDarkModeClass = Boolean(
+    htmlClass.includes("dark") ||
+    bodyClass.includes("dark") ||
+    $("html").attr("data-theme")?.includes("dark") ||
+    $("body").attr("data-theme")?.includes("dark")
+  );
+  const colorScheme = $('meta[name="color-scheme" i]').attr("content")?.trim();
+  const themeClues = {
+    themeColor,
+    hasDarkModeClass,
+    colorScheme,
+  };
+
   // 3. Robots directives
   const robotsDirectives: string[] = [];
   const robotsMeta = $('meta[name="robots" i]').attr("content");
@@ -304,5 +370,8 @@ export function parsePageHtml(
     consoleErrors: [],
     isXmlSitemap,
     documentType,
+    metaViewport,
+    forms,
+    themeClues,
   };
 }

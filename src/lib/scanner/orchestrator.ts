@@ -5,6 +5,10 @@ import { assessmentRegistry } from "../catalogue/registry";
 import { projectOwnerReport } from "../reports/owner-projection";
 import { projectExpertReport } from "../reports/expert-projection";
 import { scanDb } from "../persistence/db";
+import { runResponsiveAudit, ResponsiveRunnerResult } from "./responsive-runner";
+import { checkPublicExposure, ExposureCheckResult } from "./exposure-checker";
+import { PageSpeedProvider } from "../providers/pagespeed";
+import { PageSpeedResult } from "../providers/types";
 
 export class ScanOrchestrator {
   /**
@@ -35,7 +39,7 @@ export class ScanOrchestrator {
           jobId,
           "collecting_evidence",
           stage,
-          Math.min(30 + Math.round((tested / (request.maxPages || 50)) * 40), 70),
+          Math.min(30 + Math.round((tested / (request.maxPages || 50)) * 30), 60),
           { discovered, tested },
           job.tenantId
         );
@@ -43,6 +47,41 @@ export class ScanOrchestrator {
 
       if (abortSignal?.aborted) {
         throw new Error("Scan was canceled by user.");
+      }
+
+      // Stage 2.5: Deep Evidence Gathering (Headless Browser & Bounded Exposure Probes)
+      await jobManager.updateProgress(
+        jobId,
+        "collecting_evidence",
+        "Executing headless responsive viewport checks across 7 screen widths and security exposure probes",
+        68,
+        { discovered: crawlResult.coverage.discoveredPages, tested: crawlResult.coverage.testedPages },
+        job.tenantId
+      );
+
+      let responsiveResult: ResponsiveRunnerResult | undefined;
+      try {
+        responsiveResult = await runResponsiveAudit(request.targetUrl, { abortSignal });
+      } catch (err) {
+        console.warn("[Orchestrator] Responsive audit warning:", err);
+      }
+
+      let exposureResult: ExposureCheckResult | undefined;
+      try {
+        exposureResult = await checkPublicExposure(request.targetUrl, { abortSignal });
+      } catch (err) {
+        console.warn("[Orchestrator] Exposure check warning:", err);
+      }
+
+      // PageSpeed provider evaluation
+      const pageSpeedProvider = new PageSpeedProvider();
+      let pageSpeedMobile: PageSpeedResult | undefined;
+      let pageSpeedDesktop: PageSpeedResult | undefined;
+      try {
+        pageSpeedMobile = await pageSpeedProvider.getPageSpeedData(request.targetUrl, "mobile");
+        pageSpeedDesktop = await pageSpeedProvider.getPageSpeedData(request.targetUrl, "desktop");
+      } catch (err) {
+        console.warn("[Orchestrator] PageSpeed check warning:", err);
       }
 
       // Stage 3: Assessing
@@ -65,6 +104,11 @@ export class ScanOrchestrator {
         sitemapUrls: crawlResult.sitemapUrls,
         externalLinksTested: crawlResult.externalLinksTested,
         competitors: request.competitors,
+        pageSpeedMobile,
+        pageSpeedDesktop,
+        browserResponsiveResults: responsiveResult?.viewportResults,
+        browserVisualResults: responsiveResult?.visualDesign,
+        exposureResults: exposureResult,
       };
 
       const assessmentResults = assessmentRegistry.evaluateAll(evalContext);
@@ -83,7 +127,18 @@ export class ScanOrchestrator {
           job.tenantId
         );
 
-        const expertReport = projectExpertReport(jobId, request, crawlResult, assessmentResults, {}, job.tenantId);
+        const expertReport = projectExpertReport(
+          jobId,
+          request,
+          crawlResult,
+          assessmentResults,
+          {
+            pageSpeedData: { mobile: pageSpeedMobile, desktop: pageSpeedDesktop },
+            browserResponsiveResults: responsiveResult?.viewportResults,
+            visualDesign: responsiveResult?.visualDesign,
+          },
+          job.tenantId
+        );
         await scanDb.saveExpertReport(expertReport, job.tenantId);
         await scanDb.updateJob(
           jobId,
@@ -112,7 +167,17 @@ export class ScanOrchestrator {
           job.tenantId
         );
 
-        const ownerReport = projectOwnerReport(jobId, request, crawlResult, assessmentResults, job.tenantId);
+        const ownerReport = projectOwnerReport(
+          jobId,
+          request,
+          crawlResult,
+          assessmentResults,
+          job.tenantId,
+          {
+            pageSpeedData: { mobile: pageSpeedMobile, desktop: pageSpeedDesktop },
+            browserResponsiveResults: responsiveResult?.viewportResults,
+          }
+        );
         await scanDb.saveReport(ownerReport, job.tenantId);
         await scanDb.updateJob(
           jobId,

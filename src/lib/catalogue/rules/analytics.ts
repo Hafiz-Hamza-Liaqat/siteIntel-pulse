@@ -14,8 +14,25 @@ export const analyticsRules: RuleDefinition[] = [
     remediationAdvice: "Install Google Analytics 4 (GA4) with your unique measurement ID.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "ANA-01",
+          testVersion: "1.0.0",
+          testName: "GA4 Identifier / Script Load Signal",
+          category: "analytics_tracking",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "Analytics Unobservable",
+          summary: "No page data available to evaluate GA4 script presence.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const hasGa4 = ctx.pages.some((p) =>
-        p.resources.some((r) => r.url.includes("googletagmanager.com/gtag/js") || r.url.includes("google-analytics.com"))
+        (p.resources || []).some((r) => r.url.includes("googletagmanager.com/gtag/js") || r.url.includes("google-analytics.com"))
       );
 
       if (hasGa4) {
@@ -65,8 +82,25 @@ export const analyticsRules: RuleDefinition[] = [
     remediationAdvice: "Deploy Google Tag Manager to streamline event tracking and conversion attribution.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "ANA-02",
+          testVersion: "1.0.0",
+          testName: "Google Tag Manager Signal",
+          category: "analytics_tracking",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "GTM Unobservable",
+          summary: "No page data available to evaluate Tag Manager presence.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const hasGtm = ctx.pages.some((p) =>
-        p.resources.some((r) => r.url.includes("googletagmanager.com/gtm.js"))
+        (p.resources || []).some((r) => r.url.includes("googletagmanager.com/gtm.js"))
       );
 
       if (hasGtm) {
@@ -115,8 +149,25 @@ export const analyticsRules: RuleDefinition[] = [
     remediationAdvice: "Implement conversion tracking pixels for your active advertising channels.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "ANA-03",
+          testVersion: "1.0.0",
+          testName: "Advertising and Retargeting Pixels",
+          category: "analytics_tracking",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "Ad Pixels Unobservable",
+          summary: "No page data available to evaluate advertising pixels.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const hasPixels = ctx.pages.some((p) =>
-        p.resources.some(
+        (p.resources || []).some(
           (r) =>
             r.url.includes("connect.facebook.net") ||
             r.url.includes("googleadservices.com") ||
@@ -172,9 +223,26 @@ export const analyticsRules: RuleDefinition[] = [
     remediationAdvice: "Deploy a Consent Management Platform (CMP) to collect verifiable consent before firing marketing cookies.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
+      if (ctx.pages.length === 0) {
+        return {
+          testId: "ANA-04",
+          testVersion: "1.0.0",
+          testName: "Consent UI and Tracking UX Signals",
+          category: "analytics_tracking",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "Consent UI Unobservable",
+          summary: "No page data available to evaluate cookie consent mechanisms.",
+          timestamp: now,
+          confidence: "LOW",
+        };
+      }
+
       const hasConsent = ctx.pages.some((p) => {
         const text = (p.visibleTextSample || "").toLowerCase();
-        const hasScript = p.resources.some(
+        const hasScript = (p.resources || []).some(
           (r) =>
             r.url.includes("onetrust") ||
             r.url.includes("cookiebot") ||
