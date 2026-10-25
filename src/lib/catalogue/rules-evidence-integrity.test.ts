@@ -769,42 +769,87 @@ describe("Evidence Integrity & Full Audit Capabilities", () => {
       expect(rsp04.summary).toContain("mobile body font size (11px)");
     });
 
-    it("verifies SEC-04 evaluates Secure, HttpOnly, and SameSite attributes truthfully", () => {
-      // Cookie with Secure and HttpOnly, but missing SameSite
-      const pageWithMissingSameSite: PageObservation = {
-        ...baseMockPage,
-        cookieAttributes: [
-          { name: "session_id", secure: true, httpOnly: true, sameSite: undefined },
-        ],
-      };
-
-      const ctxMissingSameSite: RuleEvaluationContext = {
-        ...emptyContext,
-        pages: [pageWithMissingSameSite],
-      };
-
-      const sec04Missing = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxMissingSameSite);
-      expect(sec04Missing.status).toBe("WARNING");
-      expect(sec04Missing.earnedPoints).toBe(1);
-      expect(sec04Missing.title).toContain("Missing SameSite");
-
-      // Cookie with all 3 flags: Secure, HttpOnly, SameSite=Lax
+    it("verifies SEC-04 evaluates Secure, HttpOnly, and SameSite attributes truthfully across all combinations", () => {
+      // 1. All 3 flags present: Secure, HttpOnly, SameSite=Lax
       const pageWithAllFlags: PageObservation = {
         ...baseMockPage,
         cookieAttributes: [
           { name: "session_id", secure: true, httpOnly: true, sameSite: "Lax" },
         ],
       };
-
       const ctxAllFlags: RuleEvaluationContext = {
         ...emptyContext,
         pages: [pageWithAllFlags],
       };
-
       const sec04Pass = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxAllFlags);
       expect(sec04Pass.status).toBe("PASS");
       expect(sec04Pass.earnedPoints).toBe(2);
       expect(sec04Pass.title).toContain("SameSite Flags");
+      expect(sec04Pass.sampleEvidence?.[0]).toContain("Secure=true");
+      expect(sec04Pass.sampleEvidence?.[0]).toContain("HttpOnly=true");
+      expect(sec04Pass.sampleEvidence?.[0]).toContain("SameSite=Lax");
+
+      // 2. Cookie with Secure and HttpOnly, but missing SameSite
+      const pageWithMissingSameSite: PageObservation = {
+        ...baseMockPage,
+        cookieAttributes: [
+          { name: "session_id", secure: true, httpOnly: true, sameSite: undefined },
+        ],
+      };
+      const ctxMissingSameSite: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [pageWithMissingSameSite],
+      };
+      const sec04MissingSameSite = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxMissingSameSite);
+      expect(sec04MissingSameSite.status).toBe("WARNING");
+      expect(sec04MissingSameSite.earnedPoints).toBe(1);
+      expect(sec04MissingSameSite.title).toContain("Missing SameSite");
+
+      // 3. Cookie with missing Secure flag
+      const pageWithMissingSecure: PageObservation = {
+        ...baseMockPage,
+        cookieAttributes: [
+          { name: "session_id", secure: false, httpOnly: true, sameSite: "Lax" },
+        ],
+      };
+      const ctxMissingSecure: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [pageWithMissingSecure],
+      };
+      const sec04MissingSecure = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxMissingSecure);
+      expect(sec04MissingSecure.status).toBe("WARNING");
+      expect(sec04MissingSecure.earnedPoints).toBe(0);
+      expect(sec04MissingSecure.title).toContain("Missing Core Transport Security Flags");
+
+      // 4. Cookie with missing HttpOnly flag
+      const pageWithMissingHttpOnly: PageObservation = {
+        ...baseMockPage,
+        cookieAttributes: [
+          { name: "session_id", secure: true, httpOnly: false, sameSite: "Lax" },
+        ],
+      };
+      const ctxMissingHttpOnly: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [pageWithMissingHttpOnly],
+      };
+      const sec04MissingHttpOnly = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxMissingHttpOnly);
+      expect(sec04MissingHttpOnly.status).toBe("WARNING");
+      expect(sec04MissingHttpOnly.earnedPoints).toBe(0);
+      expect(sec04MissingHttpOnly.title).toContain("Missing Core Transport Security Flags");
+
+      // 5. Zero cookies observed -> UNKNOWN (0 points)
+      const pageWithNoCookies: PageObservation = {
+        ...baseMockPage,
+        cookieAttributes: [],
+      };
+      const ctxNoCookies: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [pageWithNoCookies],
+      };
+      const sec04NoCookies = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxNoCookies);
+      expect(sec04NoCookies.status).toBe("UNKNOWN");
+      expect(sec04NoCookies.earnedPoints).toBe(0);
+      expect(sec04NoCookies.title).toContain("No Public Cookies Observed");
     });
 
     it("verifies owner projection derives AI crawler policy with root-level blocks", () => {

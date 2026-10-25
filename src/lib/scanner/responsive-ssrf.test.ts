@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { runResponsiveAudit } from "./responsive-runner";
+import http from "node:http";
+import net from "node:net";
+import { describe, it, expect, vi } from "vitest";
+import { runResponsiveAudit, createPinnedEgressProxy } from "./responsive-runner";
+import * as dnsSafety from "./dns-safety";
 import { validateHostSafety } from "./dns-safety";
 import { responsiveRules } from "../catalogue/rules/responsive";
 import { RuleEvaluationContext } from "../catalogue/types";
@@ -139,5 +142,111 @@ describe("Playwright Responsive Runner — SSRF & Destination Boundary Safety", 
     const res04 = rsp04.evaluate(ctx);
     expect(res04.status).toBe("NOT_TESTED");
     expect(res04.earnedPoints).toBe(0);
+  });
+
+  describe("Pinned Egress Proxy & DNS-Rebinding Defense", () => {
+    it("blocks outbound proxy HTTP requests to private / rebinding destinations", async () => {
+      const proxy = await createPinnedEgressProxy();
+      const proxyParsed = new URL(proxy.proxyUrl);
+
+      try {
+        const statusCode = await new Promise<number>((resolve) => {
+          const req = http.request(
+            {
+              host: proxyParsed.hostname,
+              port: proxyParsed.port,
+              path: "http://127.0.0.1.nip.io/admin",
+              method: "GET",
+              headers: { host: "127.0.0.1.nip.io" },
+            },
+            (res) => {
+              resolve(res.statusCode || 0);
+            }
+          );
+          req.on("error", () => resolve(500));
+          req.end();
+        });
+
+        expect(statusCode).toBe(403);
+        const blocked = proxy.getBlockedRequests();
+        expect(blocked.some((b) => b.url.includes("127.0.0.1.nip.io"))).toBe(true);
+      } finally {
+        await proxy.close();
+      }
+    });
+
+    it("blocks HTTPS CONNECT tunnels to private / link-local destinations", async () => {
+      const proxy = await createPinnedEgressProxy();
+      const proxyParsed = new URL(proxy.proxyUrl);
+
+      try {
+        const responseStatus = await new Promise<string>((resolve) => {
+          const client = net.connect(Number(proxyParsed.port), proxyParsed.hostname, () => {
+            client.write("CONNECT 169.254.169.254:443 HTTP/1.1\r\nHost: 169.254.169.254\r\n\r\n");
+          });
+
+          client.on("data", (data) => {
+            resolve(data.toString());
+            client.destroy();
+          });
+
+          client.on("error", () => resolve("ERROR"));
+        });
+
+        expect(responseStatus).toContain("403 Forbidden");
+        const blocked = proxy.getBlockedRequests();
+        expect(blocked.some((b) => b.url.includes("169.254.169.254"))).toBe(true);
+      } finally {
+        await proxy.close();
+      }
+    });
+
+    it("detects DNS rebinding / answer change and terminates the connection immediately", async () => {
+      // Mock validateHostSafety to simulate DNS rebinding where host subsequently resolves to private IP
+      const validateSpy = vi.spyOn(dnsSafety, "validateHostSafety").mockResolvedValueOnce({
+        isSafe: false,
+        resolvedIps: ["127.0.0.1"],
+        rejectionReason: "DNS Rebinding detected: host resolved to prohibited private IP 127.0.0.1",
+      });
+
+      const proxy = await createPinnedEgressProxy();
+      const proxyParsed = new URL(proxy.proxyUrl);
+
+      try {
+        const statusCode = await new Promise<number>((resolve) => {
+          const req = http.request(
+            {
+              host: proxyParsed.hostname,
+              port: proxyParsed.port,
+              path: "http://rebind-test.example.com/",
+              method: "GET",
+              headers: { host: "rebind-test.example.com" },
+            },
+            (res) => {
+              resolve(res.statusCode || 0);
+            }
+          );
+          req.on("error", () => resolve(500));
+          req.end();
+        });
+
+        expect(statusCode).toBe(403);
+        const blocked = proxy.getBlockedRequests();
+        expect(blocked.some((b) => b.reason.includes("DNS Rebinding"))).toBe(true);
+      } finally {
+        validateSpy.mockRestore();
+        await proxy.close();
+      }
+    });
+
+    it("skips scan and leaves viewports NOT_TESTED when navigation redirects to an unsafe internal IP", async () => {
+      // Attempting to scan a target that triggers SSRF safety failure
+      const result = await runResponsiveAudit("http://10.255.255.1/");
+      expect(result.runnerStatus).toBe("SKIPPED");
+      expect(result.failureReason).toContain("destination boundary safety validation");
+      expect(result.summary.responsiveStatus).toBe("NOT_TESTED");
+      expect(result.summary.horizontalOverflowFound).toBeNull();
+      expect(result.viewportResults.every((v) => v.status === "NOT_TESTED")).toBe(true);
+    });
   });
 });

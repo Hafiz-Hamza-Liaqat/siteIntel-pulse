@@ -535,7 +535,9 @@ export function projectExpertReport(
     sessionSecurity: {
       cookieSecure: hasCookies ? allCookies.every((c) => c.secure) : null,
       cookieHttpOnly: hasCookies ? allCookies.every((c) => c.httpOnly) : null,
-      cookieSameSite: hasCookies ? allCookies[0]?.sameSite || "Lax" : null,
+      cookieSameSite: hasCookies
+        ? allCookies.find((c) => c.sameSite && c.sameSite.trim().length > 0)?.sameSite || null
+        : null,
       expiryObserved: hasCookies ? "Observed in response headers" : null,
       cookiesObserved: allCookies.length,
       status: hasCookies ? "OBSERVED" : "NO_COOKIES_OBSERVED",

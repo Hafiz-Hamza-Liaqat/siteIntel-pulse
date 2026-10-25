@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { checkPublicExposure } from "./exposure-checker";
+import { checkPublicExposure, hasEnvFileSignature } from "./exposure-checker";
 
 describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
   const originalFetch = globalThis.fetch;
@@ -222,5 +222,51 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
 
     expect(result.hasExposure).toBe(true);
     expect(result.exposedPaths).toContain("/.git/HEAD");
+  });
+
+  describe("hasEnvFileSignature & Plausible Assignment Validation", () => {
+    it("recognizes valid env file assignments", () => {
+      expect(hasEnvFileSignature("DB_HOST=127.0.0.1\nDB_USER=root")).toBe(true);
+      expect(hasEnvFileSignature("APP_KEY=base64:xyz123")).toBe(true);
+      expect(hasEnvFileSignature("SECRET_KEY=my_super_secret")).toBe(true);
+      expect(hasEnvFileSignature("NODE_ENV=production")).toBe(true);
+      expect(hasEnvFileSignature("# Comment\nPORT=3000")).toBe(true);
+    });
+
+    it("does not flag arbitrary prose, math, or lowercase variables with =", () => {
+      expect(hasEnvFileSignature("const x = 5;")).toBe(false);
+      expect(hasEnvFileSignature("The result is 2 + 2 = 4.")).toBe(false);
+      expect(hasEnvFileSignature("hello = world")).toBe(false);
+      expect(hasEnvFileSignature("query = search")).toBe(false);
+      expect(hasEnvFileSignature("# Just comments\n# with = signs")).toBe(false);
+    });
+
+    it("treats responses with arbitrary = characters as inconclusive instead of exposed", async () => {
+      const arbitraryStream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode("var width = 100; var height = 200; return width * height;")
+          );
+          controller.close();
+        },
+      });
+
+      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+        if (String(url).includes(".env")) {
+          return Promise.resolve({
+            status: 200,
+            headers: new Headers({ "content-type": "text/plain" }),
+            body: arbitraryStream,
+          });
+        }
+        return Promise.resolve({ status: 404, headers: new Headers(), body: null });
+      });
+
+      const result = await checkPublicExposure("https://example.com");
+
+      expect(result.hasExposure).toBe(false);
+      expect(result.isInconclusive).toBe(true);
+      expect(result.inconclusiveReason).toContain("inconclusive");
+    });
   });
 });

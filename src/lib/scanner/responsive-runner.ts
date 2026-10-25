@@ -1,6 +1,9 @@
+import http from "node:http";
+import net from "node:net";
+import type { Duplex } from "node:stream";
 import { chromium, Browser, Page } from "playwright";
 import { ResponsiveDiagnostic, VisualDesignDiagnostic } from "@/types";
-import { validateHostSafety, DnsSafetyCheckResult } from "./dns-safety";
+import { validateHostSafety } from "./dns-safety";
 import { normalizeAndValidateUrl } from "./url-validator";
 
 export const RESPONSIVE_VIEWPORT_WIDTHS = [320, 360, 390, 768, 1024, 1280, 1440] as const;
@@ -21,12 +24,153 @@ export interface ResponsiveRunnerResult {
   };
 }
 
+export interface PinnedEgressProxy {
+  proxyUrl: string;
+  close: () => Promise<void>;
+  getBlockedRequests: () => Array<{ url: string; reason: string }>;
+}
+
+/**
+ * Creates an in-process local HTTP/HTTPS tunneling egress proxy.
+ * Resolves destination hostnames via validateHostSafety and physically connects
+ * TCP sockets directly to the validated pinned IP address.
+ *
+ * This closes the DNS-rebinding (TOCTOU) gap in Chromium by ensuring Chromium
+ * cannot re-resolve hostnames to internal/private IP addresses, while preserving
+ * standard TLS SNI and Host header integrity over the established TCP tunnel.
+ */
+export async function createPinnedEgressProxy(): Promise<PinnedEgressProxy> {
+  const blockedRequests: Array<{ url: string; reason: string }> = [];
+  const activeSockets = new Set<net.Socket | Duplex>();
+
+  const server = http.createServer(async (req, res) => {
+    try {
+      const targetUrl = req.url?.startsWith("http")
+        ? new URL(req.url)
+        : new URL(`http://${req.headers.host}${req.url}`);
+
+      const safety = await validateHostSafety(targetUrl.hostname);
+      if (!safety.isSafe || !safety.resolvedIps?.length) {
+        const reason = safety.rejectionReason || "SSRF destination prohibited";
+        blockedRequests.push({ url: targetUrl.href, reason });
+        res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" }).end(reason);
+        return;
+      }
+
+      const pinnedIp = safety.resolvedIps[0];
+      const port = Number(targetUrl.port) || 80;
+
+      const proxyReq = http.request(
+        {
+          host: pinnedIp,
+          port,
+          path: targetUrl.pathname + targetUrl.search,
+          method: req.method,
+          headers: { ...req.headers, host: targetUrl.host },
+        },
+        (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+          proxyRes.pipe(res);
+        }
+      );
+
+      proxyReq.on("error", (err) => {
+        if (!res.headersSent) {
+          res.writeHead(502, { "Content-Type": "text/plain", Connection: "close" }).end(`Bad Gateway: ${err.message}`);
+        }
+      });
+
+      req.pipe(proxyReq);
+    } catch (err: any) {
+      if (!res.headersSent) {
+        res.writeHead(400, { "Content-Type": "text/plain", Connection: "close" }).end(`Invalid Request: ${err?.message}`);
+      }
+    }
+  });
+
+  server.on("connection", (socket) => {
+    activeSockets.add(socket);
+    socket.on("close", () => activeSockets.delete(socket));
+  });
+
+  server.on("connect", async (req, clientSocket, head) => {
+    activeSockets.add(clientSocket);
+    clientSocket.on("close", () => activeSockets.delete(clientSocket));
+
+    try {
+      const [hostname, portStr] = (req.url || "").split(":");
+      const port = Number(portStr) || 443;
+
+      const safety = await validateHostSafety(hostname);
+      if (!safety.isSafe || !safety.resolvedIps?.length) {
+        const reason = safety.rejectionReason || "SSRF destination prohibited";
+        blockedRequests.push({ url: `https://${req.url}`, reason });
+        clientSocket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        clientSocket.destroy();
+        return;
+      }
+
+      const pinnedIp = safety.resolvedIps[0];
+      const serverSocket = net.connect({ host: pinnedIp, port }, () => {
+        clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head && head.length > 0) {
+          serverSocket.write(head);
+        }
+        serverSocket.pipe(clientSocket);
+        clientSocket.pipe(serverSocket);
+      });
+
+      activeSockets.add(serverSocket);
+      serverSocket.on("close", () => activeSockets.delete(serverSocket));
+
+      serverSocket.on("error", () => {
+        try {
+          clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+          clientSocket.destroy();
+        } catch {}
+      });
+
+      clientSocket.on("error", () => {
+        serverSocket.destroy();
+      });
+    } catch (err: any) {
+      try {
+        clientSocket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        clientSocket.destroy();
+      } catch {}
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+    server.on("error", reject);
+  });
+
+  const address = server.address() as net.AddressInfo;
+  const port = address.port;
+
+  return {
+    proxyUrl: `http://127.0.0.1:${port}`,
+    getBlockedRequests: () => [...blockedRequests],
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const s of activeSockets) {
+          try {
+            s.destroy();
+          } catch {}
+        }
+        server.close(() => resolve());
+      }),
+  };
+}
+
 /**
  * Executes a real headless Chromium evaluation across the 7 required viewport widths:
  * 320, 360, 390, 768, 1024, 1280, and 1440 pixels.
  *
  * Enforces destination boundary protection on all page navigations and subresource requests
- * via asynchronous DNS safety validation on every intercepted request.
+ * via asynchronous DNS safety validation on every intercepted request, backed by a local
+ * destination-pinned egress proxy that binds outbound TCP sockets directly to validated safe IPs.
  */
 export async function runResponsiveAudit(
   targetUrl: string,
@@ -61,11 +205,22 @@ export async function runResponsiveAudit(
     );
   }
 
+  let proxy: PinnedEgressProxy | null = null;
   let browser: Browser | null = null;
 
   try {
+    try {
+      proxy = await createPinnedEgressProxy();
+    } catch (proxyErr: any) {
+      return createSkippedResult(
+        `Failed to initialize destination-pinned egress proxy: ${proxyErr?.message || "Proxy error"}`,
+        testedWidths
+      );
+    }
+
     browser = await chromium.launch({
       headless: true,
+      proxy: { server: proxy.proxyUrl },
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -82,7 +237,6 @@ export async function runResponsiveAudit(
     const page = await context.newPage();
 
     // 2. Strict Destination Boundary Enforcement on All Outbound Subrequests & Redirects
-    const dnsCache = new Map<string, DnsSafetyCheckResult>();
     const blockedRequests: Array<{ url: string; reason: string }> = [];
 
     await page.route("**/*", async (route) => {
@@ -99,11 +253,7 @@ export async function runResponsiveAudit(
         }
 
         const host = parsed.hostname;
-        let safety = dnsCache.get(host);
-        if (!safety) {
-          safety = await validateHostSafety(host);
-          dnsCache.set(host, safety);
-        }
+        const safety = await validateHostSafety(host);
 
         if (!safety.isSafe) {
           blockedRequests.push({
@@ -130,17 +280,16 @@ export async function runResponsiveAudit(
         timeout: timeoutMs,
       });
     } catch (gotoErr: any) {
-      await browser.close();
-      const isBlocked = blockedRequests.length > 0;
+      const proxyBlocked = proxy ? proxy.getBlockedRequests() : [];
+      const isBlocked = blockedRequests.length > 0 || proxyBlocked.length > 0;
       const failReason = isBlocked
-        ? `Navigation blocked by destination safety boundary: ${blockedRequests[0]?.reason || "SSRF destination prohibited"}`
+        ? `Navigation blocked by destination safety boundary: ${blockedRequests[0]?.reason || proxyBlocked[0]?.reason || "SSRF destination prohibited"}`
         : `Navigation failed: ${gotoErr?.message || "Page load error"}`;
 
       return createSkippedResult(failReason, testedWidths);
     }
 
     if (!response || response.status() >= 400) {
-      await browser.close();
       return createSkippedResult(
         `Target responded with status ${response ? response.status() : "no response"}`,
         testedWidths
@@ -357,8 +506,6 @@ export async function runResponsiveAudit(
       totalOverlapIssues,
     });
 
-    await browser.close();
-
     const responsiveStatus = anyOverflow
       ? "FAIL"
       : totalTouchTargetIssues > 8 || totalClippingIssues > 0
@@ -383,16 +530,21 @@ export async function runResponsiveAudit(
       },
     };
   } catch (err: any) {
+    return createSkippedResult(
+      `Browser responsive execution halted: ${err?.message || "Execution timeout or Chromium initialization failure"}`,
+      testedWidths
+    );
+  } finally {
     if (browser) {
       try {
         await browser.close();
       } catch {}
     }
-
-    return createSkippedResult(
-      `Browser responsive execution halted: ${err?.message || "Execution timeout or Chromium initialization failure"}`,
-      testedWidths
-    );
+    if (proxy) {
+      try {
+        await proxy.close();
+      } catch {}
+    }
   }
 }
 
@@ -534,11 +686,18 @@ async function evaluateVisualQuality(
       const hasDarkClasses =
         htmlClasses.toLowerCase().includes("dark") ||
         bodyClasses.toLowerCase().includes("dark") ||
-        document.documentElement.getAttribute("data-theme")?.toLowerCase() === "dark";
+        document.documentElement.getAttribute("data-theme")?.toLowerCase() === "dark" ||
+        document.documentElement.getAttribute("data-color-mode")?.toLowerCase() === "dark";
+
+      const colorSchemeMeta =
+        document.querySelector('meta[name="color-scheme"]')?.getAttribute("content")?.toLowerCase() || "";
+      const hasColorSchemeDark = colorSchemeMeta.includes("dark");
+      const darkThemeMeta = document.querySelector('meta[name="theme-color"][media*="dark"]');
 
       // Site dark mode requires actual site tokens or CSS media query rules, not just browser engine capability
-      const siteSupportsDarkMode = Boolean(themeColor || hasDarkClasses || siteHasDarkMediaRules);
-      const prefersColorSchemeObserved = Boolean(themeColor || siteHasDarkMediaRules);
+      // NOTE: meta[name="theme-color"] alone without dark specification does NOT establish dark mode
+      const siteSupportsDarkMode = Boolean(hasDarkClasses || siteHasDarkMediaRules || hasColorSchemeDark || darkThemeMeta);
+      const prefersColorSchemeObserved = Boolean(siteHasDarkMediaRules || hasColorSchemeDark || darkThemeMeta);
 
       return {
         colorContrast: {
@@ -604,7 +763,7 @@ async function evaluateVisualQuality(
         prefersColorSchemeObserved: pageHeuristics.prefersColorSchemeObserved,
         observableThemeVariant: pageHeuristics.siteSupportsDarkMode ? "Adaptive / Dark Mode Capable" : "Light Default",
       },
-      limitations: "Automated visual heuristic measurement; contrast checks are heuristics and do not constitute official WCAG certification.",
+      limitations: "Automated visual heuristic measurement; contrast checks are heuristics and do not constitute official WCAG certification. Note: In browser-based scans, host resolution is pinned via local egress proxy to prevent DNS rebinding; host environments should also enforce network egress firewall boundaries.",
     };
   } catch {
     return {
@@ -646,7 +805,7 @@ function createSkippedResult(reason: string, testedWidths: number[]): Responsive
       controlsAndConsistency: { status: "NOT_TESTED", touchTargetDefectsCount: 0, accessibleNameDefectsCount: 0, defectiveSelectors: [] },
       themeAdaptability: { supportsDarkMode: false, prefersColorSchemeObserved: false },
       testedViewportWidths: [],
-      limitations: "Visual quality assessment requires active browser execution.",
+      limitations: "Visual quality assessment requires active browser execution. Note: In browser-based scans, host resolution is pinned via local egress proxy to prevent DNS rebinding; host environments should also enforce network egress firewall boundaries.",
     },
     summary: {
       horizontalOverflowFound: null,

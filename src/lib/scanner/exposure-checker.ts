@@ -14,6 +14,7 @@ export interface ExposureCheckResult {
 /**
  * Reads only a small prefix (up to maxBytes) directly from the response stream,
  * then cancels the reader immediately. Never consumes or buffers entire response bodies.
+ * Uses a single properly scoped abort promise to avoid accumulating event listeners.
  */
 async function readResponsePrefix(
   response: Response,
@@ -25,31 +26,31 @@ async function readResponsePrefix(
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
 
+  let abortHandler: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Stream read aborted by signal or timeout."));
+      return;
+    }
+    abortHandler = () => reject(new Error("Stream read aborted by signal or timeout."));
+    signal?.addEventListener("abort", abortHandler, { once: true });
+  });
+
   try {
     while (totalBytes < maxBytes) {
       if (signal?.aborted) {
         throw new Error("Stream read aborted by signal or timeout.");
       }
 
-      const readPromise = reader.read();
-      const abortPromise = new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
-        if (signal?.aborted) {
-          reject(new Error("Stream read aborted by signal or timeout."));
-          return;
-        }
-        signal?.addEventListener(
-          "abort",
-          () => reject(new Error("Stream read aborted by signal or timeout.")),
-          { once: true }
-        );
-      });
-
-      const { done, value } = await Promise.race([readPromise, abortPromise]);
+      const { done, value } = await Promise.race([reader.read(), abortPromise]);
       if (done || !value) break;
       chunks.push(value);
       totalBytes += value.byteLength;
     }
   } finally {
+    if (signal && abortHandler) {
+      signal.removeEventListener("abort", abortHandler);
+    }
     try {
       await reader.cancel();
     } catch {
@@ -67,6 +68,34 @@ async function readResponsePrefix(
   }
 
   return new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(combined);
+}
+
+/**
+ * Recognizes plausible environment-variable assignment lines (e.g. DB_PASSWORD=xxx, APP_KEY=yyy)
+ * rather than arbitrary prose or math containing an equals sign.
+ */
+export function hasEnvFileSignature(text: string): boolean {
+  const lines = text.split(/\r?\n/);
+  const commonEnvKeys = [
+    "DB_", "DATABASE_", "APP_", "SECRET", "PASSWORD", "KEY", "TOKEN", "AUTH_", "AWS_", "REDIS_", "NODE_ENV", "PORT"
+  ];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const match = line.match(/^([A-Za-z0-9_]{2,})\s*=\s*(.*)$/);
+    if (match) {
+      const varName = match[1];
+      const isUpperCaseOrCommon =
+        varName === varName.toUpperCase() ||
+        commonEnvKeys.some((k) => varName.toUpperCase().includes(k));
+      if (isUpperCaseOrCommon) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -197,7 +226,7 @@ export async function checkPublicExposure(
 
           let matchesExposure = false;
           if (item.path === "/.env") {
-            matchesExposure = textSlice.includes(item.indicator) && textSlice.length >= item.minLen;
+            matchesExposure = hasEnvFileSignature(textSlice);
           } else if (item.path === "/.git/HEAD") {
             matchesExposure =
               textSlice.includes(item.indicator) ||
