@@ -7,7 +7,7 @@ export interface DnsSafetyCheckResult {
   rejectionReason?: string;
 }
 
-const BLOCKED_HOST_SUFFIXES = [
+export const BLOCKED_HOST_SUFFIXES = [
   ".internal",
   ".local",
   ".corp",
@@ -18,7 +18,7 @@ const BLOCKED_HOST_SUFFIXES = [
   ".localhost",
 ];
 
-const BLOCKED_HOSTNAMES = new Set([
+export const BLOCKED_HOSTNAMES = new Set([
   "localhost",
   "metadata.google.internal",
   "metadata.google",
@@ -126,10 +126,10 @@ export function isPrivateOrReservedIpv6(ip: string): boolean {
  * Resolves all A and AAAA records for a host and verifies none resolve to private or cloud destinations.
  */
 export async function validateHostSafety(hostname: string): Promise<DnsSafetyCheckResult> {
-  const lowerHost = hostname.toLowerCase();
+  const cleanHost = hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
 
   // Explicit blacklisted hostnames
-  if (BLOCKED_HOSTNAMES.has(lowerHost)) {
+  if (BLOCKED_HOSTNAMES.has(cleanHost)) {
     return {
       isSafe: false,
       rejectionReason: `Hostname '${hostname}' is a prohibited or metadata destination.`,
@@ -138,7 +138,7 @@ export async function validateHostSafety(hostname: string): Promise<DnsSafetyChe
 
   // Check suffix blacklists
   for (const suffix of BLOCKED_HOST_SUFFIXES) {
-    if (lowerHost.endsWith(suffix)) {
+    if (cleanHost.endsWith(suffix)) {
       return {
         isSafe: false,
         rejectionReason: `Hostname '${hostname}' has prohibited internal suffix '${suffix}'.`,
@@ -147,31 +147,31 @@ export async function validateHostSafety(hostname: string): Promise<DnsSafetyChe
   }
 
   // If host is a direct IP address
-  const ipFamily = net.isIP(hostname);
+  const ipFamily = net.isIP(cleanHost);
   if (ipFamily === 4) {
-    if (isPrivateOrReservedIpv4(hostname)) {
+    if (isPrivateOrReservedIpv4(cleanHost)) {
       return {
         isSafe: false,
         rejectionReason: `IP address '${hostname}' is in a private, loopback, or reserved range.`,
       };
     }
-    return { isSafe: true, resolvedIps: [hostname] };
+    return { isSafe: true, resolvedIps: [cleanHost] };
   }
 
   if (ipFamily === 6) {
-    if (isPrivateOrReservedIpv6(hostname)) {
+    if (isPrivateOrReservedIpv6(cleanHost)) {
       return {
         isSafe: false,
         rejectionReason: `IPv6 address '${hostname}' is in a private, link-local, or reserved range.`,
       };
     }
-    return { isSafe: true, resolvedIps: [hostname] };
+    return { isSafe: true, resolvedIps: [cleanHost] };
   }
 
   // Resolve hostname via DNS
   let resolvedIps: string[] = [];
   try {
-    const results = await dns.lookup(hostname, { all: true });
+    const results = await dns.lookup(cleanHost, { all: true });
     resolvedIps = results.map((r) => r.address);
   } catch (err: any) {
     return {
@@ -189,15 +189,16 @@ export async function validateHostSafety(hostname: string): Promise<DnsSafetyChe
 
   // Validate EVERY resolved IP address
   for (const ip of resolvedIps) {
-    const family = net.isIP(ip);
-    if (family === 4 && isPrivateOrReservedIpv4(ip)) {
+    const rawIp = ip.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+    const family = net.isIP(rawIp);
+    if (family === 4 && isPrivateOrReservedIpv4(rawIp)) {
       return {
         isSafe: false,
         rejectionReason: `DNS resolution for '${hostname}' returned prohibited IP '${ip}'.`,
         resolvedIps,
       };
     }
-    if (family === 6 && isPrivateOrReservedIpv6(ip)) {
+    if (family === 6 && isPrivateOrReservedIpv6(rawIp)) {
       return {
         isSafe: false,
         rejectionReason: `DNS resolution for '${hostname}' returned prohibited IPv6 '${ip}'.`,

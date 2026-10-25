@@ -651,5 +651,207 @@ describe("Evidence Integrity & Full Audit Capabilities", () => {
       expect(passingFlows).toHaveLength(0);
       expect(report.authenticationAssessment.testedFlows[0].status).toBe("NOT_TESTED");
     });
+
+    it("verifies RSP-05 cannot produce a clean PASS when contrast heuristics are unmeasured", () => {
+      // Entry page has language, but browser visual results are absent
+      const ctxWithoutVisual: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [baseMockPage],
+        browserVisualResults: undefined,
+      };
+
+      const rsp05WithoutVisual = assessmentRegistry.getRule("RSP-05")!.evaluate(ctxWithoutVisual);
+      expect(rsp05WithoutVisual.status).toBe("WARNING");
+      expect(rsp05WithoutVisual.earnedPoints).toBe(1);
+      expect(rsp05WithoutVisual.title).toContain("Contrast Heuristics Unmeasured");
+
+      // Entry page with measured contrast heuristics that passed
+      const ctxWithVisualPass: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [baseMockPage],
+        browserVisualResults: {
+          status: "TESTED",
+          colorContrast: {
+            status: "PASS",
+            testedElementsCount: 15,
+            contrastFailuresCount: 0,
+            sampleRatio: "5.2:1",
+            failingSelectors: [],
+          },
+          typography: { status: "PASS", headingHierarchyMaintained: true },
+          layoutAndSpacing: { status: "PASS", unintendedOverlapCount: 0, clippingCount: 0, brokenImagesCount: 0, brokenImageUrls: [] },
+          controlsAndConsistency: { status: "PASS", touchTargetDefectsCount: 0, accessibleNameDefectsCount: 0, defectiveSelectors: [] },
+          themeAdaptability: { supportsDarkMode: false, prefersColorSchemeObserved: false },
+          testedViewportWidths: [320, 360, 390, 768, 1024, 1280, 1440],
+          limitations: "Heuristic measurement",
+        },
+      };
+
+      const rsp05WithVisualPass = assessmentRegistry.getRule("RSP-05")!.evaluate(ctxWithVisualPass);
+      expect(rsp05WithVisualPass.status).toBe("PASS");
+      expect(rsp05WithVisualPass.earnedPoints).toBe(2);
+      expect(rsp05WithVisualPass.limitations).toContain("not constitute a full WCAG");
+    });
+
+    it("verifies RSP-03 evaluates both navigation clipping and fixed element overlap", () => {
+      const cleanResponsiveResults = RESPONSIVE_VIEWPORT_WIDTHS.map((width) => ({
+        viewport: width,
+        pageUrl: "https://example.com",
+        status: "TESTED" as const,
+        horizontalOverflow: false,
+        overflowElements: [] as string[],
+        touchTargetIssues: 0,
+        touchTargetSelectors: [] as string[],
+        clippingIssues: 0,
+        accessibleNameIssues: 0,
+        screenshotAvailable: false,
+        severity: "INFORMATIONAL" as const,
+      }));
+
+      // Overlap detected in visual results
+      const ctxWithOverlap: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [baseMockPage],
+        browserResponsiveResults: cleanResponsiveResults,
+        browserVisualResults: {
+          status: "TESTED",
+          colorContrast: { status: "PASS", testedElementsCount: 10, contrastFailuresCount: 0, failingSelectors: [] },
+          typography: { status: "PASS", headingHierarchyMaintained: true },
+          layoutAndSpacing: { status: "WARNING", unintendedOverlapCount: 2, clippingCount: 0, brokenImagesCount: 0, brokenImageUrls: [] },
+          controlsAndConsistency: { status: "PASS", touchTargetDefectsCount: 0, accessibleNameDefectsCount: 0, defectiveSelectors: [] },
+          themeAdaptability: { supportsDarkMode: false, prefersColorSchemeObserved: false },
+          testedViewportWidths: [320, 360, 390, 768, 1024, 1280, 1440],
+          limitations: "Heuristic",
+        },
+      };
+
+      const rsp03 = assessmentRegistry.getRule("RSP-03")!.evaluate(ctxWithOverlap);
+      expect(rsp03.status).toBe("WARNING");
+      expect(rsp03.earnedPoints).toBe(1);
+      expect(rsp03.title).toContain("Overlap");
+    });
+
+    it("verifies RSP-04 evaluates computed mobile font sizing and touch targets", () => {
+      const cleanResponsiveResults = RESPONSIVE_VIEWPORT_WIDTHS.map((width) => ({
+        viewport: width,
+        pageUrl: "https://example.com",
+        status: "TESTED" as const,
+        horizontalOverflow: false,
+        overflowElements: [] as string[],
+        touchTargetIssues: 0,
+        touchTargetSelectors: [] as string[],
+        clippingIssues: 0,
+        accessibleNameIssues: 0,
+        screenshotAvailable: false,
+        severity: "INFORMATIONAL" as const,
+      }));
+
+      // Mobile font size is 11px (< 14px threshold)
+      const ctxUndersizedFont: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [baseMockPage],
+        browserResponsiveResults: cleanResponsiveResults,
+        browserVisualResults: {
+          status: "TESTED",
+          colorContrast: { status: "PASS", testedElementsCount: 10, contrastFailuresCount: 0, failingSelectors: [] },
+          typography: { status: "WARNING", bodyFontSizeMobilePx: 11, bodyFontSizeDesktopPx: 16, headingHierarchyMaintained: true },
+          layoutAndSpacing: { status: "PASS", unintendedOverlapCount: 0, clippingCount: 0, brokenImagesCount: 0, brokenImageUrls: [] },
+          controlsAndConsistency: { status: "PASS", touchTargetDefectsCount: 0, accessibleNameDefectsCount: 0, defectiveSelectors: [] },
+          themeAdaptability: { supportsDarkMode: false, prefersColorSchemeObserved: false },
+          testedViewportWidths: [320, 360, 390, 768, 1024, 1280, 1440],
+          limitations: "Heuristic",
+        },
+      };
+
+      const rsp04 = assessmentRegistry.getRule("RSP-04")!.evaluate(ctxUndersizedFont);
+      expect(rsp04.status).toBe("WARNING");
+      expect(rsp04.earnedPoints).toBe(1);
+      expect(rsp04.summary).toContain("mobile body font size (11px)");
+    });
+
+    it("verifies SEC-04 evaluates Secure, HttpOnly, and SameSite attributes truthfully", () => {
+      // Cookie with Secure and HttpOnly, but missing SameSite
+      const pageWithMissingSameSite: PageObservation = {
+        ...baseMockPage,
+        cookieAttributes: [
+          { name: "session_id", secure: true, httpOnly: true, sameSite: undefined },
+        ],
+      };
+
+      const ctxMissingSameSite: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [pageWithMissingSameSite],
+      };
+
+      const sec04Missing = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxMissingSameSite);
+      expect(sec04Missing.status).toBe("WARNING");
+      expect(sec04Missing.earnedPoints).toBe(1);
+      expect(sec04Missing.title).toContain("Missing SameSite");
+
+      // Cookie with all 3 flags: Secure, HttpOnly, SameSite=Lax
+      const pageWithAllFlags: PageObservation = {
+        ...baseMockPage,
+        cookieAttributes: [
+          { name: "session_id", secure: true, httpOnly: true, sameSite: "Lax" },
+        ],
+      };
+
+      const ctxAllFlags: RuleEvaluationContext = {
+        ...emptyContext,
+        pages: [pageWithAllFlags],
+      };
+
+      const sec04Pass = assessmentRegistry.getRule("SEC-04")!.evaluate(ctxAllFlags);
+      expect(sec04Pass.status).toBe("PASS");
+      expect(sec04Pass.earnedPoints).toBe(2);
+      expect(sec04Pass.title).toContain("SameSite Flags");
+    });
+
+    it("verifies owner projection derives AI crawler policy with root-level blocks", () => {
+      const crawlWithRootBlock: CrawlResult = {
+        pages: [baseMockPage],
+        sitemapUrls: [],
+        externalLinksTested: [],
+        discoveredPageUrls: ["https://example.com/"],
+        robotsTxt: "User-agent: *\nDisallow: /",
+        coverage: {
+          discoveredPages: 1,
+          testedPages: 1,
+          skippedPages: 0,
+          failedPages: 0,
+          inaccessiblePages: 0,
+          totalBytesFetched: 5000,
+          totalPagesBudget: 50,
+          crawlDepthReached: 0,
+          externalLinksTested: 0,
+          resourcesTested: 0,
+          weightedPointsEvaluated: 100,
+          totalWeightedPoints: 100,
+          coveragePercentage: 100,
+          isExhaustive: true,
+        },
+      };
+
+      const ownerReport = projectOwnerReport(
+        "scan_123",
+        {
+          targetUrl: "https://example.com",
+          reportType: "owner",
+          maxPages: 10,
+          maxDepth: 1,
+          businessCategory: "saas",
+          targetMarket: "US",
+          preferredLanguage: "en",
+          competitors: [],
+        },
+        crawlWithRootBlock,
+        [],
+        undefined
+      );
+
+      expect(ownerReport.contentTrustAiSummary.aiCrawlerPolicy).toBe(
+        "Root-Level Crawl Block (Disallow: / for all bots)"
+      );
+    });
   });
 });

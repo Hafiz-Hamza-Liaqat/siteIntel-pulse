@@ -232,8 +232,9 @@ export const responsiveRules: RuleDefinition[] = [
       }
 
       const clippingIssuesTotal = results.reduce((sum, r) => sum + (r.clippingIssues || 0), 0);
+      const overlapTotal = ctx.browserVisualResults?.layoutAndSpacing?.unintendedOverlapCount || 0;
 
-      if (clippingIssuesTotal > 0) {
+      if (clippingIssuesTotal > 0 || overlapTotal > 0) {
         return {
           testId: "RSP-03",
           testVersion: "1.0.0",
@@ -243,11 +244,11 @@ export const responsiveRules: RuleDefinition[] = [
           severity: "MEDIUM",
           maxPoints: 2,
           earnedPoints: 1,
-          title: "Header / Control Clipping Detected",
-          summary: `Observed ${clippingIssuesTotal} navigation or header clipping instances across tested viewports.`,
+          title: "Header / Control Clipping or Overlap Detected",
+          summary: `Observed ${clippingIssuesTotal} navigation or header clipping instances and ${overlapTotal} control overlap instances across tested viewports.`,
           timestamp: now,
           confidence: "HIGH",
-          affectedUrlsCount: clippingIssuesTotal,
+          affectedUrlsCount: clippingIssuesTotal + overlapTotal,
         };
       }
 
@@ -261,7 +262,7 @@ export const responsiveRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 2,
         title: "Key Interactive Controls Visible Across Viewports",
-        summary: "Primary navigation links and action buttons are visible and free from unreadable clipping across all tested viewports.",
+        summary: "Primary navigation links and action buttons are visible and free from unreadable clipping or fixed-element overlaps across all tested viewports.",
         timestamp: now,
         confidence: "HIGH",
       };
@@ -274,9 +275,9 @@ export const responsiveRules: RuleDefinition[] = [
     category: "responsive_accessibility",
     categoryName: "Responsive & Accessibility",
     maxPoints: 2,
-    description: "Audits button/link touch target sizing (minimum 44x44px target recommended) and legible mobile font sizes (>= 14px).",
+    description: "Audits button/link touch target sizing (minimum 40x40px target recommended) and legible mobile font sizes (>= 14px).",
     businessImpactSummary: "Tiny buttons frustrate mobile shoppers, causing mis-taps and lost orders.",
-    remediationAdvice: "Provide at least 44x44px clickable tap areas on mobile buttons and form inputs.",
+    remediationAdvice: "Provide at least 40x40px clickable tap areas on mobile buttons and ensure mobile body font size is at least 14px.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const results = ctx.browserResponsiveResults;
@@ -321,8 +322,17 @@ export const responsiveRules: RuleDefinition[] = [
       const mobileResults = results.filter((r) => r.viewport <= 768);
       const totalTouchIssues = mobileResults.reduce((sum, r) => sum + (r.touchTargetIssues || 0), 0);
       const touchSelectors = Array.from(new Set(mobileResults.flatMap((r) => r.touchTargetSelectors || [])));
+      const mobileBodyFont = ctx.browserVisualResults?.typography?.bodyFontSizeMobilePx ?? null;
+      const isMobileFontUndersized = mobileBodyFont !== null && mobileBodyFont < 14;
 
-      if (totalTouchIssues > 8) {
+      if (totalTouchIssues > 8 || isMobileFontUndersized) {
+        const issues: string[] = [];
+        if (totalTouchIssues > 8) {
+          issues.push(`${totalTouchIssues} undersized touch target(s) (<40x40px) on mobile viewports`);
+        }
+        if (isMobileFontUndersized) {
+          issues.push(`mobile body font size (${mobileBodyFont}px) is below recommended 14px threshold`);
+        }
         return {
           testId: "RSP-04",
           testVersion: "1.0.0",
@@ -332,8 +342,8 @@ export const responsiveRules: RuleDefinition[] = [
           severity: "MEDIUM",
           maxPoints: 2,
           earnedPoints: 1,
-          title: "Undersized Touch Targets Detected on Mobile",
-          summary: `Identified ${totalTouchIssues} interactive elements smaller than 40x40px on mobile screens, increasing mis-tap friction.`,
+          title: "Mobile Usability or Typography Issues Detected",
+          summary: `Identified mobile usability concerns: ${issues.join("; ")}.`,
           timestamp: now,
           confidence: "HIGH",
           affectedUrlsCount: totalTouchIssues,
@@ -351,7 +361,7 @@ export const responsiveRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 2,
         title: "Touch Targets and Form Controls Well Sized",
-        summary: "Interactive links and form inputs provide accessible tap targets across tested mobile viewports.",
+        summary: `Interactive links and form inputs provide accessible tap targets across tested mobile viewports (Mobile body font: ${mobileBodyFont ?? 16}px).`,
         timestamp: now,
         confidence: "HIGH",
       };
@@ -391,15 +401,43 @@ export const responsiveRules: RuleDefinition[] = [
       const visual = ctx.browserVisualResults;
       const contrast = visual?.colorContrast;
 
+      const isContrastTested = Boolean(
+        visual &&
+        visual.status === "TESTED" &&
+        contrast &&
+        (contrast.status === "PASS" || contrast.status === "WARNING" || contrast.status === "FAIL") &&
+        contrast.testedElementsCount > 0
+      );
+
       const evidence: string[] = [];
       if (hasLang) evidence.push(`html lang="${entry.language}"`);
-      if (contrast?.status === "PASS" || contrast?.status === "WARNING") {
+      if (isContrastTested && contrast) {
         evidence.push(
           `Color contrast heuristic: ${contrast.contrastFailuresCount} failure(s) across ${contrast.testedElementsCount} tested elements`
         );
       }
 
-      if (hasLang && (!contrast || contrast.contrastFailuresCount === 0)) {
+      // If contrast heuristic was NOT tested, cannot claim full PASS
+      if (hasLang && !isContrastTested) {
+        return {
+          testId: "RSP-05",
+          testVersion: "1.0.0",
+          testName: "Basic Accessibility Signals",
+          category: "responsive_accessibility",
+          status: "WARNING",
+          severity: "LOW",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Document Language Declared (Contrast Heuristics Unmeasured)",
+          summary: `Document language declared as '${entry.language}', but automated visual contrast heuristics were unmeasured. Full accessibility signals cannot be verified.`,
+          timestamp: now,
+          confidence: "MEDIUM",
+          sampleEvidence: evidence,
+          limitations: "Automated color contrast checks require active browser execution. Automated heuristics do not constitute official WCAG 2.1 AA/AAA compliance certification.",
+        };
+      }
+
+      if (hasLang && isContrastTested && contrast && contrast.contrastFailuresCount === 0) {
         return {
           testId: "RSP-05",
           testVersion: "1.0.0",
@@ -418,7 +456,7 @@ export const responsiveRules: RuleDefinition[] = [
         };
       }
 
-      if (hasLang && contrast && contrast.contrastFailuresCount > 0) {
+      if (hasLang && isContrastTested && contrast && contrast.contrastFailuresCount > 0) {
         return {
           testId: "RSP-05",
           testVersion: "1.0.0",

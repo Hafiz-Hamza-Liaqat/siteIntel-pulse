@@ -276,8 +276,9 @@ export const securityRules: RuleDefinition[] = [
       }
 
       const insecureCookies = allCookies.filter((c) => !c.secure || !c.httpOnly);
+      const missingSameSiteCookies = allCookies.filter((c) => !c.sameSite || c.sameSite.trim().length === 0);
 
-      if (insecureCookies.length === 0) {
+      if (insecureCookies.length === 0 && missingSameSiteCookies.length === 0) {
         return {
           testId: "SEC-04",
           testVersion: "1.0.0",
@@ -287,11 +288,29 @@ export const securityRules: RuleDefinition[] = [
           severity: "INFORMATIONAL",
           maxPoints: 2,
           earnedPoints: 2,
-          title: "Public Cookies Enforce Secure & HttpOnly Flags",
-          summary: `All ${allCookies.length} observed public cookies declare Secure and HttpOnly flags.`,
+          title: "Public Cookies Enforce Secure, HttpOnly, and SameSite Flags",
+          summary: `All ${allCookies.length} observed public cookies declare Secure, HttpOnly, and SameSite protection flags.`,
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: allCookies.slice(0, 3).map((c) => `Cookie '${c.name}': Secure=${c.secure}, HttpOnly=${c.httpOnly}`),
+          sampleEvidence: allCookies.slice(0, 3).map((c) => `Cookie '${c.name}': Secure=${c.secure}, HttpOnly=${c.httpOnly}, SameSite=${c.sameSite}`),
+        };
+      }
+
+      if (insecureCookies.length === 0 && missingSameSiteCookies.length > 0) {
+        return {
+          testId: "SEC-04",
+          testVersion: "1.0.0",
+          testName: "Publicly Observable Cookie Attributes",
+          category: "public_security",
+          status: "WARNING",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 1,
+          title: "Cookies Missing SameSite Flag",
+          summary: `All ${allCookies.length} observed cookies set Secure and HttpOnly, but ${missingSameSiteCookies.length} cookie(s) lack a SameSite attribute (Lax/Strict recommended).`,
+          timestamp: now,
+          confidence: "HIGH",
+          sampleEvidence: missingSameSiteCookies.slice(0, 3).map((c) => `Cookie '${c.name}': SameSite missing (Secure=${c.secure}, HttpOnly=${c.httpOnly})`),
         };
       }
 
@@ -301,14 +320,14 @@ export const securityRules: RuleDefinition[] = [
         testName: "Publicly Observable Cookie Attributes",
         category: "public_security",
         status: "WARNING",
-        severity: "MEDIUM",
+        severity: "HIGH",
         maxPoints: 2,
-        earnedPoints: 1,
+        earnedPoints: 0,
         title: "Cookies Missing Recommended Security Flags",
-        summary: `${insecureCookies.length} cookie(s) are missing Secure or HttpOnly attributes.`,
+        summary: `${insecureCookies.length} cookie(s) are missing Secure or HttpOnly attributes, exposing them to network eavesdropping or XSS theft.`,
         timestamp: now,
         confidence: "HIGH",
-        sampleEvidence: insecureCookies.slice(0, 3).map((c) => `Cookie: ${c.name} (Secure: ${c.secure}, HttpOnly: ${c.httpOnly})`),
+        sampleEvidence: insecureCookies.slice(0, 3).map((c) => `Cookie: ${c.name} (Secure: ${c.secure}, HttpOnly: ${c.httpOnly}, SameSite: ${c.sameSite || "missing"})`),
       };
     },
   },

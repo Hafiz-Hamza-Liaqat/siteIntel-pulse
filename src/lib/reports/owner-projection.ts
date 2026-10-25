@@ -10,6 +10,7 @@ import {
 import { computeAuditScores } from "../scoring/engine";
 import { CrawlResult } from "../scanner/crawler";
 import { isAuthUrl } from "../catalogue/rules/auth";
+import { parseRobotsForAi } from "../catalogue/rules/ai";
 import { PageSpeedResult } from "../providers/types";
 
 export interface OwnerProjectionOptions {
@@ -275,7 +276,7 @@ export function projectOwnerReport(
       const allCookies = crawl.pages.flatMap((p) => p.cookieAttributes || []);
       const hasCookies = allCookies.length > 0;
       const cookieIssuesCount = hasCookies
-        ? allCookies.filter((c) => !c.secure || !c.httpOnly).length
+        ? allCookies.filter((c) => !c.secure || !c.httpOnly || !c.sameSite).length
         : null;
 
       return {
@@ -294,8 +295,18 @@ export function projectOwnerReport(
       blogOrResourcePresent: crawl.pages.flatMap((p: any) => p.links || []).some((l: any) => l.targetUrl && (l.targetUrl.includes("blog") || l.targetUrl.includes("faq"))),
       aiCrawlerPolicy: (() => {
         const raw = typeof crawl.robotsTxt === "string" ? crawl.robotsTxt : ((crawl.robotsTxt as any)?.raw || "");
-        if (!raw) return "UNKNOWN (Robots.txt unobserved or unavailable)";
-        return raw.includes("GPTBot") ? "Selective Bot Directives Detected" : "Standard Open AI Crawl Permissions";
+        if (!raw || raw.trim().length === 0) return "UNKNOWN (Robots.txt unobserved or unavailable)";
+        const parsed = parseRobotsForAi(raw);
+        if (parsed.wildcardDisallowsAll) {
+          return "Root-Level Crawl Block (Disallow: / for all bots)";
+        }
+        if (parsed.blocksGpt && parsed.blocksClaude && parsed.blocksPerplexity) {
+          return "Restricted (All major generative AI crawlers disallowed)";
+        }
+        if (parsed.blocksGpt || parsed.blocksClaude || parsed.blocksPerplexity) {
+          return "Selective Bot Directives Detected";
+        }
+        return "Permissive (Standard AI crawler access allowed)";
       })(),
       entitySchemaPresent: crawl.pages.some((p: any) =>
         (p.structuredData || p.schemaObjects || []).some((s: any) => {

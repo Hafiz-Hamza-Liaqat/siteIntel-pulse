@@ -12,13 +12,74 @@ export interface ExposureCheckResult {
 }
 
 /**
+ * Reads only a small prefix (up to maxBytes) directly from the response stream,
+ * then cancels the reader immediately. Never consumes or buffers entire response bodies.
+ */
+async function readResponsePrefix(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal
+): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (totalBytes < maxBytes) {
+      if (signal?.aborted) {
+        throw new Error("Stream read aborted by signal or timeout.");
+      }
+
+      const readPromise = reader.read();
+      const abortPromise = new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
+        if (signal?.aborted) {
+          reject(new Error("Stream read aborted by signal or timeout."));
+          return;
+        }
+        signal?.addEventListener(
+          "abort",
+          () => reject(new Error("Stream read aborted by signal or timeout.")),
+          { once: true }
+        );
+      });
+
+      const { done, value } = await Promise.race([readPromise, abortPromise]);
+      if (done || !value) break;
+      chunks.push(value);
+      totalBytes += value.byteLength;
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // Cancellation errors are safely ignored
+    }
+  }
+
+  const combined = new Uint8Array(Math.min(totalBytes, maxBytes));
+  let offset = 0;
+  for (const chunk of chunks) {
+    const toCopy = Math.min(chunk.byteLength, maxBytes - offset);
+    combined.set(chunk.subarray(0, toCopy), offset);
+    offset += toCopy;
+    if (offset >= maxBytes) break;
+  }
+
+  return new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(combined);
+}
+
+/**
  * Conducts bounded, non-destructive public exposure checks for sensitive files
- * (.env, .git/HEAD) and directory indexing / debug traces.
+ * (.env, .git/HEAD).
  *
  * Strictly adheres to security boundaries:
- * - Does not attempt exploitation or brute-force crawling.
- * - Redacts any discovered sensitive token/key patterns.
- * - Abides by SSRF safety and destination boundary validation.
+ * - Reads only the response prefix (max 512 bytes) from the stream and immediately cancels the stream.
+ * - Keeps the timeout active throughout fetch and body stream reading.
+ * - Propagates the scan AbortSignal into each active request and body read.
+ * - Treats redirects, timeouts, network failures, HTTP 429/5xx, DNS failures, and unrecognized 200 bodies as inconclusive.
+ * - Never prints, persists, or includes raw sensitive response content.
+ * - Only reports PASS when both fixed probes produce conclusive non-exposure outcomes (e.g. 403, 404).
  */
 export async function checkPublicExposure(
   targetUrl: string,
@@ -28,9 +89,6 @@ export async function checkPublicExposure(
   const safeSummaries: string[] = [];
   const exposedPaths: string[] = [];
   const evidence: string[] = [];
-  let hasExposure = false;
-  let isInconclusive = false;
-  let inconclusiveReason: string | undefined;
 
   let baseUrl: URL;
   try {
@@ -45,94 +103,220 @@ export async function checkPublicExposure(
     };
   }
 
-  // Paths to check safely
+  // Two fixed, bounded probes
   const probePaths = [
     { path: "/.env", indicator: "=", minLen: 4 },
     { path: "/.git/HEAD", indicator: "ref: refs/", minLen: 10 },
   ];
 
+  type ProbeOutcome = "EXPOSED" | "SAFE" | "INCONCLUSIVE";
+  const probeOutcomes: Array<{ path: string; outcome: ProbeOutcome; reason: string }> = [];
+
   for (const item of probePaths) {
-    if (options.abortSignal?.aborted) break;
+    if (options.abortSignal?.aborted) {
+      probeOutcomes.push({
+        path: item.path,
+        outcome: "INCONCLUSIVE",
+        reason: "Scan canceled by user before probe executed.",
+      });
+      break;
+    }
 
     const probeUrl = new URL(item.path, baseUrl.origin).toString();
     const safeCheck = normalizeAndValidateUrl(probeUrl);
-    if (!safeCheck.isValid) continue;
+    if (!safeCheck.isValid) {
+      probeOutcomes.push({
+        path: item.path,
+        outcome: "INCONCLUSIVE",
+        reason: `Probe URL failed destination normalization: ${safeCheck.errorMessage}`,
+      });
+      continue;
+    }
 
     try {
       const dnsSafety = await validateUrlSafety(probeUrl);
-      if (!dnsSafety.isSafe) continue;
+      if (!dnsSafety.isSafe) {
+        probeOutcomes.push({
+          path: item.path,
+          outcome: "INCONCLUSIVE",
+          reason: `Probe target blocked by DNS safety check: ${dnsSafety.rejectionReason}`,
+        });
+        continue;
+      }
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-      const res = await fetch(probeUrl, {
-        method: "GET",
-        headers: {
-          "User-Agent": "SiteIntelPulse-SecurityScan/1.0",
-          Accept: "text/plain,*/*",
-        },
-        signal: controller.signal,
-        redirect: "manual",
-      });
+      const onParentAbort = () => controller.abort();
+      if (options.abortSignal) {
+        if (options.abortSignal.aborted) {
+          clearTimeout(timer);
+          probeOutcomes.push({
+            path: item.path,
+            outcome: "INCONCLUSIVE",
+            reason: "Scan canceled by user.",
+          });
+          break;
+        }
+        options.abortSignal.addEventListener("abort", onParentAbort, { once: true });
+      }
 
-      clearTimeout(timer);
+      try {
+        const res = await fetch(probeUrl, {
+          method: "GET",
+          headers: {
+            "User-Agent": "SiteIntelPulse-SecurityScan/1.0",
+            Accept: "text/plain,*/*",
+          },
+          signal: controller.signal,
+          redirect: "manual",
+        });
 
-      if (res.status === 200) {
-        const contentType = (res.headers.get("content-type") || "").toLowerCase();
-        // Read bounded slice (max 512 bytes)
-        const textSlice = (await res.text()).slice(0, 512);
+        // Read small prefix directly from stream while timeout remains active
+        const textSlice = await readResponsePrefix(res, 512, controller.signal);
         const textLower = textSlice.toLowerCase();
+        const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
-        // Check for generic application fallback / single-page application routing
-        const isHtmlFallback =
-          contentType.includes("text/html") ||
-          textLower.includes("<!doctype html") ||
-          textLower.includes("<html") ||
-          textLower.includes("<head>") ||
-          textLower.includes("<body");
+        if (res.status === 200) {
+          const isHtmlFallback =
+            contentType.includes("text/html") ||
+            textLower.includes("<!doctype html") ||
+            textLower.includes("<html") ||
+            textLower.includes("<head") ||
+            textLower.includes("<body");
 
-        if (isHtmlFallback) {
-          isInconclusive = true;
-          inconclusiveReason = "Server returned generic HTML application fallback for probe paths; absence of sensitive files cannot be conclusively verified.";
-          safeSummaries.push(`Probe ${item.path} returned HTTP 200 with HTML application fallback; result is inconclusive.`);
-          evidence.push(`${item.path}: HTTP 200 OK (Generic HTML application fallback, inconclusive)`);
+          if (isHtmlFallback) {
+            probeOutcomes.push({
+              path: item.path,
+              outcome: "INCONCLUSIVE",
+              reason: "HTTP 200 with generic HTML application fallback (SPA catch-all routing)",
+            });
+            evidence.push(`${item.path}: HTTP 200 OK (Generic HTML application fallback, inconclusive)`);
+            continue;
+          }
+
+          let matchesExposure = false;
+          if (item.path === "/.env") {
+            matchesExposure = textSlice.includes(item.indicator) && textSlice.length >= item.minLen;
+          } else if (item.path === "/.git/HEAD") {
+            matchesExposure =
+              textSlice.includes(item.indicator) ||
+              /^[0-9a-f]{40}/i.test(textSlice.trim());
+          }
+
+          if (matchesExposure) {
+            probeOutcomes.push({
+              path: item.path,
+              outcome: "EXPOSED",
+              reason: "HTTP 200 OK (Sensitive configuration indicator detected; content redacted)",
+            });
+            exposedPaths.push(item.path);
+            safeSummaries.push(`Potential public exposure detected at ${item.path} (HTTP 200). Content redacted.`);
+            evidence.push(`${item.path}: HTTP 200 OK (Sensitive configuration indicator detected; content redacted)`);
+            continue;
+          }
+
+          // HTTP 200 without matching exposure indicator and without known safe classification is inconclusive
+          probeOutcomes.push({
+            path: item.path,
+            outcome: "INCONCLUSIVE",
+            reason: "HTTP 200 OK with unrecognized payload; inconclusive",
+          });
+          evidence.push(`${item.path}: HTTP 200 OK (Unrecognized payload, inconclusive)`);
           continue;
         }
 
-        if (textSlice.includes(item.indicator)) {
-          hasExposure = true;
-          exposedPaths.push(item.path);
-          safeSummaries.push(`Potential public exposure detected at ${item.path} (HTTP 200). Content redacted.`);
-          evidence.push(`${item.path}: HTTP 200 OK (Sensitive configuration indicator detected)`);
+        // Standard blocking/non-existence status codes conclusively establish non-exposure
+        if (
+          res.status === 404 ||
+          res.status === 403 ||
+          res.status === 401 ||
+          res.status === 410 ||
+          res.status === 400
+        ) {
+          probeOutcomes.push({
+            path: item.path,
+            outcome: "SAFE",
+            reason: `HTTP ${res.status} (Access blocked or file not found)`,
+          });
+          evidence.push(`${item.path}: HTTP ${res.status} (Safe)`);
           continue;
         }
 
-        evidence.push(`${item.path}: HTTP 200 OK (Non-matching payload)`);
-        continue;
-      }
+        // Redirects require unverified destination inspection and are inconclusive
+        if (res.status >= 300 && res.status < 400) {
+          probeOutcomes.push({
+            path: item.path,
+            outcome: "INCONCLUSIVE",
+            reason: `HTTP ${res.status} Redirect (Manual stop, unverified destination)`,
+          });
+          evidence.push(`${item.path}: HTTP ${res.status} Redirect (Manual stop, inconclusive)`);
+          continue;
+        }
 
-      if (res.status >= 300 && res.status < 400) {
-        evidence.push(`${item.path}: HTTP ${res.status} Redirect (Manual stop, unverified destination)`);
-        continue;
+        // 429 Rate limited or 5xx Server errors are inconclusive
+        probeOutcomes.push({
+          path: item.path,
+          outcome: "INCONCLUSIVE",
+          reason: `HTTP ${res.status} (Rate limited or server error, inconclusive)`,
+        });
+        evidence.push(`${item.path}: HTTP ${res.status} (Inconclusive)`);
+      } finally {
+        clearTimeout(timer);
+        if (options.abortSignal) {
+          options.abortSignal.removeEventListener("abort", onParentAbort);
+        }
       }
+    } catch (err: any) {
+      const isAbort = err?.name === "AbortError" || options.abortSignal?.aborted;
+      const reason = isAbort
+        ? "Probe request timed out or was canceled."
+        : `Network connection failure: ${err?.message || "Inaccessible"}`;
 
-      evidence.push(`${item.path}: HTTP ${res.status}`);
-    } catch {
-      evidence.push(`${item.path}: Inaccessible / Timed out (Safe)`);
+      probeOutcomes.push({
+        path: item.path,
+        outcome: "INCONCLUSIVE",
+        reason,
+      });
+      evidence.push(`${item.path}: Inconclusive (${reason})`);
     }
   }
 
+  // Derive final aggregate status:
+  // 1. Any confirmed exposure takes precedence -> hasExposure = true
+  // 2. If not exposed, any inconclusive result -> isInconclusive = true
+  // 3. Only if both fixed probes are conclusively SAFE -> PASS
+  const hasExposure = probeOutcomes.some((p) => p.outcome === "EXPOSED");
+  const hasInconclusive = probeOutcomes.some((p) => p.outcome === "INCONCLUSIVE");
+  const allSafe =
+    probeOutcomes.length === probePaths.length &&
+    probeOutcomes.every((p) => p.outcome === "SAFE");
+
+  let inconclusiveReason: string | undefined;
+  if (!hasExposure && hasInconclusive) {
+    const reasons = probeOutcomes
+      .filter((p) => p.outcome === "INCONCLUSIVE")
+      .map((p) => `${p.path}: ${p.reason}`)
+      .join("; ");
+    inconclusiveReason = `Public exposure probe results were inconclusive (${reasons}). Absence of sensitive files cannot be conclusively verified.`;
+    safeSummaries.push(inconclusiveReason);
+  } else if (allSafe) {
+    safeSummaries.push(
+      "Bounded probes confirmed .env and .git/HEAD are blocked or not found (HTTP 403/404). No public config leaks detected."
+    );
+  }
+
   return {
-    executed: true,
+    executed: probeOutcomes.length > 0,
     hasExposure,
-    isInconclusive,
+    isInconclusive: !hasExposure && hasInconclusive,
     inconclusiveReason,
     exposedPaths,
     safeSummaries: hasExposure
       ? safeSummaries
-      : isInconclusive
+      : !hasExposure && hasInconclusive
       ? [inconclusiveReason!]
-      : ["Bounded probes confirmed .env and .git/HEAD are blocked or not found. No public config leaks detected."],
+      : safeSummaries,
     evidence,
   };
 }

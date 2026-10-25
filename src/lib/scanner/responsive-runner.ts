@@ -1,7 +1,6 @@
 import { chromium, Browser, Page } from "playwright";
-import net from "node:net";
 import { ResponsiveDiagnostic, VisualDesignDiagnostic } from "@/types";
-import { isPrivateOrReservedIpv4, isPrivateOrReservedIpv6 } from "./dns-safety";
+import { validateHostSafety, DnsSafetyCheckResult } from "./dns-safety";
 import { normalizeAndValidateUrl } from "./url-validator";
 
 export const RESPONSIVE_VIEWPORT_WIDTHS = [320, 360, 390, 768, 1024, 1280, 1440] as const;
@@ -26,7 +25,8 @@ export interface ResponsiveRunnerResult {
  * Executes a real headless Chromium evaluation across the 7 required viewport widths:
  * 320, 360, 390, 768, 1024, 1280, and 1440 pixels.
  *
- * Enforces SSRF request boundary protection on all page navigations and subresource requests.
+ * Enforces destination boundary protection on all page navigations and subresource requests
+ * via asynchronous DNS safety validation on every intercepted request.
  */
 export async function runResponsiveAudit(
   targetUrl: string,
@@ -40,6 +40,23 @@ export async function runResponsiveAudit(
   if (!urlCheck.isValid) {
     return createSkippedResult(
       `Target URL failed safe destination validation: ${urlCheck.errorMessage}`,
+      testedWidths
+    );
+  }
+
+  // Pre-flight DNS destination validation on initial target URL
+  try {
+    const targetParsed = new URL(targetUrl);
+    const preflight = await validateHostSafety(targetParsed.hostname);
+    if (!preflight.isSafe) {
+      return createSkippedResult(
+        `Target host failed destination boundary safety validation: ${preflight.rejectionReason}`,
+        testedWidths
+      );
+    }
+  } catch (err: any) {
+    return createSkippedResult(
+      `Target URL parsing or DNS resolution failed: ${err?.message || "Invalid URL"}`,
       testedWidths
     );
   }
@@ -64,7 +81,10 @@ export async function runResponsiveAudit(
 
     const page = await context.newPage();
 
-    // 2. Strict SSRF Protection on All Outbound Subrequests
+    // 2. Strict Destination Boundary Enforcement on All Outbound Subrequests & Redirects
+    const dnsCache = new Map<string, DnsSafetyCheckResult>();
+    const blockedRequests: Array<{ url: string; reason: string }> = [];
+
     await page.route("**/*", async (route) => {
       const requestUrl = route.request().url();
       try {
@@ -74,48 +94,50 @@ export async function runResponsiveAudit(
           if (parsed.protocol === "data:" || parsed.protocol === "blob:") {
             return route.continue();
           }
+          blockedRequests.push({ url: requestUrl, reason: "Non-HTTP/HTTPS protocol prohibited" });
           return route.abort("blockedbyclient");
         }
 
         const host = parsed.hostname;
-        const lowerHost = host.toLowerCase();
-        if (
-          lowerHost === "localhost" ||
-          lowerHost.endsWith(".local") ||
-          lowerHost.endsWith(".internal") ||
-          lowerHost.endsWith(".corp") ||
-          lowerHost.endsWith(".lan") ||
-          lowerHost.endsWith(".home") ||
-          lowerHost.endsWith(".intra") ||
-          lowerHost.endsWith(".onion") ||
-          lowerHost.endsWith(".localhost") ||
-          lowerHost === "metadata.google.internal" ||
-          lowerHost === "metadata.google" ||
-          lowerHost === "instance-data"
-        ) {
-          return route.abort("blockedbyclient");
+        let safety = dnsCache.get(host);
+        if (!safety) {
+          safety = await validateHostSafety(host);
+          dnsCache.set(host, safety);
         }
 
-        const ipFamily = net.isIP(host);
-        if (ipFamily === 4 && isPrivateOrReservedIpv4(host)) {
-          return route.abort("blockedbyclient");
-        }
-        if (ipFamily === 6 && isPrivateOrReservedIpv6(host)) {
+        if (!safety.isSafe) {
+          blockedRequests.push({
+            url: requestUrl,
+            reason: safety.rejectionReason || "Target host failed destination boundary safety validation",
+          });
           return route.abort("blockedbyclient");
         }
 
         return route.continue();
-      } catch {
+      } catch (err: any) {
+        blockedRequests.push({ url: requestUrl, reason: err?.message || "Route validation error" });
         return route.abort("blockedbyclient");
       }
     });
 
     // 3. Navigate to target URL at desktop viewport first
     await page.setViewportSize({ width: 1280, height: 800 });
-    const response = await page.goto(targetUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: timeoutMs,
-    });
+
+    let response;
+    try {
+      response = await page.goto(targetUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: timeoutMs,
+      });
+    } catch (gotoErr: any) {
+      await browser.close();
+      const isBlocked = blockedRequests.length > 0;
+      const failReason = isBlocked
+        ? `Navigation blocked by destination safety boundary: ${blockedRequests[0]?.reason || "SSRF destination prohibited"}`
+        : `Navigation failed: ${gotoErr?.message || "Page load error"}`;
+
+      return createSkippedResult(failReason, testedWidths);
+    }
 
     if (!response || response.status() >= 400) {
       await browser.close();
@@ -133,6 +155,10 @@ export async function runResponsiveAudit(
     let totalTouchTargetIssues = 0;
     let totalClippingIssues = 0;
     let totalAccessibleNameIssues = 0;
+    let totalOverlapIssues = 0;
+
+    let mobileTypography: { bodyFontSize: number; h1Size: number; h2Size: number; hierarchyOk: boolean } | null = null;
+    let desktopTypography: { bodyFontSize: number; h1Size: number; h2Size: number; hierarchyOk: boolean } | null = null;
 
     // 4. Measure across the 7 required viewport widths
     for (const width of RESPONSIVE_VIEWPORT_WIDTHS) {
@@ -144,7 +170,7 @@ export async function runResponsiveAudit(
       await page.setViewportSize({ width, height });
       await page.waitForTimeout(250);
 
-      // Evaluate document geometry & element metrics in page context
+      // Evaluate document geometry, overlap, and element metrics in page context
       const metrics = await page.evaluate((viewportWidth) => {
         const docEl = document.documentElement;
         const body = document.body;
@@ -172,7 +198,7 @@ export async function runResponsiveAudit(
           }
         }
 
-        // Touch target sizing check (only relevant on mobile screens <= 768px)
+        // Touch target sizing check (evaluated on mobile screens <= 768px)
         const isMobileScreen = viewportWidth <= 768;
         const touchTargetSelectors: string[] = [];
         let touchIssuesCount = 0;
@@ -206,15 +232,57 @@ export async function runResponsiveAudit(
           }
         }
 
-        // Clipping of primary navigation controls
+        // Clipping of primary navigation and header controls
         let clippingCount = 0;
         const headers = document.querySelectorAll("header, nav, [role='banner']");
         for (const h of headers) {
           const rect = h.getBoundingClientRect();
-          if (rect.width > clientWidth + 4) {
+          if (rect.width > clientWidth + 4 || rect.right > clientWidth + 4) {
             clippingCount++;
           }
         }
+
+        // Check for unintended overlaps (fixed/sticky elements intersecting interactive controls)
+        let overlapCount = 0;
+        const fixedOrSticky: Element[] = [];
+        const allEls = document.querySelectorAll("body *");
+        for (const el of allEls) {
+          const style = window.getComputedStyle(el);
+          if (style.position === "fixed" || style.position === "sticky") {
+            fixedOrSticky.push(el);
+          }
+        }
+
+        const interactives = document.querySelectorAll("a, button, input[type='button'], input[type='submit']");
+        for (const fixedEl of fixedOrSticky) {
+          const fRect = fixedEl.getBoundingClientRect();
+          if (fRect.width === 0 || fRect.height === 0 || fRect.bottom < 0 || fRect.top > window.innerHeight) continue;
+          for (const btn of interactives) {
+            if (fixedEl.contains(btn)) continue;
+            const bRect = btn.getBoundingClientRect();
+            if (bRect.width === 0 || bRect.height === 0) continue;
+            const overlaps = !(
+              bRect.right < fRect.left ||
+              bRect.left > fRect.right ||
+              bRect.bottom < fRect.top ||
+              bRect.top > fRect.bottom
+            );
+            if (overlaps) {
+              overlapCount++;
+            }
+          }
+        }
+
+        // Measure typography at current viewport
+        const firstP = document.querySelector("p");
+        const pStyle = firstP ? window.getComputedStyle(firstP) : null;
+        const bodyFontSize = pStyle ? parseFloat(pStyle.fontSize) : 16;
+
+        const h1El = document.querySelector("h1");
+        const h2El = document.querySelector("h2");
+        const h1Size = h1El ? parseFloat(window.getComputedStyle(h1El).fontSize) : 28;
+        const h2Size = h2El ? parseFloat(window.getComputedStyle(h2El).fontSize) : 22;
+        const hierarchyOk = h1Size >= h2Size && h2Size >= bodyFontSize;
 
         return {
           hasOverflow,
@@ -225,6 +293,11 @@ export async function runResponsiveAudit(
           touchTargetSelectors,
           accessibleNameCount,
           clippingCount,
+          overlapCount,
+          bodyFontSize,
+          h1Size,
+          h2Size,
+          hierarchyOk,
         };
       }, width);
 
@@ -234,6 +307,27 @@ export async function runResponsiveAudit(
       totalTouchTargetIssues += metrics.touchIssuesCount;
       totalClippingIssues += metrics.clippingCount;
       totalAccessibleNameIssues += metrics.accessibleNameCount;
+      totalOverlapIssues += metrics.overlapCount;
+
+      // Capture mobile typography at 390px (or 360px if 390 hasn't run)
+      if (width === 390 || (width <= 390 && !mobileTypography)) {
+        mobileTypography = {
+          bodyFontSize: metrics.bodyFontSize,
+          h1Size: metrics.h1Size,
+          h2Size: metrics.h2Size,
+          hierarchyOk: metrics.hierarchyOk,
+        };
+      }
+
+      // Capture desktop typography at 1280px (or 1440px)
+      if (width === 1280 || (width >= 1280 && !desktopTypography)) {
+        desktopTypography = {
+          bodyFontSize: metrics.bodyFontSize,
+          h1Size: metrics.h1Size,
+          h2Size: metrics.h2Size,
+          hierarchyOk: metrics.hierarchyOk,
+        };
+      }
 
       viewportResults.push({
         viewport: width,
@@ -253,8 +347,15 @@ export async function runResponsiveAudit(
       });
     }
 
-    // 5. Evaluate Visual Design & UI Quality Metrics
-    const visualDesignData = await evaluateVisualQuality(page);
+    // 5. Evaluate Visual Design & Heuristic UI Quality Metrics
+    const visualDesignData = await evaluateVisualQuality(page, {
+      mobileTypography,
+      desktopTypography,
+      totalTouchTargetIssues,
+      totalAccessibleNameIssues,
+      totalClippingIssues,
+      totalOverlapIssues,
+    });
 
     await browser.close();
 
@@ -296,11 +397,22 @@ export async function runResponsiveAudit(
 }
 
 /**
- * Inspects color contrast (WCAG 2.1 relative luminance), typography scaling, and layout consistency.
+ * Inspects color contrast heuristics, typography across viewports, broken images, and theme tokens.
+ * Explicitly states that contrast checks are automated heuristics and not WCAG certification.
  */
-async function evaluateVisualQuality(page: Page): Promise<Omit<VisualDesignDiagnostic, "testedViewportWidths">> {
+async function evaluateVisualQuality(
+  page: Page,
+  measurements: {
+    mobileTypography: { bodyFontSize: number; h1Size: number; h2Size: number; hierarchyOk: boolean } | null;
+    desktopTypography: { bodyFontSize: number; h1Size: number; h2Size: number; hierarchyOk: boolean } | null;
+    totalTouchTargetIssues: number;
+    totalAccessibleNameIssues: number;
+    totalClippingIssues: number;
+    totalOverlapIssues: number;
+  }
+): Promise<Omit<VisualDesignDiagnostic, "testedViewportWidths">> {
   try {
-    return await page.evaluate(() => {
+    const pageHeuristics = await page.evaluate(() => {
       // Helper: parse rgb/rgba to [r, g, b]
       const parseRgb = (colorStr: string): [number, number, number] | null => {
         const match = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
@@ -310,7 +422,7 @@ async function evaluateVisualQuality(page: Page): Promise<Omit<VisualDesignDiagn
         return null;
       };
 
-      // WCAG 2.1 relative luminance
+      // WCAG 2.1 relative luminance formula for automated heuristic
       const getLuminance = (r: number, g: number, b: number): number => {
         const a = [r, g, b].map((v) => {
           v /= 255;
@@ -380,18 +492,7 @@ async function evaluateVisualQuality(page: Page): Promise<Omit<VisualDesignDiagn
         }
       }
 
-      // 2. Typography Hierarchy & Body Font Sizing
-      const firstP = document.querySelector("p");
-      const pStyle = firstP ? window.getComputedStyle(firstP) : null;
-      const bodyFontSize = pStyle ? parseFloat(pStyle.fontSize) : 16;
-
-      const h1El = document.querySelector("h1");
-      const h2El = document.querySelector("h2");
-      const h1Size = h1El ? parseFloat(window.getComputedStyle(h1El).fontSize) : 28;
-      const h2Size = h2El ? parseFloat(window.getComputedStyle(h2El).fontSize) : 22;
-      const headingHierarchyMaintained = h1Size >= h2Size && h2Size >= bodyFontSize;
-
-      // 3. Layout, Clipping & Broken Images
+      // 2. Layout, Clipping & Broken Images
       let brokenImagesCount = 0;
       const brokenImageUrls: string[] = [];
       const images = document.querySelectorAll("img");
@@ -404,57 +505,107 @@ async function evaluateVisualQuality(page: Page): Promise<Omit<VisualDesignDiagn
         }
       }
 
-      // 4. Theme & Dark Mode
+      // 3. Theme & Dark Mode: distinguish site support from browser engine media query support
       const themeMeta = document.querySelector('meta[name="theme-color"]');
       const themeColor = themeMeta ? themeMeta.getAttribute("content") : null;
       const htmlClasses = document.documentElement.className || "";
       const bodyClasses = document.body ? document.body.className || "" : "";
-      const supportsDarkMode =
-        htmlClasses.includes("dark") ||
-        bodyClasses.includes("dark") ||
-        document.documentElement.getAttribute("data-theme") === "dark" ||
-        window.matchMedia("(prefers-color-scheme: dark)").media !== "not all";
+
+      let siteHasDarkMediaRules = false;
+      try {
+        for (const sheet of Array.from(document.styleSheets)) {
+          try {
+            for (const rule of Array.from(sheet.cssRules || [])) {
+              if (rule.type === CSSRule.MEDIA_RULE) {
+                const mediaText = (rule as CSSMediaRule).media.mediaText.toLowerCase();
+                if (mediaText.includes("prefers-color-scheme") && mediaText.includes("dark")) {
+                  siteHasDarkMediaRules = true;
+                  break;
+                }
+              }
+            }
+          } catch {
+            // cross-origin stylesheet security barrier
+          }
+          if (siteHasDarkMediaRules) break;
+        }
+      } catch {}
+
+      const hasDarkClasses =
+        htmlClasses.toLowerCase().includes("dark") ||
+        bodyClasses.toLowerCase().includes("dark") ||
+        document.documentElement.getAttribute("data-theme")?.toLowerCase() === "dark";
+
+      // Site dark mode requires actual site tokens or CSS media query rules, not just browser engine capability
+      const siteSupportsDarkMode = Boolean(themeColor || hasDarkClasses || siteHasDarkMediaRules);
+      const prefersColorSchemeObserved = Boolean(themeColor || siteHasDarkMediaRules);
 
       return {
-        status: "TESTED" as const,
         colorContrast: {
-          status: contrastFailuresCount === 0 ? ("PASS" as const) : ("WARNING" as const),
           testedElementsCount,
           contrastFailuresCount,
           sampleRatio: sampleRatioStr,
           failingSelectors,
         },
-        typography: {
-          status: bodyFontSize >= 14 && headingHierarchyMaintained ? ("PASS" as const) : ("WARNING" as const),
-          bodyFontSizeMobilePx: bodyFontSize,
-          bodyFontSizeDesktopPx: bodyFontSize,
-          headingHierarchyMaintained,
-          notes: headingHierarchyMaintained
-            ? `Typography hierarchy verified: H1 (${h1Size}px) >= H2 (${h2Size}px) >= body text (${bodyFontSize}px).`
-            : "Heading sizes do not follow standard descending hierarchy.",
-        },
-        layoutAndSpacing: {
-          status: brokenImagesCount === 0 ? ("PASS" as const) : ("WARNING" as const),
-          unintendedOverlapCount: 0,
-          clippingCount: 0,
-          brokenImagesCount,
-          brokenImageUrls,
-        },
-        controlsAndConsistency: {
-          status: "PASS" as const,
-          touchTargetDefectsCount: 0,
-          accessibleNameDefectsCount: 0,
-          defectiveSelectors: [],
-        },
-        themeAdaptability: {
-          themeColorMeta: themeColor,
-          supportsDarkMode,
-          prefersColorSchemeObserved: Boolean(themeColor || supportsDarkMode),
-          observableThemeVariant: supportsDarkMode ? "Adaptive / Dark Mode Capable" : "Light Default",
-        },
-        limitations: "Automated visual heuristic measurement; does not replace human aesthetic design evaluation.",
+        brokenImagesCount,
+        brokenImageUrls,
+        themeColor,
+        siteSupportsDarkMode,
+        prefersColorSchemeObserved,
       };
     });
+
+    const mob = measurements.mobileTypography || { bodyFontSize: 16, h1Size: 28, h2Size: 22, hierarchyOk: true };
+    const desk = measurements.desktopTypography || { bodyFontSize: 16, h1Size: 32, h2Size: 24, hierarchyOk: true };
+
+    const typographyOk = mob.bodyFontSize >= 14 && desk.bodyFontSize >= 14 && mob.hierarchyOk && desk.hierarchyOk;
+
+    const layoutIssuesTotal =
+      measurements.totalClippingIssues +
+      pageHeuristics.brokenImagesCount +
+      measurements.totalOverlapIssues;
+
+    const controlIssuesTotal =
+      measurements.totalTouchTargetIssues +
+      measurements.totalAccessibleNameIssues;
+
+    return {
+      status: "TESTED" as const,
+      colorContrast: {
+        status: pageHeuristics.colorContrast.contrastFailuresCount === 0 ? ("PASS" as const) : ("WARNING" as const),
+        testedElementsCount: pageHeuristics.colorContrast.testedElementsCount,
+        contrastFailuresCount: pageHeuristics.colorContrast.contrastFailuresCount,
+        sampleRatio: pageHeuristics.colorContrast.sampleRatio,
+        failingSelectors: pageHeuristics.colorContrast.failingSelectors,
+      },
+      typography: {
+        status: typographyOk ? ("PASS" as const) : ("WARNING" as const),
+        bodyFontSizeMobilePx: mob.bodyFontSize,
+        bodyFontSizeDesktopPx: desk.bodyFontSize,
+        headingHierarchyMaintained: mob.hierarchyOk && desk.hierarchyOk,
+        notes: `Mobile body font: ${mob.bodyFontSize}px, Desktop body font: ${desk.bodyFontSize}px. Hierarchy: ${mob.hierarchyOk && desk.hierarchyOk ? "Maintained" : "Inconsistent"}.`,
+      },
+      layoutAndSpacing: {
+        status: layoutIssuesTotal === 0 ? ("PASS" as const) : ("WARNING" as const),
+        unintendedOverlapCount: measurements.totalOverlapIssues,
+        clippingCount: measurements.totalClippingIssues,
+        brokenImagesCount: pageHeuristics.brokenImagesCount,
+        brokenImageUrls: pageHeuristics.brokenImageUrls,
+      },
+      controlsAndConsistency: {
+        status: controlIssuesTotal <= 8 ? ("PASS" as const) : ("WARNING" as const),
+        touchTargetDefectsCount: measurements.totalTouchTargetIssues,
+        accessibleNameDefectsCount: measurements.totalAccessibleNameIssues,
+        defectiveSelectors: [],
+      },
+      themeAdaptability: {
+        themeColorMeta: pageHeuristics.themeColor,
+        supportsDarkMode: pageHeuristics.siteSupportsDarkMode,
+        prefersColorSchemeObserved: pageHeuristics.prefersColorSchemeObserved,
+        observableThemeVariant: pageHeuristics.siteSupportsDarkMode ? "Adaptive / Dark Mode Capable" : "Light Default",
+      },
+      limitations: "Automated visual heuristic measurement; contrast checks are heuristics and do not constitute official WCAG certification.",
+    };
   } catch {
     return {
       status: "SKIPPED",
