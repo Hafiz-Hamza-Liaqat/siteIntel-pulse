@@ -288,6 +288,22 @@ export function projectOwnerReport(
         resolvedOptions?.browserResponsiveResults && resolvedOptions.browserResponsiveResults.filter((r) => r.status === "TESTED").length === 7
           ? "TESTED"
           : "NOT_TESTED",
+      providerStatus: resolvedOptions?.pageSpeedData?.mobile?.isAvailable ? "CONFIGURED" : "NOT_CONFIGURED",
+      labMetrics: resolvedOptions?.pageSpeedData?.mobile?.labMetrics
+        ? {
+            ...resolvedOptions.pageSpeedData.mobile.labMetrics,
+            strategy: resolvedOptions.pageSpeedData.mobile.strategy,
+            providerName: resolvedOptions.pageSpeedData.mobile.providerName,
+            measuredAt: resolvedOptions.pageSpeedData.mobile.measuredAt,
+          }
+        : undefined,
+      fieldMetrics: resolvedOptions?.pageSpeedData?.mobile?.cruxFieldData
+        ? {
+            ...resolvedOptions.pageSpeedData.mobile.cruxFieldData,
+            source: resolvedOptions.pageSpeedData.mobile.source,
+            measuredAt: resolvedOptions.pageSpeedData.mobile.measuredAt,
+          }
+        : undefined,
     },
     securityAndAuthSummary: (() => {
       const EXPECTED_SECURITY_HEADERS = [

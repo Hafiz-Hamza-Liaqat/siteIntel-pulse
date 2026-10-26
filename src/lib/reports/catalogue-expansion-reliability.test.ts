@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { computeAuditScores } from "../scoring/engine";
-import { computeDimensionScorecards } from "../scoring/dimension-scorecards";
+import {
+  computeDimensionScorecards,
+  DIAGNOSTIC_DIMENSIONS,
+  REGISTERED_RULES_MAP,
+} from "../scoring/dimension-scorecards";
 import { calculateCostOfInaction } from "./cost-of-inaction";
 import { parsePageHtml } from "../scanner/html-parser";
 import { performanceRules } from "../catalogue/rules/performance";
-import { AssessmentResult, PageObservation, ScanRequest } from "@/types";
+import { ALL_ASSESSMENT_RULES } from "../catalogue/registry";
+import { AssessmentResult, ScanRequest } from "@/types";
 
 describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
   describe("Phase A.1: Content-Type-Aware Parsing & XML Sitemap Isolation", () => {
@@ -67,11 +72,11 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
   });
 
   describe("Phase A.2: Scoring Semantics Reconciliation", () => {
-    it("transparently exposes total points allocated (100), points evaluated, points earned, and normalized score", () => {
-      // Simulate an assessment where 82 points were evaluated and 67.5 points were earned
+    it("transparently exposes total points allocated (100), points evaluated, points earned, and normalized score using real rule IDs", () => {
+      // Simulate an assessment using real registered rule IDs
       const mockResults: AssessmentResult[] = [
         {
-          testId: "TECH-01",
+          testId: "TCH-01",
           testVersion: "1.0.0",
           testName: "Status Code",
           category: "technical_health",
@@ -99,7 +104,7 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
           confidence: "HIGH",
         },
         {
-          testId: "RESP-01",
+          testId: "RSP-01",
           testVersion: "1.0.0",
           testName: "Viewport",
           category: "responsive_accessibility",
@@ -141,7 +146,7 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
           confidence: "HIGH",
         },
         {
-          testId: "CONT-01",
+          testId: "CNT-01",
           testVersion: "1.0.0",
           testName: "Purpose",
           category: "content_quality",
@@ -155,7 +160,7 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
           confidence: "HIGH",
         },
         {
-          testId: "DATA-01",
+          testId: "ANA-01",
           testVersion: "1.0.0",
           testName: "Analytics",
           category: "analytics_tracking",
@@ -176,12 +181,10 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
       expect(overallScore.totalPointsAllocated).toBe(100);
       expect(overallScore.pointsActuallyEvaluated).toBe(82);
       expect(overallScore.pointsEarned).toBe(67.5);
-      // Normalized score: Math.round((67.5 / 82) * 100) = 82%
       expect(overallScore.normalizedScore).toBe(82);
       expect(overallScore.score).toBe(82);
       expect(overallScore.catalogueCoveragePercentage).toBe(82);
 
-      // Verify that category score exposes explicit points
       const techCat = categoryScores.find((c) => c.category === "technical_health");
       expect(techCat?.allocatedWeight).toBe(12);
       expect(techCat?.testedPoints).toBe(12);
@@ -246,73 +249,145 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
     });
   });
 
-  describe("Phase B: Non-Additive Diagnostic Dimension Scorecards", () => {
-    it("computes all 9 diagnostic dimensions with honest coverage and confidence", () => {
+  describe("Phase B: Non-Additive Diagnostic Dimension Scorecards Integrity", () => {
+    it("guard test: ensures every dimension rule ID exists in the live catalogue registry", () => {
+      const allRegisteredIds = new Set(ALL_ASSESSMENT_RULES.map((r) => r.id));
+      expect(allRegisteredIds.size).toBe(56);
+
+      for (const dim of DIAGNOSTIC_DIMENSIONS) {
+        for (const ruleId of dim.ruleIds) {
+          expect(allRegisteredIds.has(ruleId)).toBe(true);
+          const ruleDef = REGISTERED_RULES_MAP.get(ruleId);
+          expect(ruleDef).toBeDefined();
+          expect(ruleDef?.maxPoints).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it("asserts exact expected rule IDs for each of the 9 diagnostic dimensions", () => {
+      const dimMap = new Map(DIAGNOSTIC_DIMENSIONS.map((d) => [d.id, d.ruleIds]));
+
+      expect(dimMap.get("design_ux")).toEqual([
+        "RSP-01", "RSP-02", "RSP-03", "RSP-04", "RSP-05", "CRO-01", "CRO-02", "CRO-03",
+      ]);
+
+      expect(dimMap.get("development_health")).toEqual([
+        "TCH-01", "TCH-02", "TCH-03", "TCH-04", "TCH-05", "TCH-06",
+        "SEC-01", "SEC-02", "SEC-03", "SEC-04", "SEC-05", "SEC-06",
+        "AUTH-01", "AUTH-02", "AUTH-03", "AUTH-04",
+      ]);
+
+      expect(dimMap.get("responsive_accessibility")).toEqual([
+        "RSP-01", "RSP-02", "RSP-03", "RSP-04", "RSP-05", "SEO-06",
+      ]);
+
+      expect(dimMap.get("performance_speed")).toEqual([
+        "PERF-01", "PERF-02", "PERF-03", "PERF-04", "PERF-05", "TCH-06",
+      ]);
+
+      expect(dimMap.get("seo")).toEqual([
+        "SEO-01", "SEO-02", "SEO-03", "SEO-04", "SEO-05", "SEO-06", "SEO-07", "SEO-08", "SEO-09", "TCH-05",
+      ]);
+
+      expect(dimMap.get("geo")).toEqual([
+        "AI-01", "AI-02", "AI-03", "SEO-08", "CNT-01",
+      ]);
+
+      expect(dimMap.get("aeo")).toEqual([
+        "AI-03", "AI-04", "CNT-01", "CNT-02", "SEO-01", "SEO-03",
+      ]);
+
+      expect(dimMap.get("content_trust")).toEqual([
+        "CNT-01", "CNT-02", "CNT-03", "CNT-04", "CNT-05", "CRO-04",
+      ]);
+
+      expect(dimMap.get("marketing_monetization")).toEqual([
+        "CRO-01", "CRO-02", "CRO-03", "CRO-04", "ANA-01", "ANA-02", "ANA-03", "ANA-04", "ANA-05",
+      ]);
+    });
+
+    it("calculates accurate denominators from registered rule maxPoints (e.g. 1 pt rules for ANA and CRO)", () => {
+      // In marketing_monetization: 4 CRO rules (1 pt each) + 5 ANA rules (1 pt each) = 9 max points
+      const marketingDim = DIAGNOSTIC_DIMENSIONS.find((d) => d.id === "marketing_monetization")!;
+      const totalAllocated = marketingDim.ruleIds.reduce((sum, id) => {
+        return sum + (REGISTERED_RULES_MAP.get(id)?.maxPoints || 0);
+      }, 0);
+      expect(totalAllocated).toBe(9); // Strictly 9 points, proving NO guessed default of 2 points!
+
+      // Evaluate 3 rules: CRO-01 (1 pt, pass), CRO-02 (1 pt, pass), ANA-01 (1 pt, fail)
       const sampleResults: AssessmentResult[] = [
         {
-          testId: "RESP-01",
+          testId: "CRO-01",
           testVersion: "1.0.0",
-          testName: "Mobile Viewport",
-          category: "responsive_accessibility",
+          testName: "Primary CTA",
+          category: "conversion_marketing",
           status: "PASS",
           severity: "INFORMATIONAL",
-          maxPoints: 2,
-          earnedPoints: 2,
-          title: "Viewport Active",
-          summary: "Meta viewport valid",
+          maxPoints: 1,
+          earnedPoints: 1,
+          title: "CTA Visible",
+          summary: "Clear primary CTA observed",
           timestamp: new Date().toISOString(),
           confidence: "HIGH",
         },
         {
-          testId: "SEO-01",
+          testId: "CRO-02",
           testVersion: "1.0.0",
-          testName: "Title Tag",
-          category: "seo",
+          testName: "Conversion Pathway",
+          category: "conversion_marketing",
           status: "PASS",
           severity: "INFORMATIONAL",
-          maxPoints: 2,
-          earnedPoints: 2,
-          title: "Title Tag Present",
-          summary: "Length is optimal",
+          maxPoints: 1,
+          earnedPoints: 1,
+          title: "Pathway Functional",
+          summary: "Direct purchase link",
           timestamp: new Date().toISOString(),
           confidence: "HIGH",
         },
         {
-          testId: "TECH-01",
+          testId: "ANA-01",
           testVersion: "1.0.0",
-          testName: "HTTP 200",
-          category: "technical_health",
-          status: "PASS",
-          severity: "INFORMATIONAL",
-          maxPoints: 2,
-          earnedPoints: 2,
-          title: "HTTP Status OK",
-          summary: "Page responded 200",
+          testName: "GA4 Script Load",
+          category: "analytics_tracking",
+          status: "FAIL",
+          severity: "HIGH",
+          maxPoints: 1,
+          earnedPoints: 0,
+          title: "No GA4",
+          summary: "Missing GA4 measurement tag",
           timestamp: new Date().toISOString(),
           confidence: "HIGH",
         },
       ];
 
-      const scorecards = computeDimensionScorecards(sampleResults, 5);
+      const cards = computeDimensionScorecards(sampleResults, 1);
+      const mktCard = cards.find((c) => c.id === "marketing_monetization")!;
 
-      expect(scorecards).toHaveLength(9);
-      const dimensionIds = scorecards.map((s) => s.id);
-      expect(dimensionIds).toContain("design_ux");
-      expect(dimensionIds).toContain("development_health");
-      expect(dimensionIds).toContain("responsive_accessibility");
-      expect(dimensionIds).toContain("performance_speed");
-      expect(dimensionIds).toContain("seo");
-      expect(dimensionIds).toContain("geo");
-      expect(dimensionIds).toContain("aeo");
-      expect(dimensionIds).toContain("content_trust");
-      expect(dimensionIds).toContain("marketing_monetization");
+      expect(mktCard.evaluatedTestsCount).toBe(3);
+      expect(mktCard.totalTestsCount).toBe(9);
+      // Evaluated points: 1 + 1 + 1 = 3 evaluated out of 9 total possible points
+      // Coverage = Math.round((3 / 9) * 100) = 33%
+      expect(mktCard.coveragePercentage).toBe(33);
+      // Earned: 1 + 1 + 0 = 2 out of 3 evaluated = Math.round((2 / 3) * 100) = 67%
+      expect(mktCard.score).toBe(67);
+      // Coverage < 50% => Provisional / Incomplete
+      expect(mktCard.ratingBand).toBe("Provisional / Incomplete");
+      expect(mktCard.confidence).toBe("LOW");
+      expect(mktCard.missingEvidenceNotes).toContain("Missing/unassessed signals");
+      expect(mktCard.missingEvidenceNotes).toContain("unassessed");
+    });
 
-      for (const card of scorecards) {
-        expect(card.isNonAdditiveView).toBe(true);
-        expect(card.score).toBeGreaterThanOrEqual(0);
-        expect(card.score).toBeLessThanOrEqual(100);
-        expect(card.coveragePercentage).toBeGreaterThanOrEqual(0);
-        expect(card.coveragePercentage).toBeLessThanOrEqual(100);
+    it("verifies missing rules remain explicitly unassessed and are not treated as false passes or fails", () => {
+      const cards = computeDimensionScorecards([], 1);
+      expect(cards).toHaveLength(9);
+
+      for (const card of cards) {
+        expect(card.evaluatedTestsCount).toBe(0);
+        expect(card.coveragePercentage).toBe(0);
+        expect(card.score).toBe(0);
+        expect(card.ratingBand).toBe("Unassessed");
+        expect(card.confidence).toBe("LOW");
+        expect(card.missingEvidenceNotes).toContain("unassessed");
       }
     });
   });
@@ -330,9 +405,10 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
       expect(coi.status).toBe("INSUFFICIENT_INPUTS");
       expect(coi.scenarios).toBeUndefined();
       expect(coi.methodologyNotes).toContain("Inputs insufficient");
+      expect(coi.formula).toBeDefined();
     });
 
-    it("calculates conservative, base, and upside scenarios for ecommerce with explicit disclosures", () => {
+    it("calculates conservative, base, and upside scenarios for ecommerce with explicit owner inputs", () => {
       const coi = calculateCostOfInaction({
         businessCategory: "ecommerce",
         request: {
@@ -341,16 +417,17 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
           monthlySessions: 50000,
           averageOrderValue: 90,
           grossMarginPct: 40,
+          currency: "USD",
         } as ScanRequest,
         results: [
           {
-            testId: "CONV-01",
+            testId: "CRO-01",
             testVersion: "1.0.0",
-            testName: "Checkout",
+            testName: "Checkout CTA",
             category: "conversion_marketing",
             status: "FAIL",
             severity: "HIGH",
-            maxPoints: 2,
+            maxPoints: 1,
             earnedPoints: 0,
             title: "Friction in checkout",
             summary: "Missing clear payment CTAs",
@@ -362,17 +439,66 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
 
       expect(coi.status).toBe("ESTIMATED");
       expect(coi.businessModel).toBe("ecommerce");
-      expect(coi.scenarios?.conservative.monthlyOpportunity).toBeGreaterThan(0);
-      expect(coi.scenarios?.base.monthlyOpportunity).toBeGreaterThan(
-        coi.scenarios!.conservative.monthlyOpportunity
-      );
-      expect(coi.scenarios?.upside.monthlyOpportunity).toBeGreaterThan(
-        coi.scenarios!.base.monthlyOpportunity
-      );
-      expect(coi.scenarios?.base.annualOpportunity).toBe(
-        coi.scenarios!.base.monthlyOpportunity * 12
-      );
+      expect(coi.currency).toBe("USD");
+      expect(coi.confidence).toBe("HIGH");
+      expect(coi.inputSource).toBe("Owner Provided Commercial Inputs");
+
+      // Conservative: 50000 * 0.002 * 90 * 0.40 = 3600 / mo
+      expect(coi.scenarios?.conservative.monthlyOpportunity).toBe(3600);
+      expect(coi.scenarios?.conservative.annualOpportunity).toBe(3600 * 12);
+      expect(coi.scenarios?.conservative.conversionRateDeltaPct).toBe(0.2);
+
+      // Base: 50000 * 0.005 * 90 * 0.40 = 9000 / mo
+      expect(coi.scenarios?.base.monthlyOpportunity).toBe(9000);
+      expect(coi.scenarios?.base.annualOpportunity).toBe(9000 * 12);
+      expect(coi.scenarios?.base.conversionRateDeltaPct).toBe(0.5);
+
+      // Upside: 50000 * 0.010 * 90 * 0.40 = 18000 / mo
+      expect(coi.scenarios?.upside.monthlyOpportunity).toBe(18000);
+      expect(coi.scenarios?.upside.annualOpportunity).toBe(18000 * 12);
+      expect(coi.scenarios?.upside.conversionRateDeltaPct).toBe(1.0);
+
       expect(coi.disclaimers[0]).toContain("NOT verified historical lost revenue");
+    });
+
+    it("labels scenario assumptions explicitly when owner traffic is supplied but commercial value is omitted", () => {
+      const coi = calculateCostOfInaction({
+        businessCategory: "ecommerce",
+        request: {
+          targetUrl: "https://example.com",
+          reportType: "owner",
+          monthlySessions: 20000,
+        } as ScanRequest,
+      });
+
+      expect(coi.status).toBe("ESTIMATED");
+      expect(coi.confidence).toBe("MEDIUM");
+      expect(coi.inputSource).toBe("Owner Traffic with Labeled Baseline Assumptions");
+      expect(coi.assumptions.some((a) => a.includes("[Labeled Scenario Assumption]"))).toBe(true);
+    });
+
+    it("calculates lead generation model using leadConversionRatePct, leadToCustomerRatePct, and customerValue", () => {
+      const coi = calculateCostOfInaction({
+        businessCategory: "local_service",
+        request: {
+          targetUrl: "https://example.com",
+          reportType: "owner",
+          monthlySessions: 10000,
+          customerValue: 1200,
+          leadConversionRatePct: 4.0,
+          leadToCustomerRatePct: 20.0,
+          grossMarginPct: 50,
+          currency: "USD",
+        } as ScanRequest,
+      });
+
+      expect(coi.status).toBe("ESTIMATED");
+      expect(coi.businessModel).toBe("lead_gen");
+      expect(coi.confidence).toBe("HIGH");
+      // Conservative: 10000 * 0.002 * 0.20 * 1200 * 0.50 = 2400 / mo
+      expect(coi.scenarios?.conservative.monthlyOpportunity).toBe(2400);
+      expect(coi.scenarios?.base.monthlyOpportunity).toBe(6000);
+      expect(coi.scenarios?.upside.monthlyOpportunity).toBe(12000);
     });
   });
 });

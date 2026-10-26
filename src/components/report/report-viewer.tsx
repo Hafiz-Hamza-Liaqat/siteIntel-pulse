@@ -15,6 +15,8 @@ import { AnalyticsSummary } from "./analytics-summary";
 import { CompetitorSnapshot } from "./competitor-snapshot";
 import { PriorityOpportunityPlan } from "./priority-opportunity-plan";
 import { MethodologyDisclaimers } from "./methodology-disclaimers";
+import { DimensionScorecardsGrid } from "./dimension-scorecards-grid";
+import { CostOfInactionCard } from "./cost-of-inaction-card";
 import {
   Download,
   Printer,
@@ -133,6 +135,9 @@ export function ReportViewer({ report, onNewScan }: ReportViewerProps) {
         {/* Section 4: Score and Coverage Details */}
         <ScoreCoverageDetails report={report} />
 
+        {/* Diagnostic Dimension Scorecards (Non-Additive Diagnostic Overlays) */}
+        <DimensionScorecardsGrid scorecards={report.dimensionScorecards} />
+
         {/* Section 5: Issue Distribution */}
         <IssueDistribution report={report} />
 
@@ -156,6 +161,9 @@ export function ReportViewer({ report, onNewScan }: ReportViewerProps) {
 
         {/* Section 12: Priority Opportunity Plan */}
         <PriorityOpportunityPlan report={report} />
+
+        {/* Cost of Inaction & Revenue Opportunity Calculator */}
+        <CostOfInactionCard costOfInaction={report.costOfInaction} />
 
         {/* Section 13: Methodology and Next Steps */}
         <MethodologyDisclaimers report={report} />

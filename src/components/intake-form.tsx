@@ -60,10 +60,19 @@ export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }:
       .filter(Boolean)
       .slice(0, 3);
 
+    const sanitizeNum = (v: any) => (typeof v === "number" && !isNaN(v) ? v : undefined);
+
     onSubmit({
       ...data,
       reportType: selectedReportType,
       competitors: cleanedCompetitors,
+      monthlySessions: sanitizeNum(data.monthlySessions),
+      averageOrderValue: sanitizeNum(data.averageOrderValue),
+      leadConversionRatePct: sanitizeNum(data.leadConversionRatePct),
+      leadToCustomerRatePct: sanitizeNum(data.leadToCustomerRatePct),
+      customerValue: sanitizeNum(data.customerValue),
+      subscriptionRevenue: sanitizeNum(data.subscriptionRevenue),
+      grossMarginPct: sanitizeNum(data.grossMarginPct),
     });
   };
 
@@ -321,6 +330,127 @@ export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }:
                 }}
                 className="w-full pl-9 pr-3 py-2 rounded-lg bg-brand-surface border border-brand-border text-white placeholder-brand-textMuted/50 text-sm"
               />
+            </div>
+          </div>
+
+          {/* Optional Commercial Inputs for Cost of Inaction Calculator */}
+          <div className="pt-2 border-t border-brand-borderSubtle/60 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-brand-tealLight uppercase tracking-wider">
+                Cost of Inaction &amp; Revenue Opportunity Inputs (Optional)
+              </span>
+              <span className="text-[11px] text-brand-textMuted">Models financial upside from fixing friction</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <label htmlFor="monthlySessions" className="block text-[11px] font-semibold text-brand-textMuted uppercase">
+                  Monthly Sessions
+                </label>
+                <input
+                  id="monthlySessions"
+                  type="number"
+                  placeholder="e.g. 50000"
+                  disabled={isLoading}
+                  {...register("monthlySessions", { valueAsNumber: true })}
+                  className="w-full px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-white text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="averageOrderValue" className="block text-[11px] font-semibold text-brand-textMuted uppercase">
+                  Avg Order Value (AOV)
+                </label>
+                <input
+                  id="averageOrderValue"
+                  type="number"
+                  step="any"
+                  placeholder="e.g. 85.00"
+                  disabled={isLoading}
+                  {...register("averageOrderValue", { valueAsNumber: true })}
+                  className="w-full px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-white text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="customerValue" className="block text-[11px] font-semibold text-brand-textMuted uppercase">
+                  Customer Value (ACV)
+                </label>
+                <input
+                  id="customerValue"
+                  type="number"
+                  step="any"
+                  placeholder="e.g. 750.00"
+                  disabled={isLoading}
+                  {...register("customerValue", { valueAsNumber: true })}
+                  className="w-full px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-white text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="space-y-1">
+                <label htmlFor="leadConversionRatePct" className="block text-[11px] font-semibold text-brand-textMuted uppercase">
+                  Lead Rate (%)
+                </label>
+                <input
+                  id="leadConversionRatePct"
+                  type="number"
+                  step="any"
+                  placeholder="e.g. 2.5"
+                  disabled={isLoading}
+                  {...register("leadConversionRatePct", { valueAsNumber: true })}
+                  className="w-full px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-white text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="leadToCustomerRatePct" className="block text-[11px] font-semibold text-brand-textMuted uppercase">
+                  Close Rate (%)
+                </label>
+                <input
+                  id="leadToCustomerRatePct"
+                  type="number"
+                  step="any"
+                  placeholder="e.g. 15.0"
+                  disabled={isLoading}
+                  {...register("leadToCustomerRatePct", { valueAsNumber: true })}
+                  className="w-full px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-white text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="grossMarginPct" className="block text-[11px] font-semibold text-brand-textMuted uppercase">
+                  Gross Margin (%)
+                </label>
+                <input
+                  id="grossMarginPct"
+                  type="number"
+                  step="any"
+                  placeholder="e.g. 40"
+                  disabled={isLoading}
+                  {...register("grossMarginPct", { valueAsNumber: true })}
+                  className="w-full px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-white text-xs"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="currency" className="block text-[11px] font-semibold text-brand-textMuted uppercase">
+                  Currency
+                </label>
+                <select
+                  id="currency"
+                  disabled={isLoading}
+                  {...register("currency")}
+                  className="w-full px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-white text-xs"
+                >
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="CAD">CAD ($)</option>
+                  <option value="AUD">AUD ($)</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>

@@ -15,6 +15,7 @@ function escapeHtml(str: unknown): string {
 export function generateReportHtml(report: OwnerReport): string {
   const overall = report.executiveSnapshot.overallScore;
   const company = report.companyIdentity;
+  const currSymbol = report.costOfInaction?.currency === "EUR" ? "€" : report.costOfInaction?.currency === "GBP" ? "£" : "$";
   const detection = company.businessCategoryDetection;
   const dateFormatted = new Date(report.generatedAt).toLocaleDateString("en-US", {
     year: "numeric",
@@ -477,6 +478,47 @@ export function generateReportHtml(report: OwnerReport): string {
     </div>
   `}
 
+
+  ${report.dimensionScorecards && report.dimensionScorecards.length > 0 ? `
+  <h2 class="section-title">Diagnostic Dimension Scorecards (Non-Additive Overlays)</h2>
+  <table class="table-custom no-break">
+    <colgroup>
+      <col style="width: 26%;">
+      <col style="width: 14%;">
+      <col style="width: 14%;">
+      <col style="width: 16%;">
+      <col style="width: 30%;">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Dimension</th>
+        <th>Score</th>
+        <th>Coverage</th>
+        <th>Rules Tested</th>
+        <th>Confidence &amp; Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${report.dimensionScorecards.map(d => `
+        <tr>
+          <td><strong>${escapeHtml(d.name)}</strong></td>
+          <td><strong style="color: ${d.coveragePercentage < 50 ? '#D97706' : getScoreColor(d.score)}">${d.coveragePercentage < 50 ? `${d.score}% (Prov)` : `${d.score}%`}</strong></td>
+          <td>${d.coveragePercentage}%</td>
+          <td>${d.evaluatedTestsCount} / ${d.totalTestsCount}</td>
+          <td>
+            <span class="badge ${d.confidence === 'HIGH' ? 'badge-pass' : d.confidence === 'MEDIUM' ? 'badge-warning' : 'badge-fail'}">${d.confidence}</span>
+            <span style="font-size: 7.5pt; color: #64748B; margin-left: 3px;">${escapeHtml(d.ratingBand)}</span>
+            ${d.missingEvidenceNotes ? `<div style="font-size: 7pt; color: #B45309; margin-top: 2px;">${escapeHtml(d.missingEvidenceNotes)}</div>` : ''}
+          </td>
+        </tr>
+      `).join("")}
+    </tbody>
+  </table>
+  <div style="font-size: 7.5pt; color: #64748B; margin-top: -6px; margin-bottom: 12px;">
+    * Dimension scorecards are non-additive diagnostic overlays synthesized from verified catalogue rules.
+  </div>
+  ` : ""}
+
   <div class="page-break"></div>
 
   <!-- PAGE 3: Key Diagnostics & Competitor Snapshot -->
@@ -517,8 +559,13 @@ export function generateReportHtml(report: OwnerReport): string {
       </tr>
       <tr>
         <td><strong>Performance Lab Scores</strong></td>
-        <td>${report.performanceAndResponsiveSummary.mobileLabScore != null ? '<span class="badge badge-pass">MEASURED</span>' : '<span class="badge badge-not-tested">NOT CONNECTED</span>'}</td>
-        <td>Mobile lab: ${report.performanceAndResponsiveSummary.mobileLabScore != null ? `${report.performanceAndResponsiveSummary.mobileLabScore}/100` : "PageSpeed provider not configured"}. Desktop lab: ${report.performanceAndResponsiveSummary.desktopLabScore != null ? `${report.performanceAndResponsiveSummary.desktopLabScore}/100` : "PageSpeed provider not configured"}.</td>
+        <td>${report.performanceAndResponsiveSummary.mobileLabScore != null ? '<span class="badge badge-pass">MEASURED</span>' : '<span class="badge badge-not-tested">NOT CONFIGURED</span>'}</td>
+        <td>Mobile lab: ${report.performanceAndResponsiveSummary.mobileLabScore != null ? `${report.performanceAndResponsiveSummary.mobileLabScore}/100` : "PageSpeed provider not configured"}. Desktop lab: ${report.performanceAndResponsiveSummary.desktopLabScore != null ? `${report.performanceAndResponsiveSummary.desktopLabScore}/100` : "PageSpeed provider not configured"}.${report.performanceAndResponsiveSummary.labMetrics ? ` Lab: Speed Index=${report.performanceAndResponsiveSummary.labMetrics.speedIndexMs ?? "N/A"}ms, FCP=${report.performanceAndResponsiveSummary.labMetrics.fcpMs ?? "N/A"}ms, LCP=${report.performanceAndResponsiveSummary.labMetrics.lcpMs ?? "N/A"}ms, TBT=${report.performanceAndResponsiveSummary.labMetrics.tbtMs ?? "N/A"}ms.` : ""}</td>
+      </tr>
+      <tr>
+        <td><strong>Core Web Vitals Field Data</strong></td>
+        <td>${report.performanceAndResponsiveSummary.fieldMetrics ? '<span class="badge badge-pass">CRUX p75</span>' : '<span class="badge badge-not-tested">NOT CONNECTED</span>'}</td>
+        <td>${report.performanceAndResponsiveSummary.fieldMetrics ? `28-day CrUX p75: LCP=${report.performanceAndResponsiveSummary.fieldMetrics.lcpMs ?? "N/A"}ms, INP=${report.performanceAndResponsiveSummary.fieldMetrics.inpMs ?? "N/A"}ms, CLS=${report.performanceAndResponsiveSummary.fieldMetrics.cls ?? "N/A"}.` : escapeHtml(report.performanceAndResponsiveSummary.coreWebVitalsStatus)}</td>
       </tr>
       <tr>
         <td><strong>Responsive Breakpoints</strong></td>
@@ -537,6 +584,58 @@ export function generateReportHtml(report: OwnerReport): string {
       </tr>
     </tbody>
   </table>
+
+
+  ${report.costOfInaction ? `
+  <h2 class="section-title">Cost of Inaction &amp; Revenue Opportunity Calculator (v1)</h2>
+  ${report.costOfInaction.status === "ESTIMATED" && report.costOfInaction.scenarios ? `
+    <table class="table-custom no-break">
+      <colgroup>
+        <col style="width: 25%;">
+        <col style="width: 25%;">
+        <col style="width: 25%;">
+        <col style="width: 25%;">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Conservative (+0.20%)</th>
+          <th style="background: #E6FFFA;">Base Target (+0.50%)</th>
+          <th>Upside (+1.00%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Monthly Opportunity</strong></td>
+          <td>${currSymbol}${report.costOfInaction.scenarios.conservative.monthlyOpportunity.toLocaleString()} / mo</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${currSymbol}${report.costOfInaction.scenarios.base.monthlyOpportunity.toLocaleString()} / mo</td>
+          <td>${currSymbol}${report.costOfInaction.scenarios.upside.monthlyOpportunity.toLocaleString()} / mo</td>
+        </tr>
+        <tr>
+          <td><strong>Annualized Opportunity</strong></td>
+          <td>${currSymbol}${report.costOfInaction.scenarios.conservative.annualOpportunity.toLocaleString()} / yr</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${currSymbol}${report.costOfInaction.scenarios.base.annualOpportunity.toLocaleString()} / yr</td>
+          <td>${currSymbol}${report.costOfInaction.scenarios.upside.annualOpportunity.toLocaleString()} / yr</td>
+        </tr>
+        <tr>
+          <td><strong>Est. Payback</strong></td>
+          <td>${report.costOfInaction.scenarios.conservative.paybackMonths != null ? `${report.costOfInaction.scenarios.conservative.paybackMonths} mo` : 'N/A'}</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${report.costOfInaction.scenarios.base.paybackMonths != null ? `${report.costOfInaction.scenarios.base.paybackMonths} mo` : 'Immediate'}</td>
+          <td>${report.costOfInaction.scenarios.upside.paybackMonths != null ? `${report.costOfInaction.scenarios.upside.paybackMonths} mo` : 'Immediate'}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="no-break" style="font-size: 7.5pt; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; margin-top: 4px; margin-bottom: 10px;">
+      <div><strong>Formula:</strong> ${escapeHtml(report.costOfInaction.formula || "Monthly Sessions × Conversion Lift × Transaction Value × Gross Margin %")}</div>
+      <div style="margin-top: 2px;"><strong>Source &amp; Confidence:</strong> ${escapeHtml(report.costOfInaction.inputSource)} (${report.costOfInaction.confidence} Confidence)</div>
+      <div style="margin-top: 2px; color: #92400E;"><strong>Notice:</strong> Forward-looking modeled growth opportunity, NOT verified historical lost revenue.</div>
+    </div>
+  ` : `
+    <div class="alert-box no-break">
+      <strong>Commercial Inputs Required:</strong> ${escapeHtml(report.costOfInaction.methodologyNotes || "Monthly session counts required to model financial scenarios.")} Synthetic traffic is never fabricated.
+    </div>
+  `}
+  ` : ""}
 
   ${report.competitorSnapshot && report.competitorSnapshot.length > 0 ? `
   <h2 class="section-title">6. Competitor Benchmark Snapshot</h2>

@@ -196,6 +196,71 @@ test.describe("Owner Report Workflow & Dashboard", () => {
           recommendedAction: "Deploy product schema JSON-LD.",
         },
       ],
+      dimensionScorecards: [
+        {
+          id: "seo",
+          name: "SEO & Organic Discoverability",
+          description: "Technical SEO signals and structured data integrity.",
+          score: 85,
+          ratingBand: "STRONG",
+          coveragePercentage: 90,
+          confidence: "HIGH",
+          evaluatedTestsCount: 9,
+          totalTestsCount: 10,
+          urlsAssessedCount: 20,
+          isNonAdditiveView: true,
+          missingEvidenceNotes: "Missing/unassessed signals: SEO-08",
+        },
+        {
+          id: "performance_speed",
+          name: "Performance & Speed",
+          description: "Core Web Vitals and resource delivery efficiency.",
+          score: 80,
+          ratingBand: "ACCEPTABLE",
+          coveragePercentage: 83,
+          confidence: "MEDIUM",
+          evaluatedTestsCount: 5,
+          totalTestsCount: 6,
+          urlsAssessedCount: 20,
+          isNonAdditiveView: true,
+          missingEvidenceNotes: "Missing/unassessed signals: PERF-05",
+        },
+      ],
+      costOfInaction: {
+        status: "ESTIMATED",
+        businessModel: "ecommerce",
+        confidence: "MEDIUM",
+        scenarios: {
+          conservative: {
+            scenario: "conservative",
+            conversionRateDeltaPct: 0.20,
+            annualOpportunity: 4500,
+            monthlyOpportunity: 375,
+            paybackMonths: 2,
+          },
+          base: {
+            scenario: "base",
+            conversionRateDeltaPct: 0.50,
+            annualOpportunity: 11250,
+            monthlyOpportunity: 938,
+            paybackMonths: 1,
+          },
+          upside: {
+            scenario: "upside",
+            conversionRateDeltaPct: 1.00,
+            annualOpportunity: 22500,
+            monthlyOpportunity: 1875,
+            paybackMonths: 1,
+          },
+        },
+        currency: "USD",
+        assumptions: ["Monthly Sessions: 25,000", "Baseline Conversion Rate: 1.80%", "Average Order Value: $75.00"],
+        disclaimers: ["Forward-looking projection for strategic budgeting only.", "Not a guarantee of future financial performance."],
+        formula: "Annual Opportunity = Monthly Sessions * Conversion Lift Pct * AOV * 12",
+        inputSource: "Owner Provided / Calibrated Baseline",
+        calculatedAt: new Date().toISOString(),
+        methodologyNotes: "Based on calibrated conversion uplift modeling.",
+      },
       methodologyAndLimitations: {
         scanScope: "Bounded non-invasive public assessment strictly respecting robots.txt.",
         dataSources: ["Public HTML", "100-point Assessment Catalogue v1.0"],
@@ -228,7 +293,14 @@ test.describe("Owner Report Workflow & Dashboard", () => {
 
     // Verify key sections
     await expect(page.getByText("Executive Snapshot & Baseline Health")).toBeVisible();
+    await expect(page.getByText("Diagnostic Dimension Scorecards")).toBeVisible();
+    await expect(page.getByText("SEO & Organic Discoverability")).toBeVisible();
+    await expect(page.getByText("Performance & Speed")).toBeVisible();
+    await expect(page.getByText("Non-Additive Diagnostic Views")).toBeVisible();
     await expect(page.getByText("Priority Opportunity Plan (Top Growth Initiatives)")).toBeVisible();
+    await expect(page.getByText("Cost of Inaction & Revenue Opportunity Calculator")).toBeVisible();
+    await expect(page.getByText("Conservative Scenario")).toBeVisible();
+    await expect(page.getByText("Base Opportunity (Target)")).toBeVisible();
     await expect(page.getByText("Competitive Benchmark Snapshot")).toBeVisible();
     await expect(page.getByText("Methodology, Limitations & Next Steps")).toBeVisible();
 
