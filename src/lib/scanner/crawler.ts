@@ -18,8 +18,6 @@ export interface CrawlResult {
   discoveredPageUrls: string[];
 }
 
-const defaultGlobalFetch = typeof globalThis !== "undefined" ? globalThis.fetch : undefined;
-
 export class SafeCrawler {
   private tracker: CrawlBudgetTracker;
   private visitedUrls = new Set<string>();
@@ -36,11 +34,7 @@ export class SafeCrawler {
   ) {
     this.tracker = new CrawlBudgetTracker(budgets);
     this.abortSignal = abortSignal;
-    this.fetchFn =
-      fetchFn ||
-      (typeof globalThis !== "undefined" && globalThis.fetch !== defaultGlobalFetch
-        ? (url: string, opts?: any) => globalThis.fetch(url, opts)
-        : pinnedFetch);
+    this.fetchFn = fetchFn || pinnedFetch;
   }
 
   /**
@@ -222,6 +216,7 @@ export class SafeCrawler {
 
   /**
    * Fetches and parses robots.txt for sitemap declarations with destination-pinned egress.
+   * Strictly enforces sitemap file budgets before issuing sitemap requests.
    */
   private async fetchRobotsTxt(origin: string, baseHostname: string) {
     try {
@@ -244,6 +239,7 @@ export class SafeCrawler {
         this.robotsTxtContent = text;
         const lines = text.split("\n");
         for (const line of lines) {
+          if (!this.tracker.canFetchMoreSitemaps()) break;
           const trimmed = line.trim();
           if (trimmed.toLowerCase().startsWith("sitemap:")) {
             const sitemapUrl = trimmed.slice(8).trim();
@@ -260,8 +256,33 @@ export class SafeCrawler {
 
   /**
    * Fetches an XML sitemap and extracts URLs with destination-pinned egress.
+   * Strictly bounds sitemap file counts, discovery counts, body byte limits, and time limits.
    */
   private async fetchSitemapXml(sitemapUrl: string, baseHostname: string) {
+    // 1. Enforce sitemap file request limit before issuing request
+    if (!this.tracker.canFetchMoreSitemaps()) return;
+
+    // 2. Reject invalid URLs, unsupported schemes, and off-domain hosts
+    let parsed: URL;
+    try {
+      parsed = new URL(sitemapUrl);
+    } catch {
+      return;
+    }
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return;
+    }
+
+    const normBaseHost = baseHostname.toLowerCase().replace(/^www\./, "");
+    const sitemapHost = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (sitemapHost !== normBaseHost) {
+      return;
+    }
+
+    // 3. Increment sitemap fetched count before issuing request
+    this.tracker.recordSitemapFetched();
+
     try {
       const res = await this.fetchFn(sitemapUrl, {
         headers: { "User-Agent": this.tracker.budgets.userAgent },
@@ -281,14 +302,18 @@ export class SafeCrawler {
         // Regex extract <loc> URLs
         const locMatches = text.match(/<loc>(.*?)<\/loc>/gi);
         if (locMatches) {
-          const normBaseHost = baseHostname.toLowerCase().replace(/^www\./, "");
           for (const match of locMatches) {
+            // Enforce sitemap URL discovery limit before processing/queueing
+            if (!this.tracker.canDiscoverMoreSitemapUrls()) break;
+
             const rawUrl = match.replace(/<\/?loc>/gi, "").trim();
             try {
               const locUrl = new URL(rawUrl);
+              if (locUrl.protocol !== "http:" && locUrl.protocol !== "https:") continue;
               const locHost = locUrl.hostname.toLowerCase().replace(/^www\./, "");
               if (locHost === normBaseHost && !this.sitemapUrls.includes(rawUrl)) {
                 this.sitemapUrls.push(rawUrl);
+                this.tracker.recordSitemapUrlDiscovered();
               }
             } catch {}
           }

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { checkPublicExposure, hasEnvFileSignature } from "./exposure-checker";
+import * as pinnedTransport from "./pinned-transport";
 
 describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
   const originalFetch = globalThis.fetch;
@@ -11,7 +12,6 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
 
   it("reads only the small stream prefix and cancels the stream for large bodies", async () => {
     let cancelCalled = false;
-    let chunksRead = 0;
 
     // Stream that yields 100 chunks of 1KB each (100KB total)
     const stream = new ReadableStream<Uint8Array>({
@@ -26,13 +26,13 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       },
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const mockFetch = vi.fn().mockResolvedValue({
       status: 200,
       headers: new Headers({ "content-type": "text/plain" }),
       body: stream,
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(cancelCalled).toBe(true);
     // Large body without exposure indicator is treated as inconclusive
@@ -49,13 +49,16 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       cancel() {},
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const mockFetch = vi.fn().mockResolvedValue({
       status: 200,
       headers: new Headers({ "content-type": "text/plain" }),
       body: hangingStream,
     });
 
-    const result = await checkPublicExposure("https://example.com", { timeoutMs: 50 });
+    const result = await checkPublicExposure("https://example.com", {
+      fetchFn: mockFetch,
+      timeoutMs: 50,
+    });
 
     expect(result.hasExposure).toBe(false);
     expect(result.isInconclusive).toBe(true);
@@ -67,9 +70,9 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
     controller.abort();
 
     const fetchSpy = vi.fn();
-    globalThis.fetch = fetchSpy;
 
     const result = await checkPublicExposure("https://example.com", {
+      fetchFn: fetchSpy,
       abortSignal: controller.signal,
     });
 
@@ -78,13 +81,13 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
   });
 
   it("classifies HTTP redirects (301, 302) as inconclusive", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const mockFetch = vi.fn().mockResolvedValue({
       status: 302,
       headers: new Headers({ location: "https://example.com/login" }),
       body: null,
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(result.hasExposure).toBe(false);
     expect(result.isInconclusive).toBe(true);
@@ -101,13 +104,13 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       },
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const mockFetch = vi.fn().mockResolvedValue({
       status: 200,
       headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
       body: htmlStream,
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(result.hasExposure).toBe(false);
     expect(result.isInconclusive).toBe(true);
@@ -122,20 +125,20 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       },
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const mockFetch = vi.fn().mockResolvedValue({
       status: 200,
       headers: new Headers({ "content-type": "application/json" }),
       body: jsonStream,
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(result.hasExposure).toBe(false);
     expect(result.isInconclusive).toBe(true);
   });
 
   it("classifies HTTP 403 and 404 responses as safe and reports PASS when both probes are safe", async () => {
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
       const u = String(url);
       if (u.includes(".env")) {
         return Promise.resolve({ status: 404, headers: new Headers(), body: null });
@@ -146,7 +149,7 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       return Promise.resolve({ status: 404, headers: new Headers(), body: null });
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(result.hasExposure).toBe(false);
     expect(result.isInconclusive).toBe(false);
@@ -155,13 +158,13 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
   });
 
   it("classifies HTTP 500 and 503 server errors as inconclusive", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const mockFetch = vi.fn().mockResolvedValue({
       status: 500,
       headers: new Headers(),
       body: null,
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(result.hasExposure).toBe(false);
     expect(result.isInconclusive).toBe(true);
@@ -176,7 +179,7 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       },
     });
 
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
       if (String(url).includes(".env")) {
         return Promise.resolve({
           status: 200,
@@ -187,7 +190,7 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       return Promise.resolve({ status: 404, headers: new Headers(), body: null });
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(result.hasExposure).toBe(true);
     expect(result.exposedPaths).toContain("/.env");
@@ -207,7 +210,7 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       },
     });
 
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
       if (String(url).includes(".git/HEAD")) {
         return Promise.resolve({
           status: 200,
@@ -218,10 +221,27 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
       return Promise.resolve({ status: 404, headers: new Headers(), body: null });
     });
 
-    const result = await checkPublicExposure("https://example.com");
+    const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
     expect(result.hasExposure).toBe(true);
     expect(result.exposedPaths).toContain("/.git/HEAD");
+  });
+
+  it("unconditionally uses pinnedFetch in production even if globalThis.fetch is monkeypatched", async () => {
+    const attackerFetch = vi.fn().mockImplementation(() => {
+      throw new Error("ATTACKER_GLOBAL_FETCH_SHOULD_NEVER_BE_CALLED");
+    });
+    globalThis.fetch = attackerFetch as any;
+
+    const pinnedFetchSpy = vi.spyOn(pinnedTransport, "pinnedFetch").mockResolvedValue(
+      new Response("Not Found", { status: 404 })
+    );
+
+    const result = await checkPublicExposure("https://example.com");
+
+    expect(pinnedFetchSpy).toHaveBeenCalled();
+    expect(attackerFetch).not.toHaveBeenCalled();
+    expect(result.executed).toBe(true);
   });
 
   describe("hasEnvFileSignature & Plausible Assignment Validation", () => {
@@ -251,7 +271,7 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
         },
       });
 
-      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
         if (String(url).includes(".env")) {
           return Promise.resolve({
             status: 200,
@@ -262,7 +282,7 @@ describe("Public Exposure Checker — Bounded & Evidence Integrity", () => {
         return Promise.resolve({ status: 404, headers: new Headers(), body: null });
       });
 
-      const result = await checkPublicExposure("https://example.com");
+      const result = await checkPublicExposure("https://example.com", { fetchFn: mockFetch });
 
       expect(result.hasExposure).toBe(false);
       expect(result.isInconclusive).toBe(true);

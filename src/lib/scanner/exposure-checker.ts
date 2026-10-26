@@ -2,8 +2,6 @@ import { normalizeAndValidateUrl } from "./url-validator";
 import { validateUrlSafety } from "./dns-safety";
 import { pinnedFetch, readBoundedText } from "./pinned-transport";
 
-const defaultFetch = typeof globalThis !== "undefined" ? globalThis.fetch : undefined;
-
 export interface ExposureCheckResult {
   executed: boolean;
   hasExposure: boolean;
@@ -122,7 +120,7 @@ export async function checkPublicExposure(
   } = {}
 ): Promise<ExposureCheckResult> {
   const timeoutMs = options.timeoutMs ?? 5000;
-  const fetchImpl = options.fetchFn || (globalThis.fetch !== defaultFetch ? globalThis.fetch : pinnedFetch);
+  const fetchImpl = options.fetchFn || pinnedFetch;
   const safeSummaries: string[] = [];
   const exposedPaths: string[] = [];
   const evidence: string[] = [];
@@ -205,6 +203,7 @@ export async function checkPublicExposure(
             "User-Agent": "SiteIntelPulse-SecurityScan/1.0",
             Accept: "text/plain,*/*",
           },
+          abortSignal: controller.signal,
           signal: controller.signal,
           redirect: "manual",
         });

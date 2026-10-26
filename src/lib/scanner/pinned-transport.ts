@@ -16,6 +16,7 @@ export interface PinnedFetchOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
+  signal?: AbortSignal;
   maxBytes?: number;
   redirect?: "follow" | "manual";
   maxRedirects?: number;
@@ -178,9 +179,10 @@ export async function pinnedFetch(
   const maxRedirects = options.maxRedirects ?? 5;
   const timeoutMs = options.timeoutMs ?? 10000;
   const method = (options.method || "GET").toUpperCase();
+  const effectiveSignal = options.signal || options.abortSignal;
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    if (options.abortSignal?.aborted) {
+    if (effectiveSignal?.aborted) {
       throw new Error("Request aborted by caller signal.");
     }
 
@@ -244,12 +246,12 @@ export async function pinnedFetch(
         }, timeoutMs);
       }
 
-      if (options.abortSignal) {
+      if (effectiveSignal) {
         abortHandler = () => {
           cleanup();
           req.destroy(new Error("Request aborted by caller signal."));
         };
-        options.abortSignal.addEventListener("abort", abortHandler, { once: true });
+        effectiveSignal.addEventListener("abort", abortHandler, { once: true });
       }
 
       req.end();
