@@ -233,25 +233,8 @@ export const seoRules: RuleDefinition[] = [
       const missingH1 = pages.filter((p) => p.headings.h1.length === 0);
       const multipleH1 = pages.filter((p) => p.headings.h1.length > 1);
 
-      if (missingH1.length === 0 && multipleH1.length === 0) {
-        return {
-          testId: "SEO-03",
-          testVersion: "1.0.0",
-          testName: "Heading Structure and Outline",
-          category: "seo",
-          status: "PASS",
-          severity: "INFORMATIONAL",
-          maxPoints: 2,
-          earnedPoints: 2,
-          title: "Clean Single-H1 Heading Hierarchy",
-          summary: `All evaluated pages feature a single, clear H1 heading with logical subheadings.`,
-          timestamp: now,
-          confidence: "HIGH",
-          sampleEvidence: pages.slice(0, 2).map((p) => `H1: "${p.headings.h1[0]}"`),
-        };
-      }
-
-      if (missingH1.length === 0 && multipleH1.length > 0) {
+      // 1. Preserve warning when multiple H1 headings are positively observed
+      if (multipleH1.length > 0) {
         return {
           testId: "SEO-03",
           testVersion: "1.0.0",
@@ -270,7 +253,47 @@ export const seoRules: RuleDefinition[] = [
         };
       }
 
-      if (missingH1.length === pages.length && pages.every((p) => p.isTruncated)) {
+      // 2. Single-H1 evaluation: do not return clean PASS if truncation could conceal additional headings
+      if (missingH1.length === 0) {
+        if (pages.some((p) => p.isTruncated)) {
+          return {
+            testId: "SEO-03",
+            testVersion: "1.0.0",
+            testName: "Heading Structure and Outline",
+            category: "seo",
+            status: "UNKNOWN",
+            severity: "MEDIUM",
+            maxPoints: 2,
+            earnedPoints: 0,
+            title: "Heading Structure Inconclusive Due to Truncated Content",
+            summary: "Evaluated page content was truncated at configured byte limits. A single H1 was observed in the evaluated prefix, but truncation could conceal additional headings.",
+            timestamp: now,
+            confidence: "LOW",
+            limitations: "Response body truncated at byte limit; heading structure could not be fully evaluated.",
+            sampleEvidence: pages.slice(0, 2).map((p) => `H1 (prefix): "${p.headings.h1[0]}"`),
+          };
+        }
+
+        return {
+          testId: "SEO-03",
+          testVersion: "1.0.0",
+          testName: "Heading Structure and Outline",
+          category: "seo",
+          status: "PASS",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 2,
+          title: "Clean Single-H1 Heading Hierarchy",
+          summary: `All evaluated pages feature a single, clear H1 heading with logical subheadings.`,
+          timestamp: now,
+          confidence: "HIGH",
+          sampleEvidence: pages.slice(0, 2).map((p) => `H1: "${p.headings.h1[0]}"`),
+        };
+      }
+
+      // 3. Missing H1: failure must not rely solely on pages whose content was truncated
+      const completeMissingH1 = missingH1.filter((p) => !p.isTruncated);
+      if (completeMissingH1.length === 0) {
         return {
           testId: "SEO-03",
           testVersion: "1.0.0",
@@ -281,7 +304,7 @@ export const seoRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 0,
           title: "Heading Structure Inconclusive Due to Truncated Content",
-          summary: "Evaluated page content was truncated at configured byte limits, preventing conclusive verification of primary heading outline.",
+          summary: "Pages without observed H1 headings were truncated at byte limits, preventing conclusive verification of whether a primary heading exists.",
           timestamp: now,
           confidence: "LOW",
           limitations: "Response body truncated at byte limit; headings may have been omitted beyond boundary.",
@@ -298,11 +321,11 @@ export const seoRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 0,
         title: "Pages Missing Primary H1 Headings",
-        summary: `${missingH1.length} pages lack an H1 heading entirely.`,
+        summary: `${completeMissingH1.length} fully evaluated pages lack an H1 heading entirely.`,
         timestamp: now,
         confidence: "HIGH",
-        affectedUrlsCount: missingH1.length,
-        sampleEvidence: missingH1.slice(0, 3).map((p) => p.finalUrl),
+        affectedUrlsCount: completeMissingH1.length,
+        sampleEvidence: completeMissingH1.slice(0, 3).map((p) => p.finalUrl),
       };
     },
   },

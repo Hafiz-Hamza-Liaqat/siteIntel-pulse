@@ -899,4 +899,281 @@ describe("Evidence Integrity & Full Audit Capabilities", () => {
       );
     });
   });
+
+  describe("Catalogue Rule Truthfulness for Truncated Evidence", () => {
+    const seo03Rule = assessmentRegistry.getRule("SEO-03")!;
+    const cnt03Rule = assessmentRegistry.getRule("CNT-03")!;
+    const tch05Rule = assessmentRegistry.getRule("TCH-05")!;
+
+    describe("SEO-03: Heading Structure and Outline", () => {
+      it("returns UNKNOWN with low confidence when a page contains exactly one H1 but is truncated", () => {
+        const truncatedSingleH1Page: PageObservation = {
+          ...baseMockPage,
+          headings: { ...baseMockPage.headings, h1: ["Single Observed H1"] },
+          isTruncated: true,
+          truncationReason: "Response body truncated at byte limit",
+        };
+
+        const result = seo03Rule.evaluate({
+          ...emptyContext,
+          pages: [truncatedSingleH1Page],
+        });
+
+        expect(result.status).toBe("UNKNOWN");
+        expect(result.earnedPoints).toBe(0);
+        expect(result.confidence).toBe("LOW");
+        expect(result.limitations).toContain("Response body truncated at byte limit");
+        expect(result.title).toContain("Heading Structure Inconclusive Due to Truncated Content");
+      });
+
+      it("preserves WARNING with high confidence when multiple H1s are confirmed in observed content even if truncated", () => {
+        const truncatedMultipleH1Page: PageObservation = {
+          ...baseMockPage,
+          headings: { ...baseMockPage.headings, h1: ["First H1 Heading", "Second H1 Heading"] },
+          isTruncated: true,
+          truncationReason: "Response body truncated at byte limit",
+        };
+
+        const result = seo03Rule.evaluate({
+          ...emptyContext,
+          pages: [truncatedMultipleH1Page],
+        });
+
+        expect(result.status).toBe("WARNING");
+        expect(result.earnedPoints).toBe(1);
+        expect(result.confidence).toBe("HIGH");
+        expect(result.title).toContain("Multiple H1 Headings on Some Pages");
+      });
+
+      it("returns UNKNOWN when missing H1 relies solely on truncated pages", () => {
+        const truncatedMissingH1Page: PageObservation = {
+          ...baseMockPage,
+          headings: { ...baseMockPage.headings, h1: [] },
+          isTruncated: true,
+          truncationReason: "Response body truncated at byte limit",
+        };
+
+        const result = seo03Rule.evaluate({
+          ...emptyContext,
+          pages: [truncatedMissingH1Page],
+        });
+
+        expect(result.status).toBe("UNKNOWN");
+        expect(result.earnedPoints).toBe(0);
+        expect(result.confidence).toBe("LOW");
+        expect(result.limitations).toContain("Response body truncated at byte limit");
+      });
+
+      it("returns clean PASS when all pages are complete and have exactly one H1", () => {
+        const completeSingleH1Page: PageObservation = {
+          ...baseMockPage,
+          headings: { ...baseMockPage.headings, h1: ["Sole Legitimate H1"] },
+          isTruncated: false,
+        };
+
+        const result = seo03Rule.evaluate({
+          ...emptyContext,
+          pages: [completeSingleH1Page],
+        });
+
+        expect(result.status).toBe("PASS");
+        expect(result.earnedPoints).toBe(2);
+        expect(result.confidence).toBe("HIGH");
+        expect(result.title).toContain("Clean Single-H1 Heading Hierarchy");
+      });
+    });
+
+    describe("CNT-03: Trust and Ownership Signals", () => {
+      it("returns UNKNOWN when no trust links are observed and only some pages are truncated", () => {
+        const completeEmptyPage: PageObservation = {
+          ...baseMockPage,
+          id: "page_1",
+          links: [],
+          isTruncated: false,
+        };
+        const truncatedEmptyPage: PageObservation = {
+          ...baseMockPage,
+          id: "page_2",
+          links: [],
+          isTruncated: true,
+          truncationReason: "Response body truncated at byte limit",
+        };
+
+        const result = cnt03Rule.evaluate({
+          ...emptyContext,
+          pages: [completeEmptyPage, truncatedEmptyPage],
+        });
+
+        expect(result.status).toBe("UNKNOWN");
+        expect(result.earnedPoints).toBe(0);
+        expect(result.confidence).toBe("LOW");
+        expect(result.limitations).toContain("Response body truncated at byte limit");
+        expect(result.title).toContain("Trust Signals Inconclusive Due to Truncated Content");
+      });
+
+      it("returns UNKNOWN when incomplete trust signals are found but truncated content could contain additional signals", () => {
+        const completePageWithAbout: PageObservation = {
+          ...baseMockPage,
+          id: "page_1",
+          links: [
+            {
+              id: "lnk_about",
+              sourceUrl: "https://example.com/",
+              targetUrl: "https://example.com/about",
+              anchorText: "About Us",
+              isInternal: true,
+              isBroken: false,
+              isRedirect: false,
+            },
+          ],
+          isTruncated: false,
+        };
+        const truncatedPage: PageObservation = {
+          ...baseMockPage,
+          id: "page_2",
+          links: [],
+          isTruncated: true,
+          truncationReason: "Response body truncated at byte limit",
+        };
+
+        const result = cnt03Rule.evaluate({
+          ...emptyContext,
+          pages: [completePageWithAbout, truncatedPage],
+        });
+
+        expect(result.status).toBe("UNKNOWN");
+        expect(result.earnedPoints).toBe(0);
+        expect(result.confidence).toBe("LOW");
+        expect(result.limitations).toContain("Response body truncated at byte limit");
+        expect(result.summary).toContain("About page");
+      });
+
+      it("returns WARNING when complete pages positively verify incomplete signals without truncation", () => {
+        const completePageWithAbout: PageObservation = {
+          ...baseMockPage,
+          links: [
+            {
+              id: "lnk_about",
+              sourceUrl: "https://example.com/",
+              targetUrl: "https://example.com/about",
+              anchorText: "About Us",
+              isInternal: true,
+              isBroken: false,
+              isRedirect: false,
+            },
+          ],
+          isTruncated: false,
+        };
+
+        const result = cnt03Rule.evaluate({
+          ...emptyContext,
+          pages: [completePageWithAbout],
+        });
+
+        expect(result.status).toBe("WARNING");
+        expect(result.earnedPoints).toBe(1);
+        expect(result.confidence).toBe("HIGH");
+      });
+
+      it("returns PASS when 3+ trust signals are positively established even if a page is truncated", () => {
+        const pageWithThreeSignals: PageObservation = {
+          ...baseMockPage,
+          links: [
+            { id: "1", sourceUrl: "https://example.com/", targetUrl: "https://example.com/about", anchorText: "About", isInternal: true, isBroken: false, isRedirect: false },
+            { id: "2", sourceUrl: "https://example.com/", targetUrl: "https://example.com/contact", anchorText: "Contact", isInternal: true, isBroken: false, isRedirect: false },
+            { id: "3", sourceUrl: "https://example.com/", targetUrl: "https://example.com/privacy", anchorText: "Privacy", isInternal: true, isBroken: false, isRedirect: false },
+          ],
+          isTruncated: true,
+        };
+
+        const result = cnt03Rule.evaluate({
+          ...emptyContext,
+          pages: [pageWithThreeSignals],
+        });
+
+        expect(result.status).toBe("PASS");
+        expect(result.earnedPoints).toBe(2);
+        expect(result.confidence).toBe("HIGH");
+      });
+    });
+
+    describe("TCH-05: Robots.txt and XML Sitemap Availability", () => {
+      it("returns UNKNOWN when robots.txt is truncated and no sitemap declaration was found", () => {
+        const result = tch05Rule.evaluate({
+          ...emptyContext,
+          robotsTxt: "User-agent: *\nDisallow: /admin\nDisallow: /private",
+          isRobotsTruncated: true,
+          sitemapUrls: [],
+        });
+
+        expect(result.status).toBe("UNKNOWN");
+        expect(result.earnedPoints).toBe(0);
+        expect(result.confidence).toBe("LOW");
+        expect(result.title).toContain("Robots.txt Truncated; Sitemap Declaration Inconclusive");
+        expect(result.limitations).toContain("Robots.txt was truncated at byte limit");
+      });
+
+      it("returns UNKNOWN when an XML sitemap is truncated and yields zero discovered URLs", () => {
+        const result = tch05Rule.evaluate({
+          ...emptyContext,
+          robotsTxt: "User-agent: *\nDisallow: /admin\n",
+          isSitemapTruncated: true,
+          sitemapUrls: [],
+        });
+
+        expect(result.status).toBe("UNKNOWN");
+        expect(result.earnedPoints).toBe(0);
+        expect(result.confidence).toBe("LOW");
+        expect(result.title).toContain("Sitemap Inconclusive Due to Truncated Content");
+        expect(result.limitations).toContain("Sitemap was truncated at byte limit before URLs could be parsed");
+      });
+
+      it("preserves PASS with partial disclosure when sitemap URLs are positively observed but one source is truncated", () => {
+        const result = tch05Rule.evaluate({
+          ...emptyContext,
+          robotsTxt: "User-agent: *\nSitemap: https://example.com/sitemap.xml",
+          isSitemapTruncated: true,
+          sitemapUrls: ["https://example.com/products", "https://example.com/pricing"],
+        });
+
+        expect(result.status).toBe("PASS");
+        expect(result.earnedPoints).toBe(2);
+        expect(result.confidence).toBe("MEDIUM");
+        expect(result.title).toContain("Partially Parsed");
+        expect(result.limitations).toContain("truncated at byte limit");
+        expect(result.sampleEvidence?.some((e) => e.includes("truncated at byte limit"))).toBe(true);
+      });
+
+      it("returns clean PASS when robots and sitemaps are complete without truncation", () => {
+        const result = tch05Rule.evaluate({
+          ...emptyContext,
+          robotsTxt: "User-agent: *\nSitemap: https://example.com/sitemap.xml",
+          isRobotsTruncated: false,
+          isSitemapTruncated: false,
+          sitemapUrls: ["https://example.com/home", "https://example.com/about"],
+        });
+
+        expect(result.status).toBe("PASS");
+        expect(result.earnedPoints).toBe(2);
+        expect(result.confidence).toBe("HIGH");
+        expect(result.title).toContain("Robots.txt and XML Sitemap Fully Configured");
+        expect(result.limitations).toBeUndefined();
+      });
+
+      it("returns WARNING when complete robots.txt has no sitemap reference and no sitemaps are found", () => {
+        const result = tch05Rule.evaluate({
+          ...emptyContext,
+          robotsTxt: "User-agent: *\nDisallow: /admin\n",
+          isRobotsTruncated: false,
+          isSitemapTruncated: false,
+          sitemapUrls: [],
+        });
+
+        expect(result.status).toBe("WARNING");
+        expect(result.earnedPoints).toBe(1);
+        expect(result.confidence).toBe("HIGH");
+        expect(result.title).toContain("Robots.txt Present but XML Sitemap Missing");
+      });
+    });
+  });
 });

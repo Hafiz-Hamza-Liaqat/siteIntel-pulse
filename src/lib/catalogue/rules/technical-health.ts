@@ -348,9 +348,18 @@ export const technicalHealthRules: RuleDefinition[] = [
       const now = new Date().toISOString();
       const hasRobots = Boolean(ctx.robotsTxt && ctx.robotsTxt.length > 10);
       const hasSitemap = ctx.sitemapUrls.length > 0;
+      const isRobotsTruncated = Boolean(ctx.isRobotsTruncated);
+      const isSitemapTruncated = Boolean(ctx.isSitemapTruncated);
 
       if (hasRobots && hasSitemap) {
-        const isSitemapTruncated = Boolean(ctx.isSitemapTruncated);
+        const isPartial = isRobotsTruncated || isSitemapTruncated;
+        const truncationDetails = [
+          isRobotsTruncated && "robots.txt truncated",
+          isSitemapTruncated && "sitemap truncated at 1 MB limit",
+        ]
+          .filter(Boolean)
+          .join("; ");
+
         return {
           testId: "TCH-05",
           testVersion: "1.0.0",
@@ -360,21 +369,61 @@ export const technicalHealthRules: RuleDefinition[] = [
           severity: "INFORMATIONAL",
           maxPoints: 2,
           earnedPoints: 2,
-          title: isSitemapTruncated
-            ? "Robots.txt and XML Sitemap Active (Sitemap Partially Parsed)"
+          title: isPartial
+            ? "Robots.txt and XML Sitemap Active (Partially Parsed)"
             : "Robots.txt and XML Sitemap Fully Configured",
-          summary: isSitemapTruncated
-            ? `Found valid robots.txt with ${ctx.sitemapUrls.length} discovered sitemap entries (sitemap truncated at 1 MB limit; discovery may be partial).`
+          summary: isPartial
+            ? `Found valid robots.txt with ${ctx.sitemapUrls.length} discovered sitemap entries (${truncationDetails}; discovery may be partial).`
             : `Found valid robots.txt with ${ctx.sitemapUrls.length} discovered sitemap entries.`,
           timestamp: now,
-          confidence: isSitemapTruncated ? "MEDIUM" : "HIGH",
-          limitations: isSitemapTruncated
-            ? "Sitemap was truncated at byte limit; additional URLs may exist."
+          confidence: isPartial ? "MEDIUM" : "HIGH",
+          limitations: isPartial
+            ? "Content was truncated at byte limit; additional directives or sitemap URLs may exist."
             : undefined,
           sampleEvidence: [
-            `Robots.txt: Active`,
+            `Robots.txt: Active${isRobotsTruncated ? " (truncated at byte limit)" : ""}`,
             `Sitemap URLs found: ${ctx.sitemapUrls.length}${isSitemapTruncated ? " (truncated at byte limit)" : ""}`,
           ],
+        };
+      }
+
+      // Truncated robots.txt could contain an unseen sitemap declaration
+      if (isRobotsTruncated && !hasSitemap) {
+        return {
+          testId: "TCH-05",
+          testVersion: "1.0.0",
+          testName: "Robots.txt and XML Sitemap Availability",
+          category: "technical_health",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Robots.txt Truncated; Sitemap Declaration Inconclusive",
+          summary: "Robots.txt was found but was truncated at byte limit. No sitemap directive was observed in the evaluated prefix, but truncation could conceal declarations.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Robots.txt was truncated at byte limit; unseen Sitemap declarations may exist beyond boundary.",
+          sampleEvidence: ["Robots.txt present (truncated at byte limit); no Sitemap: directive observed in evaluated prefix"],
+        };
+      }
+
+      // Truncated sitemap yielding zero discovered URLs cannot conclusively establish absence
+      if (isSitemapTruncated && !hasSitemap) {
+        return {
+          testId: "TCH-05",
+          testVersion: "1.0.0",
+          testName: "Robots.txt and XML Sitemap Availability",
+          category: "technical_health",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Sitemap Inconclusive Due to Truncated Content",
+          summary: "An XML sitemap was referenced or fetched but was truncated at byte limit before valid URLs could be extracted.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Sitemap was truncated at byte limit before URLs could be parsed.",
+          sampleEvidence: ["Sitemap fetched but truncated at byte limit with zero discovered URLs"],
         };
       }
 

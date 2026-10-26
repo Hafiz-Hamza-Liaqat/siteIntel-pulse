@@ -219,6 +219,35 @@ export const contentRules: RuleDefinition[] = [
         };
       }
 
+      // If any page is truncated, unobserved content (such as footers) could contain additional signals
+      if (ctx.pages.some((p) => p.isTruncated)) {
+        const observedNames = [
+          hasAbout && "About page",
+          hasContact && "Contact page",
+          hasPrivacy && "Privacy policy",
+          hasTerms && "Terms of service",
+        ].filter(Boolean).join(", ");
+
+        return {
+          testId: "CNT-03",
+          testVersion: "1.0.0",
+          testName: "Trust and Ownership Signals",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Trust Signals Inconclusive Due to Truncated Content",
+          summary: trustSignalsCount > 0
+            ? `Observed ${observedNames} in evaluated content, but one or more pages were truncated at byte limits. Truncation could conceal additional trust signals.`
+            : "No trust signals were detected in evaluated content, but one or more pages were truncated at byte limits, preventing footer trust links from being conclusively verified.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Response body truncated at byte limit; footer links could not be fully observed",
+          sampleEvidence: trustSignalsCount > 0 ? [`Observed signals: ${observedNames} (partial)`] : undefined,
+        };
+      }
+
       if (trustSignalsCount >= 1) {
         return {
           testId: "CNT-03",
@@ -233,24 +262,6 @@ export const contentRules: RuleDefinition[] = [
           summary: `Only ${trustSignalsCount} of 4 essential trust pages detected. Missing ${!hasPrivacy ? "Privacy Policy, " : ""}${!hasTerms ? "Terms of Service" : ""} hurts business credibility.`,
           timestamp: now,
           confidence: "HIGH",
-        };
-      }
-
-      if (ctx.pages.every((p) => p.isTruncated)) {
-        return {
-          testId: "CNT-03",
-          testVersion: "1.0.0",
-          testName: "Trust and Ownership Signals",
-          category: "content_quality",
-          status: "UNKNOWN",
-          severity: "MEDIUM",
-          maxPoints: 2,
-          earnedPoints: 0,
-          title: "Trust Signals Inconclusive Due to Truncated Content",
-          summary: "Evaluated pages were truncated at byte limits, preventing footer trust signals from being conclusively verified.",
-          timestamp: now,
-          confidence: "LOW",
-          limitations: "Response body truncated at byte limit; footer links could not be observed",
         };
       }
 
