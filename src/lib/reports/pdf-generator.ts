@@ -307,8 +307,8 @@ export function generateReportHtml(report: OwnerReport): string {
 
   <div class="hero-card no-break">
     <div class="score-circle">
-      <div class="score-value">${overall.score}</div>
-      <div class="score-denom">/ 100</div>
+      <div class="score-value">${overall.score}%</div>
+      <div class="score-denom">Normalized</div>
       ${overall.isProvisional ? `<div style="font-size: 6.5pt; color: #D97706; font-weight: 700; text-transform: uppercase;">PROVISIONAL</div>` : ""}
     </div>
     <div class="hero-info">
@@ -340,7 +340,7 @@ export function generateReportHtml(report: OwnerReport): string {
         </div>
       ` : ""}
       <div style="margin-top: 6px; font-size: 8pt; color: #64748B;">
-        Scope: <strong>${report.executiveSnapshot.testedPageCount} pages tested</strong> | Coverage: <strong>${report.executiveSnapshot.coverage.coveragePercentage}% evaluated</strong> | Points Earned: <strong>${overall.totalEarnedCataloguePoints ?? overall.score}/100 pts</strong>
+        Scope: <strong>${report.executiveSnapshot.testedPageCount} pages tested</strong> | Evaluated Coverage: <strong>${report.executiveSnapshot.coverage.coveragePercentage}% (${overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints}/100 pts)</strong> | Earned Points: <strong>${overall.totalEarnedCataloguePoints ?? overall.score} / ${overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints} evaluated pts</strong>
       </div>
     </div>
   </div>
@@ -560,7 +560,7 @@ export function generateReportHtml(report: OwnerReport): string {
     <tbody>
       <tr style="background: #F8FAFC; font-weight: 700;">
         <td class="url-cell">${escapeHtml(company.domain)} (Your Platform)</td>
-        <td>${overall.score}/100</td>
+        <td>${overall.score}% (${overall.totalEarnedCataloguePoints ?? overall.score} / ${overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints} pts)</td>
         <td>${report.scoreDetails.find(c => c.category === 'seo')?.scorePercentage || 0}%</td>
         <td>${report.scoreDetails.find(c => c.category === 'performance')?.scorePercentage || 0}%</td>
         <td>${report.securityAndAuthSummary.httpsEnforced ? "HTTPS Active" : "Insecure"}</td>
@@ -606,7 +606,7 @@ export class PdfGenerator {
     const { chromium } = await import("playwright");
     const browser = await chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     });
 
     try {

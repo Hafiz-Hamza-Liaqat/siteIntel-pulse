@@ -503,6 +503,25 @@ export const ExpertReportSchema = z.object({
     crawlerPolicies: z.record(z.string(), z.string()).default({}),
     directAnswerReadiness: z.record(z.string(), z.any()).default({}),
     aiAssistanceClues: z.record(z.string(), z.any()).default({}),
+    aiContentRiskSignal: z
+      .object({
+        riskLevel: z.enum([
+          "LOW_RISK",
+          "MODERATE_PATTERN_RISK",
+          "HIGH_PATTERN_RISK",
+          "UNASSESSED",
+        ]),
+        heuristicsObserved: z.object({
+          templateRepetitionRatio: z.number().optional(),
+          originalitySignals: z.array(z.string()).default([]),
+          substantiationFound: z.boolean().default(false),
+          freshnessDateFound: z.boolean().default(false),
+          authorshipContextObserved: z.boolean().default(false),
+        }),
+        disclaimer: z.string(),
+        notes: z.string(),
+      })
+      .optional(),
   }),
   analyticsAndMetrics: z.array(ExternalMetricSchema).default([]),
   competitorComparisons: z.array(CompetitorComparisonSchema).default([]),

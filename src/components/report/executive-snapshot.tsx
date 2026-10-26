@@ -70,14 +70,14 @@ export function ExecutiveSnapshot({ report }: ExecutiveSnapshotProps) {
               overall.score
             )}`}
           >
-            <span className="text-4xl font-black text-white leading-none">{overall.score}</span>
-            <span className="text-xs uppercase font-bold tracking-wider text-brand-textMuted mt-1">/ 100</span>
+            <span className="text-4xl font-black text-white leading-none">{overall.score}%</span>
+            <span className="text-[10px] uppercase font-bold tracking-wider text-brand-textMuted mt-1">Normalized</span>
           </div>
           <span className="text-xs font-semibold text-brand-textMuted">
             {isProvisional ? (
               <span className="text-amber-400 font-bold uppercase tracking-wider">Provisional Score</span>
             ) : (
-              "Composite Platform Score"
+              "Normalized Score"
             )}
           </span>
         </div>
@@ -142,9 +142,9 @@ export function ExecutiveSnapshot({ report }: ExecutiveSnapshotProps) {
             </div>
             <div className="p-2 rounded bg-brand-card border border-brand-borderSubtle">
               <div className="text-base font-bold text-brand-cyan">
-                {overall.totalEarnedCataloguePoints ?? overall.score} / 100
+                {overall.totalEarnedCataloguePoints ?? overall.score} / {overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints}
               </div>
-              <div className="text-[10px] text-brand-textMuted uppercase font-medium">Earned Allocation</div>
+              <div className="text-[10px] text-brand-textMuted uppercase font-medium">Earned / Evaluated Pts</div>
             </div>
           </div>
         </div>

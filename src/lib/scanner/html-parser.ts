@@ -52,34 +52,59 @@ export function parsePageHtml(
   const parsedUrl = new URL(pageUrl);
   const baseHostname = parsedUrl.hostname.toLowerCase();
 
-  // XML / Sitemap Content Detection
+  // Content-Type and Document Type Detection
   const rawContentType = (headers["content-type"] || "").toLowerCase();
+  const lowerPath = parsedUrl.pathname.toLowerCase();
+
+  const isRobotsTxt = lowerPath.endsWith("/robots.txt") || lowerPath === "/robots.txt";
   const isXmlByHeader = rawContentType.includes("xml");
-  const isXmlByExtension = parsedUrl.pathname.toLowerCase().endsWith(".xml");
+  const isXmlByExtension = lowerPath.endsWith(".xml");
   const isXmlByContent = html.trim().startsWith("<?xml") || html.includes("<urlset") || html.includes("<sitemapindex>");
   const isXmlSitemap = isXmlByExtension || isXmlByContent || (isXmlByHeader && (html.includes("<urlset") || html.includes("<sitemapindex>")));
-  const documentType = isXmlSitemap ? "xml_sitemap" : isXmlByHeader ? "xml" : "html";
+
+  let documentType: PageObservation["documentType"] = "html";
+  if (statusCode >= 400) {
+    documentType = "inaccessible";
+  } else if (isRobotsTxt) {
+    documentType = "robots_txt";
+  } else if (isXmlSitemap) {
+    documentType = "xml_sitemap";
+  } else if (isXmlByHeader || isXmlByContent) {
+    documentType = "xml";
+  } else if (rawContentType.includes("json") || lowerPath.endsWith(".json")) {
+    documentType = "api_json";
+  } else if (rawContentType.startsWith("image/") || /\.(png|jpe?g|gif|svg|webp|avif|ico)$/i.test(lowerPath)) {
+    documentType = "image";
+  } else if (rawContentType.includes("pdf") || /\.(pdf|docx?|xlsx?|pptx?|zip|gz)$/i.test(lowerPath)) {
+    documentType = "document";
+  } else if (rawContentType.includes("javascript") || lowerPath.endsWith(".js")) {
+    documentType = "script";
+  } else if (!rawContentType.includes("html") && rawContentType !== "") {
+    documentType = "other";
+  }
+
+  const isHtml = documentType === "html";
 
   // Helper for whitespace normalization
   const cleanText = (s?: string) => (s ? s.replace(/\s+/g, " ").trim() : undefined);
 
-  // 1. Title & Meta Description
-  const title = !isXmlSitemap ? cleanText($("title").first().text()) : undefined;
-  const metaDescription = !isXmlSitemap ? (
+  // 1. Title & Meta Description (HTML only)
+  const title = isHtml ? cleanText($("title").first().text()) : undefined;
+  const metaDescription = isHtml ? (
     cleanText($('meta[name="description" i]').attr("content")) ||
     cleanText($('meta[property="og:description" i]').attr("content")) ||
     undefined
   ) : undefined;
 
-  // 2. Canonical URL
-  const canonicalCandidate = !isXmlSitemap ? cleanText($('link[rel="canonical" i]').attr("href")) : undefined;
+  // 2. Canonical URL (HTML only)
+  const canonicalCandidate = isHtml ? cleanText($('link[rel="canonical" i]').attr("href")) : undefined;
 
-  // Viewport Meta Tag
-  const metaViewport = !isXmlSitemap ? cleanText($('meta[name="viewport" i]').attr("content")) : undefined;
+  // Viewport Meta Tag (HTML only)
+  const metaViewport = isHtml ? cleanText($('meta[name="viewport" i]').attr("content")) : undefined;
 
-  // Forms Extraction & Usability Analysis
+  // Forms Extraction & Usability Analysis (HTML only)
   const forms: PageObservation["forms"] = [];
-  if (!isXmlSitemap) {
+  if (isHtml) {
     $("form").each((idx, el) => {
       const formId = $(el).attr("id") || `form_${idx}`;
       const rawAction = $(el).attr("action")?.trim() || "";
@@ -151,9 +176,9 @@ export function parsePageHtml(
     xRobots.split(",").forEach((d) => robotsDirectives.push(d.trim().toLowerCase()));
   }
 
-  // 4. Headings Outline
+  // 4. Headings Outline (HTML only)
   const cleanHeading = (s: string) => s.replace(/\s+/g, " ").trim();
-  const headings = isXmlSitemap
+  const headings = !isHtml
     ? { h1: [], h2: [], h3: [], h4: [], h5: [], h6: [] }
     : {
         h1: $("h1").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
@@ -164,13 +189,16 @@ export function parsePageHtml(
         h6: $("h6").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
       };
 
-  // 5. Visible Text & Word Count
-  // Clone and remove scripts, styles, noscript, svg
-  const contentClone = $("body").clone();
-  contentClone.find("script, style, noscript, svg, path, select, option").remove();
-  const rawText = contentClone.text().replace(/\s+/g, " ").trim();
-  const visibleWordCount = rawText ? rawText.split(/\s+/).length : 0;
-  const visibleTextSample = rawText.slice(0, 500);
+  // 5. Visible Text & Word Count (HTML only)
+  let visibleWordCount = 0;
+  let visibleTextSample = "";
+  if (isHtml) {
+    const contentClone = $("body").clone();
+    contentClone.find("script, style, noscript, svg, path, select, option").remove();
+    const rawText = contentClone.text().replace(/\s+/g, " ").trim();
+    visibleWordCount = rawText ? rawText.split(/\s+/).length : 0;
+    visibleTextSample = rawText.slice(0, 500);
+  }
 
   // 6. Language, doctype, encoding
   const language = $("html").attr("lang")?.trim() || undefined;

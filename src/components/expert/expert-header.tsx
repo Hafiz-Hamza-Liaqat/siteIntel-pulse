@@ -216,15 +216,15 @@ export function ExpertHeader({ report, onNewScanClick }: ExpertHeaderProps) {
           {/* Overall Score Box */}
           <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${getScoreColor(overall.score)}`}>
             <div>
-              <div className="text-3xl font-black">{overall.score}</div>
+              <div className="text-3xl font-black">{overall.score}%</div>
               <div className="text-[10px] uppercase font-bold tracking-wider opacity-80">
-                Score / 100
+                Normalized
               </div>
             </div>
             <div className="border-l border-current/20 pl-3 text-xs font-medium">
               <div>{overall.ratingBand}</div>
               <div className="text-[11px] opacity-80 font-normal">
-                {report.coverage.coveragePercentage}% catalogue coverage
+                {overall.totalEarnedCataloguePoints ?? overall.score} / {overall.pointsActuallyEvaluated ?? report.coverage.weightedPointsEvaluated} pts ({report.coverage.coveragePercentage}% coverage)
               </div>
             </div>
           </div>

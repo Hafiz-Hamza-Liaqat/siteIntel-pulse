@@ -277,10 +277,13 @@ export function generateExpertReportHtml(report: ExpertReport): string {
     <div class="card">
       <div class="card-title">Overall Score ${exec.overallScore.isProvisional ? '<span style="color: #D97706; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; margin-left: 4px;">PROVISIONAL</span>' : ''}</div>
       <div class="card-value" style="color: ${getScoreColor(exec.overallScore.score)}">
-        ${exec.overallScore.score}<span style="font-size: 9pt; color: #64748B;">/100</span>
+        ${exec.overallScore.score}%<span style="font-size: 8pt; color: #64748B;"> (Normalized)</span>
       </div>
       <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
         Rating: <strong>${escapeHtml(exec.overallScore.ratingBand)}</strong> ${exec.overallScore.isProvisional ? '(Provisional)' : '(Fully Assessed)'}
+      </div>
+      <div style="font-size: 6.5pt; color: #64748B; margin-top: 1px;">
+        Earned: <strong>${exec.overallScore.totalEarnedCataloguePoints ?? exec.overallScore.score} / ${exec.overallScore.pointsActuallyEvaluated ?? exec.overallScore.evaluatedWeightedPoints} pts evaluated</strong> (100 catalogue max)
       </div>
     </div>
 
@@ -709,7 +712,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
     <tbody>
       <tr style="background: #CCFBF1;">
         <td class="url-cell"><strong>${escapeHtml(meta.companyA.domain)} (Company A)</strong></td>
-        <td><strong>${exec.overallScore.score}/100</strong></td>
+        <td><strong>${exec.overallScore.score}% (${exec.overallScore.totalEarnedCataloguePoints ?? exec.overallScore.score} / ${exec.overallScore.pointsActuallyEvaluated ?? exec.overallScore.evaluatedWeightedPoints} pts)</strong></td>
         <td>Live Crawl &amp; Deterministic Catalogue</td>
         <td>Full Inspection</td>
       </tr>
@@ -859,7 +862,7 @@ export class ExpertPdfGenerator {
     const { chromium } = await import("playwright");
     const browser = await chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     });
 
     try {

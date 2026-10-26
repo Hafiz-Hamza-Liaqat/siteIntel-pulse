@@ -122,6 +122,12 @@ export const ScanRequestSchema = z.object({
   competitors: z.array(z.string()).max(3).default([]),
   maxPages: z.number().int().min(1).max(100).default(50),
   maxDepth: z.number().int().min(1).max(5).default(3),
+  // Commercial & Financial Opportunity Inputs for Cost of Inaction Calculator
+  monthlySessions: z.number().nonnegative().optional(),
+  averageOrderValue: z.number().nonnegative().optional(),
+  leadConversionRatePct: z.number().min(0).max(100).optional(),
+  customerValue: z.number().nonnegative().optional(),
+  grossMarginPct: z.number().min(0).max(100).optional(),
   // Milestone 2 expert audit parameters
   enableAuthorizedAudit: z.boolean().optional(),
   authTestAccount: z.string().optional(),
@@ -227,7 +233,18 @@ export const PageObservationSchema = z.object({
   discoverySource: z.enum(["entry", "sitemap", "internal_link"]).default("entry"),
   consoleErrors: z.array(z.string()).default([]),
   isXmlSitemap: z.boolean().default(false).optional(),
-  documentType: z.enum(["html", "xml_sitemap", "xml", "other"]).default("html").optional(),
+  documentType: z.enum([
+    "html",
+    "xml_sitemap",
+    "robots_txt",
+    "xml",
+    "image",
+    "document",
+    "script",
+    "api_json",
+    "inaccessible",
+    "other",
+  ]).default("html").optional(),
   metaViewport: z.string().optional(),
   forms: z.array(
     z.object({
@@ -331,6 +348,10 @@ export const CategoryScoreSchema = z.object({
   isEligibleForOverall: z.boolean().default(true),
   coveragePercentage: z.number().min(0).max(100).default(100), // (testedPoints / allocatedWeight) * 100
   earnedAllocationPercentage: z.number().min(0).max(100).default(0), // (earnedPoints / allocatedWeight) * 100
+  allocatedPoints: z.number().default(0).optional(),
+  pointsEvaluated: z.number().default(0).optional(),
+  pointsEarned: z.number().default(0).optional(),
+  normalizedScore: z.number().default(0).optional(),
 });
 export type CategoryScore = z.infer<typeof CategoryScoreSchema>;
 
@@ -353,6 +374,13 @@ export const OverallScoreSchema = z.object({
   coveragePercentage: z.number().min(0).max(100).optional(),
   totalEarnedCataloguePoints: z.number().optional(),
   ineligibleCategories: z.array(z.string()).default([]).optional(),
+  // Explicit semantic scoring breakdown
+  totalPointsAllocated: z.number().default(100).optional(),
+  pointsActuallyEvaluated: z.number().default(0).optional(),
+  pointsEarned: z.number().default(0).optional(),
+  catalogueCoveragePercentage: z.number().default(0).optional(),
+  normalizedScore: z.number().default(0).optional(),
+  scoringFormula: z.string().default("normalizedScore = Math.round((pointsEarned / pointsActuallyEvaluated) * 100)").optional(),
 });
 export type OverallScore = z.infer<typeof OverallScoreSchema>;
 
@@ -403,7 +431,78 @@ export const OpportunityThemeSchema = z.object({
 });
 export type OpportunityTheme = z.infer<typeof OpportunityThemeSchema>;
 
-// 14. OwnerReport Schema (13 sections)
+// 13b. Diagnostic Dimension Scorecard Schema (9 Non-Additive Diagnostic Views)
+export const DiagnosticDimensionIdSchema = z.enum([
+  "design_ux",
+  "development_health",
+  "responsive_accessibility",
+  "performance_speed",
+  "seo",
+  "geo",
+  "aeo",
+  "content_trust",
+  "marketing_monetization",
+]);
+export type DiagnosticDimensionId = z.infer<typeof DiagnosticDimensionIdSchema>;
+
+export const DimensionScorecardSchema = z.object({
+  id: DiagnosticDimensionIdSchema,
+  name: z.string(),
+  description: z.string(),
+  score: z.number().min(0).max(100),
+  ratingBand: z.string(),
+  coveragePercentage: z.number().min(0).max(100),
+  confidence: ConfidenceSchema,
+  evaluatedTestsCount: z.number().int(),
+  totalTestsCount: z.number().int(),
+  urlsAssessedCount: z.number().int(),
+  missingEvidenceNotes: z.string().optional(),
+  isNonAdditiveView: z.literal(true).default(true),
+});
+export type DimensionScorecard = z.infer<typeof DimensionScorecardSchema>;
+
+// 13c. Cost of Inaction Calculator v1 Schema
+export const BusinessModelTypeSchema = z.enum([
+  "ecommerce",
+  "lead_gen",
+  "saas_subscription",
+  "other",
+]);
+export type BusinessModelType = z.infer<typeof BusinessModelTypeSchema>;
+
+export const ScenarioEstimateSchema = z.object({
+  scenario: z.enum(["conservative", "base", "upside"]),
+  monthlyOpportunity: z.number(),
+  annualOpportunity: z.number(),
+  conversionRateDeltaPct: z.number(),
+  paybackMonths: z.number().nullable().optional(),
+});
+export type ScenarioEstimate = z.infer<typeof ScenarioEstimateSchema>;
+
+export const CostOfInactionResultSchema = z.object({
+  status: z.enum(["ESTIMATED", "INSUFFICIENT_INPUTS", "NOT_CONFIGURED"]),
+  businessModel: BusinessModelTypeSchema,
+  inputsProvided: z.record(z.any()).default({}),
+  scenarios: z
+    .object({
+      conservative: ScenarioEstimateSchema,
+      base: ScenarioEstimateSchema,
+      upside: ScenarioEstimateSchema,
+    })
+    .optional(),
+  currency: z.string().default("USD"),
+  remediationCostEstimate: z.number().optional(),
+  grossMarginPct: z.number().optional(),
+  assumptions: z.array(z.string()).default([]),
+  disclaimers: z.array(z.string()).default([]),
+  inputSource: z.string().default("Manual / Heuristic Baseline"),
+  calculatedAt: z.string(),
+  confidence: ConfidenceSchema.default("MEDIUM"),
+  methodologyNotes: z.string(),
+});
+export type CostOfInactionResult = z.infer<typeof CostOfInactionResultSchema>;
+
+// 14. OwnerReport Schema (13 sections + Dimension Scorecards & Cost of Inaction)
 export const OwnerReportSchema = z.object({
   reportId: z.string(),
   reportVersion: z.string().default("1.0.0"),
@@ -490,6 +589,8 @@ export const OwnerReportSchema = z.object({
     disclaimers: z.array(z.string()),
     expertEngagementCta: z.string(),
   }),
+  dimensionScorecards: z.array(DimensionScorecardSchema).default([]).optional(),
+  costOfInaction: CostOfInactionResultSchema.optional(),
   results: z.array(AssessmentResultSchema),
 });
 export type OwnerReport = z.infer<typeof OwnerReportSchema>;

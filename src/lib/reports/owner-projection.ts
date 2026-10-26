@@ -8,6 +8,8 @@ import {
   ResponsiveDiagnostic,
 } from "@/types";
 import { computeAuditScores } from "../scoring/engine";
+import { computeDimensionScorecards } from "../scoring/dimension-scorecards";
+import { calculateCostOfInaction } from "./cost-of-inaction";
 import { CrawlResult } from "../scanner/crawler";
 import { isAuthUrl } from "../catalogue/rules/auth";
 import { parseRobotsForAi } from "../catalogue/rules/ai";
@@ -202,6 +204,14 @@ export function projectOwnerReport(
         disclaimer: "Competitor comparison has not been executed. Real comparison requires a dedicated competitor scan.",
       }));
 
+  // Compute Non-Additive Diagnostic Dimension Scorecards & Cost of Inaction
+  const dimensionScorecards = computeDimensionScorecards(results, crawl.pages.length);
+  const costOfInaction = calculateCostOfInaction({
+    businessCategory: effectiveCategory,
+    request,
+    results,
+  });
+
   // 5. Build Owner Report
   const report: OwnerReport = {
     reportId: `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -249,6 +259,8 @@ export function projectOwnerReport(
       totalIssues: criticalCount + highCount + mediumCount + lowCount,
       affectedPagesCount: Math.max(affectedPagesCount, crawl.coverage.failedPages),
     },
+    dimensionScorecards,
+    costOfInaction,
     technicalHealthAndSeoSummary: {
       titlesHealthy: crawl.pages.filter((p) => p.title && p.title.length >= 25 && p.title.length <= 70).length,
       descriptionsHealthy: crawl.pages.filter((p) => p.metaDescription && p.metaDescription.length >= 60).length,

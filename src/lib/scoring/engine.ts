@@ -92,6 +92,10 @@ export function computeAuditScores(results: AssessmentResult[]): ScoreLedgerOutp
       isEligibleForOverall: isEligible,
       coveragePercentage: catCoveragePct,
       earnedAllocationPercentage,
+      allocatedPoints: config.weight,
+      pointsEvaluated: testedPoints,
+      pointsEarned: earnedPoints,
+      normalizedScore: scorePercentage,
     });
   }
 
@@ -115,13 +119,14 @@ export function computeAuditScores(results: AssessmentResult[]): ScoreLedgerOutp
   }
 
   const isProvisional = !coverage.isOverallScoreEligible;
+  const roundedEarned = Math.round(totalEarnedPoints * 10) / 10;
   let evaluationNote: string;
   if (coverage.assessmentStatus === "FULLY_ASSESSED") {
-    evaluationNote = `Comprehensive baseline assessment fully assessed across all 11 catalogue categories (${coverage.overallCoveragePercentage}% evaluated).`;
+    evaluationNote = `Comprehensive baseline assessment fully assessed across all 11 catalogue categories (${coverage.overallCoveragePercentage}% evaluated). Normalized score: ${overallScoreValue}% (${roundedEarned} earned / ${totalTestedPoints} evaluated pts out of 100 total catalogue pts).`;
   } else if (coverage.assessmentStatus === "INSUFFICIENT_EVIDENCE") {
-    evaluationNote = `Provisional preliminary score (Insufficient evidence: Only ${coverage.overallCoveragePercentage}% of catalogue points evaluated. Score is preliminary and non-conclusive).`;
+    evaluationNote = `Provisional preliminary score (Insufficient evidence: Only ${coverage.overallCoveragePercentage}% of catalogue points evaluated. Normalized score: ${overallScoreValue}% (${roundedEarned} earned / ${totalTestedPoints} evaluated pts). Score is preliminary and non-conclusive).`;
   } else {
-    evaluationNote = `Provisional preliminary score (${overallScoreValue}/100) based on ${coverage.overallCoveragePercentage}% evaluated catalogue points. ${coverage.provisionalReason || ""}`;
+    evaluationNote = `Provisional preliminary score: Normalized ${overallScoreValue}% (${roundedEarned} earned / ${totalTestedPoints} evaluated pts) based on ${coverage.overallCoveragePercentage}% evaluated catalogue points. ${coverage.provisionalReason || ""}`;
   }
 
   const overallScore: OverallScore = {
@@ -134,8 +139,14 @@ export function computeAuditScores(results: AssessmentResult[]): ScoreLedgerOutp
     evaluatedWeightedPoints: coverage.weightedPointsEvaluated,
     criticalIssuesCount,
     coveragePercentage: coverage.overallCoveragePercentage,
-    totalEarnedCataloguePoints: Math.round(totalEarnedPoints * 10) / 10,
+    totalEarnedCataloguePoints: roundedEarned,
     ineligibleCategories: coverage.ineligibleCategories,
+    totalPointsAllocated: 100,
+    pointsActuallyEvaluated: totalTestedPoints,
+    pointsEarned: roundedEarned,
+    catalogueCoveragePercentage: coverage.overallCoveragePercentage,
+    normalizedScore: overallScoreValue,
+    scoringFormula: `normalizedScore = Math.round((${roundedEarned} / ${totalTestedPoints}) * 100)`,
   };
 
   return {

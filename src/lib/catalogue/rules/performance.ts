@@ -23,19 +23,36 @@ export const performanceRules: RuleDefinition[] = [
           testVersion: "1.0.0",
           testName: "Mobile PageSpeed / Lighthouse Lab Score",
           category: "performance",
-          status: "UNKNOWN",
+          status: "NOT_TESTED",
           severity: "INFORMATIONAL",
           maxPoints: 2,
           earnedPoints: 0,
-          title: "Mobile Lab Score Unavailable",
-          summary: "PageSpeed Insights mobile lab score not available (API key not configured or external service unreachable).",
+          title: "Mobile Lab Score Not Configured",
+          summary:
+            ps?.unconfiguredReason ||
+            "PageSpeed Insights API is not configured or external service was not tested. Performance lab metrics require active provider connection or local lab run.",
           timestamp: now,
           confidence: "LOW",
-          limitations: "Requires PageSpeed Insights API key or local browser lab execution.",
+          limitations: "Requires PageSpeed Insights API key (PAGESPEED_API_KEY) or local browser lab execution.",
+          sampleEvidence: [
+            "Provider status: NOT_CONFIGURED",
+            "Strategy: Mobile",
+            "Lab metrics: NOT_TESTED",
+            "Field metrics: NOT_TESTED",
+          ],
         };
       }
 
       const score = ps.performanceScore;
+      const labEvidence: string[] = [
+        `Lab score: ${score}/100`,
+        `Provider: ${ps.providerName || ps.source}`,
+        `Device strategy: Mobile`,
+        `Run date: ${ps.measuredAt}`,
+        `Lab metrics: Speed Index ${ps.labMetrics?.speedIndexMs ? Math.round(ps.labMetrics.speedIndexMs) + 'ms' : 'N/A'}, FCP ${ps.labMetrics?.fcpMs ? Math.round(ps.labMetrics.fcpMs) + 'ms' : 'N/A'}, LCP ${ps.labMetrics?.lcpMs ? Math.round(ps.labMetrics.lcpMs) + 'ms' : 'N/A'}, TBT ${ps.labMetrics?.tbtMs ? Math.round(ps.labMetrics.tbtMs) + 'ms' : 'N/A'}, TTFB ${ps.labMetrics?.ttfbMs ? Math.round(ps.labMetrics.ttfbMs) + 'ms' : 'N/A'}`,
+        `Field data (CrUX p75): ${ps.cruxFieldData ? `LCP ${ps.cruxFieldData.lcpMs ?? 'N/A'}ms, INP ${ps.cruxFieldData.inpMs ?? 'N/A'}ms, CLS ${ps.cruxFieldData.cls ?? 'N/A'} (${ps.cruxFieldData.category || 'N/A'})` : 'Unavailable / insufficient traffic'}`,
+      ];
+
       if (score >= 85) {
         return {
           testId: "PERF-01",
@@ -50,7 +67,7 @@ export const performanceRules: RuleDefinition[] = [
           summary: `Mobile Lighthouse lab score is ${score}/100, indicating an exceptionally fast mobile experience.`,
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: [`Lab score: ${score}/100`, `Source: ${ps.source}`],
+          sampleEvidence: labEvidence,
         };
       }
 
@@ -68,7 +85,7 @@ export const performanceRules: RuleDefinition[] = [
           summary: `Mobile lab score is ${score}/100. Key opportunities exist to streamline mobile delivery.`,
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: [`Lab score: ${score}/100`, `Source: ${ps.source}`],
+          sampleEvidence: labEvidence,
         };
       }
 
@@ -85,7 +102,7 @@ export const performanceRules: RuleDefinition[] = [
         summary: `Mobile lab score of ${score}/100 falls below acceptable thresholds, risking visitor bounce rates.`,
         timestamp: now,
         confidence: "HIGH",
-        sampleEvidence: [`Lab score: ${score}/100`, `Source: ${ps.source}`],
+        sampleEvidence: labEvidence,
       };
     },
   },
@@ -110,19 +127,36 @@ export const performanceRules: RuleDefinition[] = [
           testVersion: "1.0.0",
           testName: "Desktop PageSpeed / Lighthouse Lab Score",
           category: "performance",
-          status: "UNKNOWN",
+          status: "NOT_TESTED",
           severity: "INFORMATIONAL",
           maxPoints: 2,
           earnedPoints: 0,
-          title: "Desktop Lab Score Unavailable",
-          summary: "Desktop PageSpeed Insights lab data not available.",
+          title: "Desktop Lab Score Not Configured",
+          summary:
+            ps?.unconfiguredReason ||
+            "Desktop PageSpeed Insights API is not configured or external service was not tested. Performance lab metrics require active provider connection or local lab run.",
           timestamp: now,
           confidence: "LOW",
-          limitations: "Requires PageSpeed Insights API key or local browser lab execution.",
+          limitations: "Requires PageSpeed Insights API key (PAGESPEED_API_KEY) or local browser lab execution.",
+          sampleEvidence: [
+            "Provider status: NOT_CONFIGURED",
+            "Strategy: Desktop",
+            "Lab metrics: NOT_TESTED",
+            "Field metrics: NOT_TESTED",
+          ],
         };
       }
 
       const score = ps.performanceScore;
+      const labEvidence: string[] = [
+        `Lab score: ${score}/100`,
+        `Provider: ${ps.providerName || ps.source}`,
+        `Device strategy: Desktop`,
+        `Run date: ${ps.measuredAt}`,
+        `Lab metrics: Speed Index ${ps.labMetrics?.speedIndexMs ? Math.round(ps.labMetrics.speedIndexMs) + 'ms' : 'N/A'}, FCP ${ps.labMetrics?.fcpMs ? Math.round(ps.labMetrics.fcpMs) + 'ms' : 'N/A'}, LCP ${ps.labMetrics?.lcpMs ? Math.round(ps.labMetrics.lcpMs) + 'ms' : 'N/A'}, TBT ${ps.labMetrics?.tbtMs ? Math.round(ps.labMetrics.tbtMs) + 'ms' : 'N/A'}, TTFB ${ps.labMetrics?.ttfbMs ? Math.round(ps.labMetrics.ttfbMs) + 'ms' : 'N/A'}`,
+        `Field data (CrUX p75): ${ps.cruxFieldData ? `LCP ${ps.cruxFieldData.lcpMs ?? 'N/A'}ms, INP ${ps.cruxFieldData.inpMs ?? 'N/A'}ms, CLS ${ps.cruxFieldData.cls ?? 'N/A'} (${ps.cruxFieldData.category || 'N/A'})` : 'Unavailable / insufficient traffic'}`,
+      ];
+
       if (score >= 85) {
         return {
           testId: "PERF-02",
@@ -137,7 +171,7 @@ export const performanceRules: RuleDefinition[] = [
           summary: `Desktop Lighthouse performance score is ${score}/100.`,
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: [`Lab score: ${score}/100`, `Source: ${ps.source}`],
+          sampleEvidence: labEvidence,
         };
       }
 
@@ -155,7 +189,7 @@ export const performanceRules: RuleDefinition[] = [
           summary: `Desktop lab score is ${score}/100.`,
           timestamp: now,
           confidence: "HIGH",
-          sampleEvidence: [`Lab score: ${score}/100`, `Source: ${ps.source}`],
+          sampleEvidence: labEvidence,
         };
       }
 
@@ -172,6 +206,7 @@ export const performanceRules: RuleDefinition[] = [
         summary: `Desktop performance score of ${score}/100 falls below expected standards.`,
         timestamp: now,
         confidence: "HIGH",
+        sampleEvidence: labEvidence,
       };
     },
   },
@@ -190,6 +225,27 @@ export const performanceRules: RuleDefinition[] = [
       const now = new Date().toISOString();
       const crux = ctx.pageSpeedMobile?.cruxFieldData || ctx.pageSpeedDesktop?.cruxFieldData;
 
+      const hasProvider = Boolean(ctx.pageSpeedMobile?.isAvailable || ctx.pageSpeedDesktop?.isAvailable);
+
+      if (!hasProvider) {
+        return {
+          testId: "PERF-03",
+          testVersion: "1.0.0",
+          testName: "Core Web Vitals Field Data",
+          category: "performance",
+          status: "NOT_TESTED",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Core Web Vitals Field Data Not Configured",
+          summary: "CrUX real-user field data requires an active PageSpeed Insights connection. API key is not configured.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Requires PAGESPEED_API_KEY to query Google Chrome User Experience Report (CrUX) field data.",
+          sampleEvidence: ["Provider status: NOT_CONFIGURED", "CrUX metrics: NOT_TESTED"],
+        };
+      }
+
       if (!crux || crux.lcpMs == null) {
         return {
           testId: "PERF-03",
@@ -201,10 +257,11 @@ export const performanceRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 0,
           title: "Real-User Field Data Not Available",
-          summary: "This domain does not currently have sufficient Chrome User Experience Report (CrUX) traffic volume or API connection.",
+          summary: "This domain does not currently have sufficient Chrome User Experience Report (CrUX) traffic volume in the 28-day window.",
           timestamp: now,
           confidence: "LOW",
           limitations: "CrUX field data requires substantial real-world Chrome traffic over a 28-day window.",
+          sampleEvidence: ["Provider status: CONNECTED", "CrUX metrics: INSUFFICIENT_DOMAIN_TRAFFIC"],
         };
       }
 

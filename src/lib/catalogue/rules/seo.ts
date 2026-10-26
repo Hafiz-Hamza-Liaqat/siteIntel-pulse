@@ -4,10 +4,11 @@ import { AssessmentResult, PageObservation } from "@/types";
 export function getHtmlPages(pages: PageObservation[]): PageObservation[] {
   return pages.filter(
     (p) =>
+      (p.documentType === "html" || !p.documentType) &&
       !p.isXmlSitemap &&
-      p.documentType !== "xml_sitemap" &&
       !(p.contentType || "").toLowerCase().includes("xml") &&
-      !p.finalUrl.toLowerCase().endsWith(".xml")
+      !p.finalUrl.toLowerCase().endsWith(".xml") &&
+      !p.finalUrl.toLowerCase().endsWith("/robots.txt")
   );
 }
 
