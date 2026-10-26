@@ -27,6 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libpango-1.0-0 \
     libcairo2 \
+    libxshmfence1 \
+    fonts-liberation \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -35,14 +37,14 @@ FROM base AS deps
 WORKDIR /app
 ENV NODE_ENV=development
 COPY package.json package-lock.json* ./
-RUN npm ci && npx playwright install chromium
+RUN mkdir -p /ms-playwright && npm ci && npx playwright install chromium
 
 # 3. Next.js production build stage
 FROM deps AS builder
 WORKDIR /app
 ENV NODE_ENV=production
 COPY . .
-RUN npm run build
+RUN mkdir -p public && npm run build
 
 # 4. Lean runtime runner stage
 FROM base AS runner
@@ -59,9 +61,9 @@ RUN groupadd --system --gid 1001 nodejs && \
     mkdir -p /app/data /app/backups /app/test-results /ms-playwright && \
     chown -R nextjs:nodejs /app/data /app/backups /app/test-results /ms-playwright
 
-# Copy Chromium browser from deps
-COPY --from=deps /ms-playwright /ms-playwright
-RUN chown -R nextjs:nodejs /ms-playwright && chmod -R 755 /ms-playwright
+# Copy Chromium browser from deps with correct permissions
+COPY --chown=nextjs:nodejs --from=deps /ms-playwright /ms-playwright
+RUN chmod -R 755 /ms-playwright
 
 # Copy node_modules and built assets
 COPY --from=deps /app/node_modules ./node_modules

@@ -53,8 +53,10 @@ jobs:
 
       - name: 6. Build and Start Container
         run: |
-          echo "Building production image and starting staging stack..."
-          docker compose -f docker-compose.staging.yml up --build -d
+          echo "Building production image with plain progress..."
+          docker compose -f docker-compose.staging.yml build --progress=plain
+          echo "Starting staging stack in detached background mode..."
+          docker compose -f docker-compose.staging.yml up -d
 
       - name: 7. Wait for Container Health and Readiness Probe
         run: |
