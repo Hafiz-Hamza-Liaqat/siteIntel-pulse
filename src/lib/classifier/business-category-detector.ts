@@ -30,7 +30,7 @@ interface CategorySignalRule {
 const CATEGORY_RULES: CategorySignalRule[] = [
   {
     category: "ecommerce",
-    schemas: ["product", "offer", "aggregateoffer", "itemavailability", "merchantreturnpolicy", "store"],
+    schemas: ["product", "offer", "aggregateoffer", "itemavailability", "merchantreturnpolicy", "store", "itemlist"],
     urlPatterns: [
       /\/cart(?:\/|$|\?)/i,
       /\/checkout(?:\/|$|\?)/i,
@@ -58,6 +58,10 @@ const CATEGORY_RULES: CategorySignalRule[] = [
       /\bshipping & returns\b/i,
       /\bfree delivery on orders\b/i,
       /\bshopping cart\b/i,
+      /\b(?:shirts?|t-shirts?|clothing|apparel|fragrances?|perfumes?|shoes?|dresses?|wardrobe|store)\b/i,
+      /\bshop (?:all|now|collection)\b/i,
+      /\bmen's\b/i,
+      /\bwomen's\b/i,
     ],
     techClues: ["shopify", "woocommerce", "magento", "bigcommerce", "prestashop", "stripe cart"],
   },
@@ -86,15 +90,17 @@ const CATEGORY_RULES: CategorySignalRule[] = [
       /\bhire (?:talent|developers|designers)\b/i,
     ],
     textPatterns: [
-      /\bjob (?:title|description|type|location|summary)\b/i,
+      /\bjob (?:title|description|type|location|summary|portal|openings?)\b/i,
+      /\bjobs & (?:education|career)\b/i,
+      /\bcareer opportunities\b/i,
       /\bsalary:\s*/i,
-      /\bremote job\b/i,
+      /\bremote jobs?\b/i,
       /\bfull[- ]time\b/i,
       /\bqualifications & experience\b/i,
       /\bapply for this position\b/i,
-      /\bhiring company\b/i,
+      /\bhiring (?:company|worldwide)\b/i,
       /\bwork from (?:anywhere|home)\b/i,
-      /\bcareer opportunities\b/i,
+      /\bdistributed hiring\b/i,
     ],
     techClues: ["workable", "lever", "greenhouse", "jobvite", "ashby", "bamboohr"],
   },
@@ -344,22 +350,46 @@ export function detectBusinessCategory(
   const allUrls = pages.map((p) => p.normalizedUrl || p.finalUrl || p.requestedUrl);
   const allLinks = pages.flatMap((p) => p.links || []);
   const allSchemas: { raw: string; lower: string }[] = [];
+  const structuredDataTexts: string[] = [];
   for (const page of pages) {
     for (const item of page.structuredData || []) {
       const raw = String(item["@type"] || "").trim();
       if (raw) allSchemas.push({ raw, lower: raw.toLowerCase() });
+      if (item.name) structuredDataTexts.push(String(item.name));
+      if (item.description) structuredDataTexts.push(String(item.description));
+      if (Array.isArray(item.alternateName)) {
+        structuredDataTexts.push(...item.alternateName.map(String));
+      } else if (item.alternateName) {
+        structuredDataTexts.push(String(item.alternateName));
+      }
+      if (Array.isArray(item.itemListElement)) {
+        for (const el of item.itemListElement) {
+          if (el?.name) structuredDataTexts.push(String(el.name));
+          if (el?.url) structuredDataTexts.push(String(el.url));
+        }
+      }
+      if (item.potentialAction?.target) {
+        structuredDataTexts.push(String(item.potentialAction.target));
+      }
     }
   }
 
-  const allVisibleText = pages.map((p) => (p.visibleTextSample || "").toLowerCase()).join(" ");
+  const allTitles = pages.map((p) => (p.title || "").trim()).filter(Boolean).join(" ");
+  const allMetaDescriptions = pages.map((p) => (p.metaDescription || "").trim()).filter(Boolean).join(" ");
+  const allVisibleText = pages.map((p) => p.visibleTextSample || "").join(" ");
   const allHeadings = pages
     .flatMap((p) => [
       ...(p.headings?.h1 || []),
       ...(p.headings?.h2 || []),
       ...(p.headings?.h3 || []),
     ])
-    .map((h) => h.toLowerCase())
     .join(" ");
+
+  const allStructuredDataText = structuredDataTexts.join(" ");
+  const textCorpus = [allTitles, allHeadings, allMetaDescriptions, allStructuredDataText, allVisibleText]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 
   const scriptUrls = pages
     .flatMap((p) => (p.resources || []).map((r) => r.url.toLowerCase()))
@@ -421,10 +451,21 @@ export function detectBusinessCategory(
       entry.signals.push(`Observed ${ctaMatches} high-intent Call-to-Action link(s) in navigation`);
     }
 
-    // 4. Headings & visible text keywords (Weight: 5 points per pattern, up to 25)
+    // 4. Page titles (Weight: 10 points per match, up to 20)
+    if (allTitles) {
+      const titleMatches = rule.textPatterns.filter((pat) => pat.test(allTitles)).length;
+      if (titleMatches > 0) {
+        const added = Math.min(20, titleMatches * 10);
+        entry.score += added;
+        entry.dimensions.add("page_titles");
+        entry.signals.push(`Identified ${titleMatches} category-aligned pattern(s) in page title(s)`);
+      }
+    }
+
+    // 5. Headings & visible text keywords (Weight: 5 points per pattern, up to 25)
     let textMatches = 0;
     for (const pat of rule.textPatterns) {
-      if (pat.test(allHeadings) || pat.test(allVisibleText)) {
+      if (pat.test(allHeadings) || pat.test(allVisibleText) || pat.test(allMetaDescriptions) || pat.test(allStructuredDataText)) {
         textMatches++;
       }
     }
@@ -435,7 +476,7 @@ export function detectBusinessCategory(
       entry.signals.push(`Identified ${textMatches} domain-specific keyword pattern(s) across headings and body copy`);
     }
 
-    // 5. Technology and integration clues (Weight: 25 points)
+    // 6. Technology and integration clues (Weight: 25 points)
     const matchingTech = rule.techClues.filter(
       (tech) => scriptUrls.includes(tech) || (input.technologies || []).some((t) => t.toLowerCase().includes(tech))
     );
@@ -448,7 +489,6 @@ export function detectBusinessCategory(
 
   // Detect secondary business facets (e.g. for hybrid platforms like STRIDETO)
   const secondaryFacets: string[] = [];
-  const textCorpus = (allHeadings + " " + allVisibleText).toLowerCase();
 
   // Education / Scholarships / Fellowships facet
   const educationMatches = [
@@ -461,12 +501,12 @@ export function detectBusinessCategory(
     /\byouth programs?\b/i,
   ].filter((pat) => pat.test(textCorpus) || allUrls.some((u) => pat.test(u))).length;
 
-  if (educationMatches >= 2) {
+  if (educationMatches >= 1 && (/\bscholarships?\b/i.test(textCorpus) || allUrls.some((u) => /\bscholarships?\b/i.test(u)) || /\beducation/i.test(textCorpus))) {
     secondaryFacets.push("education_and_scholarships");
     // If it's a career/job platform with scholarships, reinforce job_board scoring
-    scores.job_board.score += 20;
+    scores.job_board.score += 25;
     scores.job_board.dimensions.add("hybrid_facet");
-    scores.job_board.signals.push("Corroborating career, fellowship, and student opportunity pathways observed");
+    scores.job_board.signals.push("Corroborating career, scholarship, and student opportunity pathways observed");
   }
 
   // B2B Wholesale / Team Procurement facet
@@ -493,8 +533,9 @@ export function detectBusinessCategory(
   const top = sortedCandidates[0];
   const runnerUp = sortedCandidates[1] || { score: 0 };
 
-  // Calculate normalized calibrated confidence score (0.0 to 1.0)
-  // Based on absolute evidence weight, dimension corroboration, and victory margin
+  // Calculate normalized heuristic confidence score (0.0 to 1.0)
+  // Based on multi-dimensional evidence corroboration, absolute weight, and decision margin
+  // (Heuristic confidence index derived from deterministic pattern weights)
   let confidence: Confidence = "LOW";
   let confidenceScore = 0.35;
   let uncertaintyReason: string | undefined;
@@ -502,12 +543,12 @@ export function detectBusinessCategory(
   const rawMargin = top.score - runnerUp.score;
   const isCorroborated = top.dimensionsCount >= 2;
 
-  if (top.score >= 60 && rawMargin >= 25 && isCorroborated) {
+  if (top.score >= 50 && rawMargin >= 20 && isCorroborated) {
     confidence = "HIGH";
-    confidenceScore = Math.min(0.96, 0.85 + (top.score - 60) * 0.002);
-  } else if (top.score >= 35 && (rawMargin >= 10 || isCorroborated)) {
+    confidenceScore = Math.min(0.96, 0.85 + (top.score - 50) * 0.002);
+  } else if (top.score >= 30 && (rawMargin >= 10 || isCorroborated)) {
     confidence = "MEDIUM";
-    confidenceScore = Math.min(0.84, 0.6 + (top.score - 35) * 0.005);
+    confidenceScore = Math.min(0.84, 0.6 + (top.score - 30) * 0.005);
   } else {
     confidence = "LOW";
     confidenceScore = Math.min(0.55, Math.max(0.2, top.score / 70));
@@ -540,8 +581,10 @@ export function detectBusinessCategory(
   if (hasManualOverride) {
     effectiveCategory = manualChoice;
     decisionSource = "MANUALLY_OVERRIDDEN";
+    uncertaintyReason = `User explicitly selected '${manualChoice}', overriding auto-detected '${detectedPrimary}'.`;
   } else if (confidence === "LOW" && detectedPrimary === "other") {
     decisionSource = "UNRESOLVED";
+    uncertaintyReason = uncertaintyReason || "Public crawl evidence was insufficient to differentiate a specialized business model. Baseline commercial evaluation applied.";
   }
 
   const primarySignals = scores[detectedPrimary]?.signals || [];

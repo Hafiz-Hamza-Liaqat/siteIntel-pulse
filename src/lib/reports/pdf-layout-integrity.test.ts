@@ -438,4 +438,105 @@ describe("Phase 7 — PDF Responsiveness & Layout Integrity Fixture Suite", () =
     expect(expertHtml).toContain("Auto");
     expect(expertHtml).toContain("education and scholarships");
   });
+
+  // Fixture 8: Provisional status and page counts vs catalogue coverage consistency between Owner and Expert reports
+  it("Fixture 8: Owner and Expert reports display identical provisional notices and strictly separate page counts from catalogue coverage", () => {
+    // Construct a scan with sparse evidence where overall coverage is below 70% threshold
+    const sparseCoverage: ScanCoverage = {
+      discoveredPages: 25,
+      testedPages: 2,
+      skippedPages: 22,
+      failedPages: 1,
+      inaccessiblePages: 0,
+      totalBytesFetched: 45000,
+      totalPagesBudget: 10,
+      crawlDepthReached: 1,
+      externalLinksTested: 0,
+      resourcesTested: 0,
+      isExhaustive: false,
+      weightedPointsEvaluated: 58,
+      totalWeightedPoints: 100,
+      coveragePercentage: 58,
+    };
+
+    const crawl = {
+      pages: [makePage({ id: "p1" }), makePage({ id: "p2" })],
+      coverage: sparseCoverage,
+      robotsTxt: "",
+      sitemapUrls: [],
+      externalLinksTested: [],
+      discoveredPageUrls: ["https://integrity-test.example.com/"],
+    };
+
+    const ownerReq: ScanRequest = {
+      targetUrl: "https://integrity-test.example.com/",
+      reportType: "owner",
+      businessCategory: "auto",
+      targetMarket: "US",
+      preferredLanguage: "en",
+      competitors: [],
+      maxPages: 10,
+      maxDepth: 1,
+    };
+
+    const expertReq: ScanRequest = {
+      ...ownerReq,
+      reportType: "expert",
+    };
+
+    const detection = detectBusinessCategory(crawl, "auto");
+    const evalCtx = {
+      targetUrl: ownerReq.targetUrl,
+      domain: "integrity-test.example.com",
+      businessCategory: detection.effectiveCategory,
+      businessCategoryDetection: detection,
+      pages: crawl.pages,
+      robotsTxt: crawl.robotsTxt,
+      sitemapUrls: crawl.sitemapUrls,
+      externalLinksTested: crawl.externalLinksTested,
+      competitors: [],
+    };
+
+    // Filter results to simulate low coverage (<70%)
+    const allResults = assessmentRegistry.evaluateAll(evalCtx);
+    const subsetResults = allResults.map((r, idx) =>
+      idx % 2 === 0 ? r : { ...r, status: "NOT_TESTED" as const, earnedPoints: 0, maxPoints: 0 }
+    );
+
+    const ownerReport = projectOwnerReport("job_prov_owner", ownerReq, crawl, subsetResults, {
+      businessCategoryDetection: detection,
+    });
+    const expertReport = projectExpertReport("job_prov_expert", expertReq, crawl, subsetResults, {
+      businessCategoryDetection: detection,
+    });
+
+    const ownerHtml = generateReportHtml(ownerReport);
+    const expertHtml = generateExpertReportHtml(expertReport);
+
+    // 1. Both must recognize provisional status
+    expect(ownerReport.executiveSnapshot.overallScore.isProvisional).toBe(true);
+    expect(expertReport.executiveSummary.overallScore.isProvisional).toBe(true);
+
+    // 2. Both must render the clear Provisional Coverage Acceptance Notice
+    expect(ownerHtml).toContain("Provisional Coverage Acceptance Notice:");
+    expect(expertHtml).toContain("Provisional Coverage Acceptance Notice:");
+
+    // 3. Both must clearly state the 70% threshold requirement
+    expect(ownerHtml).toMatch(/requires &ge;70% overall catalogue coverage/);
+    expect(expertHtml).toMatch(/requires &ge;70% overall catalogue coverage/);
+
+    // 4. Page counts must NOT be confused with catalogue coverage
+    // Discovered pages = 25, tested pages = 2. Catalogue coverage is ~50%.
+    // Must NOT state "Tested: 2 (50%)" or "2 / 25 (50%)"
+    expect(expertHtml).not.toMatch(/Tested:\s*<strong>2<\/strong>\s*\(\d+%\)/);
+    expect(expertHtml).toContain("Crawl Inventory");
+    expect(expertHtml).toContain("Catalogue Coverage");
+    expect(expertHtml).toContain("Discovered: <strong>25</strong>");
+    expect(expertHtml).toContain("Tested: 2 / 10 budget");
+    expect(expertHtml).toContain("Failed: 1 | Skipped: 22");
+
+    // 5. In Owner HTML, scope and coverage are separate
+    expect(ownerHtml).toContain("2 pages tested");
+    expect(ownerHtml).toContain("evaluated");
+  });
 });

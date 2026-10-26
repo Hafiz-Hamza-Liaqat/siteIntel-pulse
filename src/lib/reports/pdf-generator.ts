@@ -85,6 +85,8 @@ export function generateReportHtml(report: OwnerReport): string {
       text-align: right;
       font-size: 8.5pt;
       color: #64748B;
+      word-break: break-all;
+      overflow-wrap: anywhere;
     }
     .hero-card {
       background: #F8FAFC;
@@ -128,7 +130,8 @@ export function generateReportHtml(report: OwnerReport): string {
       font-weight: 700;
       color: #0F172A;
       margin-bottom: 4px;
-      word-break: break-word;
+      word-break: break-all;
+      overflow-wrap: anywhere;
     }
     .hero-band {
       display: inline-block;
@@ -256,16 +259,22 @@ export function generateReportHtml(report: OwnerReport): string {
       font-size: 9.5pt;
       color: #0F172A;
       margin-bottom: 3px;
+      word-break: break-all;
+      overflow-wrap: anywhere;
     }
     .opportunity-impact {
       font-size: 8.5pt;
       color: #475569;
       margin-bottom: 4px;
+      word-break: break-all;
+      overflow-wrap: anywhere;
     }
     .opportunity-action {
       font-size: 8.5pt;
       color: #0F766E;
       font-weight: 600;
+      word-break: break-all;
+      overflow-wrap: anywhere;
     }
     .alert-box {
       background: #FFFBEB;
@@ -274,6 +283,8 @@ export function generateReportHtml(report: OwnerReport): string {
       margin: 12px 0;
       font-size: 8.5pt;
       color: #92400E;
+      word-break: break-word;
+      overflow-wrap: break-word;
       page-break-inside: avoid;
       break-inside: avoid;
     }
@@ -314,7 +325,7 @@ export function generateReportHtml(report: OwnerReport): string {
               ? "background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A;"
               : "background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1;"
           }">
-            ${detection.decisionSource === "AUTO_DETECTED" ? "Auto-Detected" : detection.decisionSource === "MANUALLY_OVERRIDDEN" ? "Manual Override" : "Unresolved"} (${detection.confidence} · ${Math.round(detection.confidenceScore * 100)}%)
+            ${detection.decisionSource === "AUTO_DETECTED" ? "Auto-Detected" : detection.decisionSource === "MANUALLY_OVERRIDDEN" ? "Manual Override" : "Unresolved"} (${detection.confidence} · ${Math.round(detection.confidenceScore * 100)}% heuristic)
           </span>
         ` : ""}
       </div>
@@ -337,6 +348,11 @@ export function generateReportHtml(report: OwnerReport): string {
   ${overall.isProvisional ? `
   <div class="alert-box no-break">
     <strong>Provisional Coverage Acceptance Notice:</strong> ${escapeHtml(overall.evaluationNote)} SiteIntel Pulse requires &ge;70% overall catalogue coverage and &ge;60% per-category coverage for a certified fully assessed score.
+    ${overall.ineligibleCategories && overall.ineligibleCategories.length > 0 ? `
+      <div style="font-size: 7.5pt; color: #B45309; margin-top: 3px;">
+        <strong>Categories needing expanded evidence:</strong> ${escapeHtml(overall.ineligibleCategories.join("; "))}
+      </div>
+    ` : ""}
   </div>` : ""}
 
   <h2 class="section-title">1. Executive Snapshot &amp; Category Scores</h2>

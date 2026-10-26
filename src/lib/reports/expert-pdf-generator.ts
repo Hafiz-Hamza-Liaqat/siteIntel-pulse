@@ -275,43 +275,63 @@ export function generateExpertReportHtml(report: ExpertReport): string {
 
   <div class="grid-4">
     <div class="card">
-      <div class="card-title">Overall Score</div>
+      <div class="card-title">Overall Score ${exec.overallScore.isProvisional ? '<span style="color: #D97706; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; margin-left: 4px;">PROVISIONAL</span>' : ''}</div>
       <div class="card-value" style="color: ${getScoreColor(exec.overallScore.score)}">
         ${exec.overallScore.score}<span style="font-size: 9pt; color: #64748B;">/100</span>
       </div>
       <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
-        Rating: <strong>${escapeHtml(exec.overallScore.ratingBand)}</strong>
+        Rating: <strong>${escapeHtml(exec.overallScore.ratingBand)}</strong> ${exec.overallScore.isProvisional ? '(Provisional)' : '(Fully Assessed)'}
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Discovered Pages</div>
-      <div class="card-value">${report.coverage.discoveredPages}</div>
+      <div class="card-title">Crawl Inventory</div>
+      <div class="card-value">${report.coverage.testedPages}<span style="font-size: 8.5pt; color: #64748B;"> / ${report.coverage.totalPagesBudget} budget</span></div>
       <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
-        Tested: <strong>${report.coverage.testedPages}</strong> (${report.coverage.coveragePercentage}%)
+        Discovered: <strong>${report.coverage.discoveredPages}</strong> | Depth: <strong>${report.coverage.crawlDepthReached}</strong>
+      </div>
+      <div style="font-size: 6.5pt; color: #94A3B8; margin-top: 1px;">
+        Failed: ${report.coverage.failedPages} | Skipped: ${report.coverage.skippedPages}
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Defect Triage</div>
+      <div class="card-title">Catalogue Coverage</div>
+      <div class="card-value" style="color: ${report.coverage.coveragePercentage >= 70 ? '#0F9D91' : '#D97706'};">
+        ${report.coverage.coveragePercentage}%
+      </div>
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
+        Evaluated: <strong>${report.coverage.weightedPointsEvaluated}/100 pts</strong> across 56 rules
+      </div>
+      <div style="font-size: 6.5pt; color: ${exec.overallScore.isProvisional ? '#D97706' : '#059669'}; margin-top: 1px; font-weight: 600;">
+        ${escapeHtml(exec.overallScore.assessmentStatus)} ${exec.overallScore.isProvisional ? '(&lt;70% or low category)' : '(&ge;70% threshold)'}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Defect Triage &amp; Effort</div>
       <div class="card-value" style="color: #DC2626;">
-        ${exec.issueTotals.critical + exec.issueTotals.high}
+        ${exec.issueTotals.critical + exec.issueTotals.high}<span style="font-size: 8.5pt; color: #64748B;"> high-priority</span>
       </div>
       <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
-        ${exec.issueTotals.critical} Critical / ${exec.issueTotals.high} High / ${exec.issueTotals.medium} Med
+        ${exec.issueTotals.critical} Crit / ${exec.issueTotals.high} High / ${exec.issueTotals.medium} Med
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Remediation Effort</div>
-      <div class="card-value" style="color: #0F9D91;">
-        ${totalEstimatedHours}<span style="font-size: 9pt; color: #64748B;"> hrs</span>
-      </div>
-      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
-        Across ${exec.workstreamEstimates.length} technical workstreams
+      <div style="font-size: 6.5pt; color: #0F9D91; margin-top: 1px; font-weight: 600;">
+        ${totalEstimatedHours} hrs effort (${exec.workstreamEstimates.length} workstreams)
       </div>
     </div>
   </div>
+
+  ${exec.overallScore.isProvisional ? `
+  <div class="alert-box no-break" style="margin-bottom: 12px; border-left: 3px solid #D97706; background-color: #FFFBEB; color: #92400E;">
+    <strong>Provisional Coverage Acceptance Notice:</strong> ${escapeHtml(exec.overallScore.evaluationNote)} SiteIntel Pulse requires &ge;70% overall catalogue coverage and &ge;60% per-category coverage for a certified fully assessed score.
+    ${exec.overallScore.ineligibleCategories && exec.overallScore.ineligibleCategories.length > 0 ? `
+      <div style="font-size: 7.5pt; color: #B45309; margin-top: 3px;">
+        <strong>Categories needing expanded evidence:</strong> ${escapeHtml(exec.overallScore.ineligibleCategories.join("; "))}
+      </div>
+    ` : ""}
+  </div>
+  ` : ""}
 
   <div class="alert-box">
     <strong>Auditor Scope &amp; Methodology:</strong> ${escapeHtml(meta.scopeAndBoundaries)}
@@ -329,7 +349,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       <div class="card-title">Business Model</div>
       <div style="font-weight: 700;">${escapeHtml(detection ? detection.categoryLabel : meta.companyA.businessCategory)}</div>
       <div style="font-size: 7.5pt; color: #64748B;">
-        ${detection ? `${detection.decisionSource === "AUTO_DETECTED" ? "Auto" : "Manual"} (${detection.confidence} · ${Math.round(detection.confidenceScore * 100)}%)` : "Assigned"}
+        ${detection ? `${detection.decisionSource === "AUTO_DETECTED" ? "Auto" : "Manual"} (${detection.confidence} · ${Math.round(detection.confidenceScore * 100)}% heuristic)` : "Assigned"}
       </div>
       ${detection && detection.secondaryFacets && detection.secondaryFacets.length > 0 ? `
         <div style="font-size: 6.5pt; color: #0D9488; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
@@ -338,16 +358,26 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       ` : ""}
     </div>
     <div class="card">
-      <div class="card-title">Crawl Execution</div>
-      <div style="font-weight: 700;">Depth ${report.coverage.crawlDepthReached} | Budget ${report.coverage.totalPagesBudget}</div>
-      <div style="font-size: 7.5pt; color: #64748B;">Exhaustive: ${report.coverage.isExhaustive ? "Yes" : "Budget Capped"}</div>
+      <div class="card-title">Crawl Inventory &amp; Budget</div>
+      <div style="font-weight: 700;">Tested: ${report.coverage.testedPages} / ${report.coverage.totalPagesBudget} budget</div>
+      <div style="font-size: 7.5pt; color: #64748B;">
+        Discovered: ${report.coverage.discoveredPages} | Failed: ${report.coverage.failedPages} | Skipped: ${report.coverage.skippedPages}
+      </div>
+      <div style="font-size: 7pt; color: #64748B;">
+        Depth: ${report.coverage.crawlDepthReached} | Exhaustive: ${report.coverage.isExhaustive ? "Yes" : "Budget Capped"}
+      </div>
     </div>
     <div class="card">
-      <div class="card-title">Audit Mode</div>
-      <div style="font-weight: 700; color: ${meta.authorization.isAuthorizedForAuthScan ? "#0F9D91" : "#D97706"};">
-        ${meta.authorization.isAuthorizedForAuthScan ? "AUTHORIZED" : "PASSIVE PUBLIC"}
+      <div class="card-title">Catalogue Coverage</div>
+      <div style="font-weight: 700; color: ${report.coverage.coveragePercentage >= 70 ? '#0F9D91' : '#D97706'};">
+        ${report.coverage.coveragePercentage}% (${report.coverage.weightedPointsEvaluated}/100 pts)
       </div>
-      <div style="font-size: 7.5pt; color: #64748B;">Repo Auth: ${meta.authorization.repositoryAuthorized ? "Yes" : "No"}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">
+        Status: <strong>${escapeHtml(exec.overallScore.assessmentStatus)}</strong>
+      </div>
+      <div style="font-size: 7pt; color: #64748B;">
+        ${exec.overallScore.isProvisional ? "Provisional (requires &ge;70%)" : "Certified Complete"}
+      </div>
     </div>
   </div>
 

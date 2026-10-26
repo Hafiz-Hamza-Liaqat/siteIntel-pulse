@@ -8,6 +8,7 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   FileCode,
   ShieldCheck,
   ShieldAlert,
@@ -52,6 +53,26 @@ export function ExpertSummaryView({ report }: ExpertSummaryViewProps) {
             56-Rule Assessment Baseline
           </span>
         </div>
+
+        {/* Provisional Coverage Notice */}
+        {exec.overallScore.isProvisional && (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200/90 space-y-2">
+            <div className="flex items-center gap-2 font-bold text-amber-300">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Provisional Coverage Acceptance Notice</span>
+            </div>
+            <p className="leading-relaxed">
+              {exec.overallScore.evaluationNote} SiteIntel Pulse requires at least <strong>70% total evaluated catalogue coverage</strong> and a minimum of{" "}
+              <strong>60% coverage in every category</strong> before a score is certified as fully assessed.
+              Currently, <strong>{coverage.coveragePercentage}%</strong> of catalogue points have been evaluated.
+            </p>
+            {exec.overallScore.ineligibleCategories && exec.overallScore.ineligibleCategories.length > 0 && (
+              <p className="text-[11px] text-amber-300 font-mono">
+                Categories needing expanded evidence: {exec.overallScore.ineligibleCategories.join(", ")}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Workstream Estimates Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -110,17 +131,21 @@ export function ExpertSummaryView({ report }: ExpertSummaryViewProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 rounded-xl border border-brand-border bg-brand-card space-y-2">
             <div className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">
-              Crawl Coverage & Budget
+              Crawl Inventory & Budget
             </div>
             <div className="text-2xl font-black text-white">
               {coverage.testedPages}{" "}
               <span className="text-sm font-normal text-brand-textMuted">
-                / {coverage.totalPagesBudget} budget ({coverage.coveragePercentage}%)
+                / {coverage.totalPagesBudget} budget
               </span>
             </div>
             <p className="text-xs text-brand-textMuted">
               Discovered {coverage.discoveredPages} URLs across depth {coverage.crawlDepthReached}.{" "}
-              {coverage.isExhaustive ? "Full site traversed." : "Capped by maxPages policy."}
+              {coverage.failedPages > 0 || coverage.skippedPages > 0
+                ? `(Failed: ${coverage.failedPages}, Skipped: ${coverage.skippedPages})`
+                : coverage.isExhaustive
+                ? "Full site traversed."
+                : "Capped by maxPages policy."}
             </p>
           </div>
 
@@ -164,7 +189,7 @@ export function ExpertSummaryView({ report }: ExpertSummaryViewProps) {
                     {meta.companyA.businessCategoryDetection.decisionSource}
                   </span>
                   <span className="text-slate-300">
-                    {meta.companyA.businessCategoryDetection.confidence} ({Math.round(meta.companyA.businessCategoryDetection.confidenceScore * 100)}%)
+                    {meta.companyA.businessCategoryDetection.confidence} ({Math.round(meta.companyA.businessCategoryDetection.confidenceScore * 100)}% heuristic)
                   </span>
                 </div>
                 {meta.companyA.businessCategoryDetection.secondaryFacets && meta.companyA.businessCategoryDetection.secondaryFacets.length > 0 && (

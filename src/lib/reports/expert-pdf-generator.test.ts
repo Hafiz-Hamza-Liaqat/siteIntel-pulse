@@ -120,4 +120,65 @@ describe("Milestone 2: Expert PDF Generator & Print Layout", () => {
     expect(html).toContain("EXP-");
     expect(html).toContain("CRITICAL");
   });
+
+  it("strictly separates crawl page inventory from catalogue coverage and evaluated points", () => {
+    // Create a report where discovered pages = 10, tested pages = 2, but catalogue coverage = 82%
+    const customReport = {
+      ...report,
+      coverage: {
+        ...report.coverage,
+        discoveredPages: 10,
+        testedPages: 2,
+        failedPages: 1,
+        skippedPages: 7,
+        totalPagesBudget: 5,
+        weightedPointsEvaluated: 82,
+        coveragePercentage: 82,
+      },
+    };
+
+    const html = generateExpertReportHtml(customReport);
+
+    // 1. Must NEVER display catalogue coverage as percentage of discovered pages (e.g. "Tested: 2 (82%)")
+    expect(html).not.toMatch(/Tested:\s*<strong>2<\/strong>\s*\(82%\)/);
+    expect(html).not.toMatch(/2\s*\/\s*10\s*\(82%\)/);
+
+    // 2. Must clearly display Crawl Inventory and Catalogue Coverage as distinct metrics
+    expect(html).toContain("Crawl Inventory");
+    expect(html).toContain("Catalogue Coverage");
+    expect(html).toContain("82%");
+    expect(html).toContain("82/100 pts");
+    expect(html).toContain("Tested: 2 / 5 budget");
+    expect(html).toContain("Discovered: <strong>10</strong>");
+    expect(html).toContain("Failed: 1 | Skipped: 7");
+  });
+
+  it("renders canonical provisional coverage notice and reasons in Expert PDF when isProvisional is true", () => {
+    const provisionalReport = {
+      ...report,
+      executiveSummary: {
+        ...report.executiveSummary,
+        overallScore: {
+          ...report.executiveSummary.overallScore,
+          isProvisional: true,
+          assessmentStatus: "PROVISIONAL" as const,
+          evaluationNote: "Overall catalogue coverage (62%) is below the 70% threshold required for a fully assessed score.",
+          ineligibleCategories: ["Performance (40% vs 60% min)", "Observable Authentication Posture (0% vs 60% min)"],
+        },
+      },
+      coverage: {
+        ...report.coverage,
+        coveragePercentage: 62,
+        weightedPointsEvaluated: 62,
+      },
+    };
+
+    const html = generateExpertReportHtml(provisionalReport);
+
+    expect(html).toContain("PROVISIONAL");
+    expect(html).toContain("Provisional Coverage Acceptance Notice:");
+    expect(html).toContain("Overall catalogue coverage (62%) is below the 70% threshold");
+    expect(html).toContain("Performance (40% vs 60% min)");
+    expect(html).toContain("Observable Authentication Posture (0% vs 60% min)");
+  });
 });

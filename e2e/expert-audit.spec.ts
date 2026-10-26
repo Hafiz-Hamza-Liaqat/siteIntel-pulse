@@ -17,7 +17,7 @@ test.describe("Company B: Expert Diagnostic Workbench E2E", () => {
   test("Renders header with platform identity, overall score, and triage counters", async ({ page }) => {
     // Header KPIs
     await expect(page.getByText("Score / 100")).toBeVisible();
-    await expect(page.getByText(/catalogue coverage/i)).toBeVisible();
+    await expect(page.getByText(/catalogue coverage/i).first()).toBeVisible();
 
     // Action buttons visible
     await expect(page.getByRole("link", { name: /View Owner Report/i })).toBeVisible();

@@ -87,7 +87,7 @@ export function CoverSection({ report }: CoverSectionProps) {
               <div className="flex items-center justify-between">
                 <span>Confidence:</span>
                 <span className="font-medium text-slate-300">
-                  {detection.confidence} ({Math.round(detection.confidenceScore * 100)}%)
+                  {detection.confidence} ({Math.round(detection.confidenceScore * 100)}% heuristic)
                 </span>
               </div>
               {detection.decisionSource === "MANUALLY_OVERRIDDEN" && detection.primaryCategory !== company.businessCategory && (
