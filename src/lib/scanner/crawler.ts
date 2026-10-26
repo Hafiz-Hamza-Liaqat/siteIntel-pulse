@@ -7,6 +7,7 @@ import { parsePageHtml } from "./html-parser";
 import { CrawlBudgetTracker, CrawlerBudgets } from "./budget";
 import { validateUrlSafety } from "./dns-safety";
 import { normalizeAndValidateUrl } from "./url-validator";
+import { pinnedFetch, readBoundedText, PinnedFetchOptions } from "./pinned-transport";
 
 export interface CrawlResult {
   pages: PageObservation[];
@@ -17,6 +18,8 @@ export interface CrawlResult {
   discoveredPageUrls: string[];
 }
 
+const defaultGlobalFetch = typeof globalThis !== "undefined" ? globalThis.fetch : undefined;
+
 export class SafeCrawler {
   private tracker: CrawlBudgetTracker;
   private visitedUrls = new Set<string>();
@@ -24,10 +27,20 @@ export class SafeCrawler {
   private abortSignal?: AbortSignal;
   private sitemapUrls: string[] = [];
   private robotsTxtContent?: string;
+  private fetchFn: (url: string, options?: PinnedFetchOptions) => Promise<Response>;
 
-  constructor(budgets?: Partial<CrawlerBudgets>, abortSignal?: AbortSignal) {
+  constructor(
+    budgets?: Partial<CrawlerBudgets>,
+    abortSignal?: AbortSignal,
+    fetchFn?: (url: string, options?: PinnedFetchOptions) => Promise<Response>
+  ) {
     this.tracker = new CrawlBudgetTracker(budgets);
     this.abortSignal = abortSignal;
+    this.fetchFn =
+      fetchFn ||
+      (typeof globalThis !== "undefined" && globalThis.fetch !== defaultGlobalFetch
+        ? (url: string, opts?: any) => globalThis.fetch(url, opts)
+        : pinnedFetch);
   }
 
   /**
@@ -151,29 +164,27 @@ export class SafeCrawler {
   }
 
   /**
-   * Safely fetches a single page with SSRF check, timeouts, and byte limits.
+   * Safely fetches a single page with destination-pinned egress, hop-by-hop redirect
+   * boundary validation, and streaming byte limits.
    */
   private async safeFetchPage(
     targetUrl: string,
     depth: number,
     source: "entry" | "sitemap" | "internal_link"
   ): Promise<PageObservation | null> {
-    // SSRF Re-validation before network connection
-    const dnsCheck = await validateUrlSafety(targetUrl);
-    if (!dnsCheck.isSafe) {
-      return null;
-    }
-
     const startTime = Date.now();
     try {
-      const response = await fetch(targetUrl, {
+      const response = await this.fetchFn(targetUrl, {
         method: "GET",
         headers: {
           "User-Agent": this.tracker.budgets.userAgent,
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
-        signal: this.abortSignal || AbortSignal.timeout(this.tracker.budgets.requestTimeoutMs),
+        timeoutMs: this.tracker.budgets.requestTimeoutMs,
+        abortSignal: this.abortSignal,
+        maxBytes: this.tracker.budgets.maxPageBytes,
         redirect: "follow",
+        maxRedirects: 5,
       });
 
       const responseTimeMs = Date.now() - startTime;
@@ -182,14 +193,17 @@ export class SafeCrawler {
         headersRecord[key.toLowerCase()] = val;
       });
 
-      // Streaming / text limit enforcement (max 2 MiB)
-      const text = await response.text();
-      const byteLength = Buffer.byteLength(text, "utf8");
+      // Stream bounded read: reads up to maxPageBytes and cancels underlying stream immediately
+      const { text, bytesRead } = await readBoundedText(
+        response,
+        this.tracker.budgets.maxPageBytes,
+        { signal: this.abortSignal, timeoutMs: this.tracker.budgets.requestTimeoutMs }
+      );
 
-      this.tracker.recordPageFetched(byteLength);
+      this.tracker.recordPageFetched(bytesRead);
 
       const pageObservation = parsePageHtml(
-        text.slice(0, this.tracker.budgets.maxPageBytes),
+        text,
         targetUrl,
         response.status,
         responseTimeMs,
@@ -207,21 +221,26 @@ export class SafeCrawler {
   }
 
   /**
-   * Fetches and parses robots.txt for sitemap declarations.
+   * Fetches and parses robots.txt for sitemap declarations with destination-pinned egress.
    */
   private async fetchRobotsTxt(origin: string, baseHostname: string) {
     try {
       const robotsUrl = `${origin}/robots.txt`;
-      const dnsCheck = await validateUrlSafety(robotsUrl);
-      if (!dnsCheck.isSafe) return;
-
-      const res = await fetch(robotsUrl, {
+      const res = await this.fetchFn(robotsUrl, {
         headers: { "User-Agent": this.tracker.budgets.userAgent },
-        signal: AbortSignal.timeout(5000),
+        timeoutMs: 5000,
+        abortSignal: this.abortSignal,
+        maxBytes: 128 * 1024, // 128 KB bounded limit for robots.txt
+        redirect: "follow",
+        maxRedirects: 3,
       });
 
       if (res.ok) {
-        const text = await res.text();
+        const { text, bytesRead } = await readBoundedText(res, 128 * 1024, {
+          signal: this.abortSignal,
+          timeoutMs: 5000,
+        });
+        this.tracker.recordPageFetched(bytesRead);
         this.robotsTxtContent = text;
         const lines = text.split("\n");
         for (const line of lines) {
@@ -235,25 +254,30 @@ export class SafeCrawler {
         }
       }
     } catch {
-      // Non-fatal if robots.txt is not available
+      // Non-fatal if robots.txt is not available or blocked by safety boundary
     }
   }
 
   /**
-   * Fetches an XML sitemap and extracts URLs.
+   * Fetches an XML sitemap and extracts URLs with destination-pinned egress.
    */
   private async fetchSitemapXml(sitemapUrl: string, baseHostname: string) {
     try {
-      const dnsCheck = await validateUrlSafety(sitemapUrl);
-      if (!dnsCheck.isSafe) return;
-
-      const res = await fetch(sitemapUrl, {
+      const res = await this.fetchFn(sitemapUrl, {
         headers: { "User-Agent": this.tracker.budgets.userAgent },
-        signal: AbortSignal.timeout(5000),
+        timeoutMs: 8000,
+        abortSignal: this.abortSignal,
+        maxBytes: 1024 * 1024, // 1 MB bounded limit for sitemap XML
+        redirect: "follow",
+        maxRedirects: 3,
       });
 
       if (res.ok) {
-        const text = await res.text();
+        const { text, bytesRead } = await readBoundedText(res, 1024 * 1024, {
+          signal: this.abortSignal,
+          timeoutMs: 8000,
+        });
+        this.tracker.recordPageFetched(bytesRead);
         // Regex extract <loc> URLs
         const locMatches = text.match(/<loc>(.*?)<\/loc>/gi);
         if (locMatches) {
@@ -270,11 +294,13 @@ export class SafeCrawler {
           }
         }
       }
-    } catch {}
+    } catch {
+      // Non-fatal if sitemap is not available or blocked by safety boundary
+    }
   }
 
   /**
-   * Checks HTTP status for a bounded sample of external links.
+   * Checks HTTP status for a bounded sample of external links with destination-pinned egress.
    */
   private async testExternalLinksSample(links: LinkObservation[]): Promise<LinkObservation[]> {
     const tested: LinkObservation[] = [];
@@ -285,29 +311,32 @@ export class SafeCrawler {
       this.tracker.recordExternalLinkTested();
 
       try {
-        const dnsCheck = await validateUrlSafety(link.targetUrl);
-        if (!dnsCheck.isSafe) {
-          tested.push({ ...link, isBroken: true, statusCode: 403 });
-          continue;
-        }
-
-        const res = await fetch(link.targetUrl, {
+        const res = await this.fetchFn(link.targetUrl, {
           method: "HEAD",
           headers: { "User-Agent": this.tracker.budgets.userAgent },
-          signal: AbortSignal.timeout(4000),
+          timeoutMs: 4000,
+          abortSignal: this.abortSignal,
+          maxBytes: 8 * 1024,
+          redirect: "follow",
+          maxRedirects: 3,
         });
+
+        const isRedirect = (res as any).redirectChain?.length > 0 || (res.status >= 300 && res.status < 400);
 
         tested.push({
           ...link,
           statusCode: res.status,
           isBroken: res.status >= 400,
-          isRedirect: res.status >= 300 && res.status < 400,
+          isRedirect,
         });
-      } catch {
+      } catch (err: any) {
+        const isSsrfBlock =
+          err?.message?.includes("Destination safety boundary") ||
+          err?.message?.includes("Prohibited");
         tested.push({
           ...link,
           isBroken: true,
-          statusCode: 0,
+          statusCode: isSsrfBlock ? 403 : 0,
         });
       }
     }

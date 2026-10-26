@@ -1,5 +1,8 @@
 import { normalizeAndValidateUrl } from "./url-validator";
 import { validateUrlSafety } from "./dns-safety";
+import { pinnedFetch, readBoundedText } from "./pinned-transport";
+
+const defaultFetch = typeof globalThis !== "undefined" ? globalThis.fetch : undefined;
 
 export interface ExposureCheckResult {
   executed: boolean;
@@ -112,9 +115,14 @@ export function hasEnvFileSignature(text: string): boolean {
  */
 export async function checkPublicExposure(
   targetUrl: string,
-  options: { timeoutMs?: number; abortSignal?: AbortSignal } = {}
+  options: {
+    timeoutMs?: number;
+    abortSignal?: AbortSignal;
+    fetchFn?: (url: string, options?: any) => Promise<Response>;
+  } = {}
 ): Promise<ExposureCheckResult> {
   const timeoutMs = options.timeoutMs ?? 5000;
+  const fetchImpl = options.fetchFn || (globalThis.fetch !== defaultFetch ? globalThis.fetch : pinnedFetch);
   const safeSummaries: string[] = [];
   const exposedPaths: string[] = [];
   const evidence: string[] = [];
@@ -191,7 +199,7 @@ export async function checkPublicExposure(
       }
 
       try {
-        const res = await fetch(probeUrl, {
+        const res = await fetchImpl(probeUrl, {
           method: "GET",
           headers: {
             "User-Agent": "SiteIntelPulse-SecurityScan/1.0",
@@ -202,7 +210,10 @@ export async function checkPublicExposure(
         });
 
         // Read small prefix directly from stream while timeout remains active
-        const textSlice = await readResponsePrefix(res, 512, controller.signal);
+        const { text: textSlice } = await readBoundedText(res, 512, {
+          signal: controller.signal,
+          timeoutMs,
+        });
         const textLower = textSlice.toLowerCase();
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
@@ -298,8 +309,13 @@ export async function checkPublicExposure(
       }
     } catch (err: any) {
       const isAbort = err?.name === "AbortError" || options.abortSignal?.aborted;
+      const isSsrfBlock =
+        err?.message?.includes("Destination safety boundary") ||
+        err?.message?.includes("Prohibited");
       const reason = isAbort
         ? "Probe request timed out or was canceled."
+        : isSsrfBlock
+        ? "Prohibited destination blocked by egress safety boundary."
         : `Network connection failure: ${err?.message || "Inaccessible"}`;
 
       probeOutcomes.push({

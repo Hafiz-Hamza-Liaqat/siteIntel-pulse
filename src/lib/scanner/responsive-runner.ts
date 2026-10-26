@@ -1,10 +1,10 @@
-import http from "node:http";
-import net from "node:net";
-import type { Duplex } from "node:stream";
 import { chromium, Browser, Page } from "playwright";
 import { ResponsiveDiagnostic, VisualDesignDiagnostic } from "@/types";
 import { validateHostSafety } from "./dns-safety";
 import { normalizeAndValidateUrl } from "./url-validator";
+import { createPinnedEgressProxy, type PinnedEgressProxy } from "./pinned-transport";
+
+export { createPinnedEgressProxy, type PinnedEgressProxy };
 
 export const RESPONSIVE_VIEWPORT_WIDTHS = [320, 360, 390, 768, 1024, 1280, 1440] as const;
 
@@ -21,146 +21,6 @@ export interface ResponsiveRunnerResult {
     totalTouchTargetIssues: number;
     totalClippingIssues: number;
     totalContrastIssues: number;
-  };
-}
-
-export interface PinnedEgressProxy {
-  proxyUrl: string;
-  close: () => Promise<void>;
-  getBlockedRequests: () => Array<{ url: string; reason: string }>;
-}
-
-/**
- * Creates an in-process local HTTP/HTTPS tunneling egress proxy.
- * Resolves destination hostnames via validateHostSafety and physically connects
- * TCP sockets directly to the validated pinned IP address.
- *
- * This closes the DNS-rebinding (TOCTOU) gap in Chromium by ensuring Chromium
- * cannot re-resolve hostnames to internal/private IP addresses, while preserving
- * standard TLS SNI and Host header integrity over the established TCP tunnel.
- */
-export async function createPinnedEgressProxy(): Promise<PinnedEgressProxy> {
-  const blockedRequests: Array<{ url: string; reason: string }> = [];
-  const activeSockets = new Set<net.Socket | Duplex>();
-
-  const server = http.createServer(async (req, res) => {
-    try {
-      const targetUrl = req.url?.startsWith("http")
-        ? new URL(req.url)
-        : new URL(`http://${req.headers.host}${req.url}`);
-
-      const safety = await validateHostSafety(targetUrl.hostname);
-      if (!safety.isSafe || !safety.resolvedIps?.length) {
-        const reason = safety.rejectionReason || "SSRF destination prohibited";
-        blockedRequests.push({ url: targetUrl.href, reason });
-        res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" }).end(reason);
-        return;
-      }
-
-      const pinnedIp = safety.resolvedIps[0];
-      const port = Number(targetUrl.port) || 80;
-
-      const proxyReq = http.request(
-        {
-          host: pinnedIp,
-          port,
-          path: targetUrl.pathname + targetUrl.search,
-          method: req.method,
-          headers: { ...req.headers, host: targetUrl.host },
-        },
-        (proxyRes) => {
-          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
-          proxyRes.pipe(res);
-        }
-      );
-
-      proxyReq.on("error", (err) => {
-        if (!res.headersSent) {
-          res.writeHead(502, { "Content-Type": "text/plain", Connection: "close" }).end(`Bad Gateway: ${err.message}`);
-        }
-      });
-
-      req.pipe(proxyReq);
-    } catch (err: any) {
-      if (!res.headersSent) {
-        res.writeHead(400, { "Content-Type": "text/plain", Connection: "close" }).end(`Invalid Request: ${err?.message}`);
-      }
-    }
-  });
-
-  server.on("connection", (socket) => {
-    activeSockets.add(socket);
-    socket.on("close", () => activeSockets.delete(socket));
-  });
-
-  server.on("connect", async (req, clientSocket, head) => {
-    activeSockets.add(clientSocket);
-    clientSocket.on("close", () => activeSockets.delete(clientSocket));
-
-    try {
-      const [hostname, portStr] = (req.url || "").split(":");
-      const port = Number(portStr) || 443;
-
-      const safety = await validateHostSafety(hostname);
-      if (!safety.isSafe || !safety.resolvedIps?.length) {
-        const reason = safety.rejectionReason || "SSRF destination prohibited";
-        blockedRequests.push({ url: `https://${req.url}`, reason });
-        clientSocket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-        clientSocket.destroy();
-        return;
-      }
-
-      const pinnedIp = safety.resolvedIps[0];
-      const serverSocket = net.connect({ host: pinnedIp, port }, () => {
-        clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-        if (head && head.length > 0) {
-          serverSocket.write(head);
-        }
-        serverSocket.pipe(clientSocket);
-        clientSocket.pipe(serverSocket);
-      });
-
-      activeSockets.add(serverSocket);
-      serverSocket.on("close", () => activeSockets.delete(serverSocket));
-
-      serverSocket.on("error", () => {
-        try {
-          clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
-          clientSocket.destroy();
-        } catch {}
-      });
-
-      clientSocket.on("error", () => {
-        serverSocket.destroy();
-      });
-    } catch (err: any) {
-      try {
-        clientSocket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
-        clientSocket.destroy();
-      } catch {}
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.listen(0, "127.0.0.1", () => resolve());
-    server.on("error", reject);
-  });
-
-  const address = server.address() as net.AddressInfo;
-  const port = address.port;
-
-  return {
-    proxyUrl: `http://127.0.0.1:${port}`,
-    getBlockedRequests: () => [...blockedRequests],
-    close: () =>
-      new Promise<void>((resolve) => {
-        for (const s of activeSockets) {
-          try {
-            s.destroy();
-          } catch {}
-        }
-        server.close(() => resolve());
-      }),
   };
 }
 
