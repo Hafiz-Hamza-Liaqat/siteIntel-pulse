@@ -8,6 +8,7 @@
 **Production Provisioning Baseline:** `6b5ab864e4287e92dd298bd7912409be6f1d5bb8` (GitHub Actions Run [40265255675](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40265255675), `conclusion: success`)
 **Provisioning Hardening Baseline:** `7423ca35de29a9f8c859e10511eac28f51dfb8f7` (GitHub Actions Run [40267531497](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40267531497), `conclusion: success`)
 **Docker Container Acceptance Baseline:** `88be6ca3c8331a2a22241b3e76fe1bb966578c7c` (Docker Acceptance Run [40270202981](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270202981), CI Pipeline Run [40270203030](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270203030), both `conclusion: success`)
+**Automatic Category Detection & Layout Freeze Baseline:** `90c9ec7f01fd2414b58bd54174089b75ae429575` (Docker Acceptance Run [40287862940](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862940), CI Pipeline Run [40287862860](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862860), both `conclusion: success`)
 **Static Showcase URL:** `https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`
 **Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — CONTAINER ACCEPTANCE & STAGING PREFLIGHT COMPLETE`
 **Launch Status:** **`NOT PUBLICLY LAUNCHED — STAGING DEPLOYMENT PENDING`**
@@ -39,6 +40,10 @@ The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All
   Packaged Playwright Chromium into the production Docker runner image with non-root execution permissions, decoupled Next.js build-phase static generation from runtime secrets (`NEXT_PHASE=phase-production-build`), created static public directory, added PDF font libraries (`fonts-liberation`, `libxshmfence1`), and proved real Docker runtime execution on a GitHub-hosted Ubuntu runner via `.github/workflows/container-acceptance.yml`.
   GitHub Actions Docker Acceptance Run [40270202981](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270202981) (`conclusion: success`, all 15 container acceptance steps passed).
   GitHub Actions CI Pipeline Run [40270203030](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270203030) (`conclusion: success`, all 7 quality gates passed, 30 test files and 284/284 tests passed, 33/33 Playwright tests passed).
+- **Automatic Category Detection & Layout Freeze (`90c9ec7`):**
+  Implemented multi-signal business model classification (10 categories, secondary facets, confidence levels, decision source), adaptive conversion rules preserving catalogue integrity, A4 portrait printable boundary containment, fixed table widths, Playwright Chromium native header/footer pagination ("Page X of Y"), and guest session handling for demonstration audits.
+  GitHub Actions Docker Acceptance Run [40287862940](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862940) (`conclusion: success`, all 15 container acceptance steps passed).
+  GitHub Actions CI Pipeline Run [40287862860](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862860) (`conclusion: success`, all 7 quality gates passed, 32 test files and 305/305 unit tests passed, 33/33 Playwright tests passed).
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
