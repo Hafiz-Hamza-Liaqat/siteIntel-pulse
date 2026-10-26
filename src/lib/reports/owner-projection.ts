@@ -17,6 +17,7 @@ export interface OwnerProjectionOptions {
   pageSpeedData?: { mobile?: PageSpeedResult; desktop?: PageSpeedResult };
   browserResponsiveResults?: ResponsiveDiagnostic[];
   competitorScans?: CompetitorAssessment[];
+  businessCategoryDetection?: import("@/types").BusinessCategoryDetection;
 }
 
 export function projectOwnerReport(
@@ -24,13 +25,25 @@ export function projectOwnerReport(
   request: ScanRequest,
   crawl: CrawlResult,
   results: AssessmentResult[],
-  tenantId?: string,
+  tenantIdOrOptions?: string | OwnerProjectionOptions,
   options?: OwnerProjectionOptions
 ): OwnerReport {
+  const resolvedOptions =
+    typeof tenantIdOrOptions === "object" && tenantIdOrOptions !== null
+      ? tenantIdOrOptions
+      : options;
+  const tenantId =
+    typeof tenantIdOrOptions === "string" ? tenantIdOrOptions : undefined;
+
   const scoresOutput = computeAuditScores(results);
   const now = new Date().toISOString();
   const entry = crawl.pages[0];
   const domain = new URL(request.targetUrl).hostname;
+  const effectiveCategory =
+    resolvedOptions?.businessCategoryDetection?.effectiveCategory ||
+    (request.businessCategory && request.businessCategory !== "auto"
+      ? (request.businessCategory as any)
+      : "other");
 
   // 1. Identify Technology Clues (Non-invasive public heuristics)
   const detectedTechnologies: string[] = [];
@@ -96,7 +109,7 @@ export function projectOwnerReport(
     });
   }
 
-  const isJobBoard = request.businessCategory === "job_board" || (request.businessCategory as any) === "jobs_marketplace";
+  const isJobBoard = effectiveCategory === "job_board" || effectiveCategory === ("jobs_marketplace" as any);
 
   // Mobile / Performance Opportunity
   const perfIssues = failResults.filter((r) => r.category === "performance" || r.category === "responsive_accessibility");
@@ -166,8 +179,8 @@ export function projectOwnerReport(
   const affectedPagesCount = results.reduce((acc, r) => acc + (r.affectedUrlsCount || 0), 0);
 
   // 4. Competitor Assessments (Grounded in owner-supplied domains)
-  const competitorSnapshot: CompetitorAssessment[] = options?.competitorScans && options.competitorScans.length > 0
-    ? options.competitorScans
+  const competitorSnapshot: CompetitorAssessment[] = resolvedOptions?.competitorScans && resolvedOptions.competitorScans.length > 0
+    ? resolvedOptions.competitorScans
     : (request.competitors || []).map((cDomain) => ({
         domain: cDomain,
         normalizedUrl: `https://${cDomain}`,
@@ -200,7 +213,8 @@ export function projectOwnerReport(
       name: request.platformName || domain.replace(/^www\./, "").split(".")[0].toUpperCase(),
       domain,
       targetUrl: request.targetUrl,
-      businessCategory: request.businessCategory,
+      businessCategory: effectiveCategory,
+      businessCategoryDetection: resolvedOptions?.businessCategoryDetection,
       targetMarket: request.targetMarket,
       preferredLanguage: request.preferredLanguage,
     },
@@ -246,20 +260,20 @@ export function projectOwnerReport(
       structuredDataPresent: crawl.pages.some((p) => ((p.structuredData || (p as any).schemaObjects || []).length > 0)),
     },
     performanceAndResponsiveSummary: {
-      mobileLabScore: options?.pageSpeedData?.mobile?.performanceScore ?? null,
-      desktopLabScore: options?.pageSpeedData?.desktop?.performanceScore ?? null,
-      coreWebVitalsStatus: options?.pageSpeedData?.mobile?.cruxFieldData
+      mobileLabScore: resolvedOptions?.pageSpeedData?.mobile?.performanceScore ?? null,
+      desktopLabScore: resolvedOptions?.pageSpeedData?.desktop?.performanceScore ?? null,
+      coreWebVitalsStatus: resolvedOptions?.pageSpeedData?.mobile?.cruxFieldData
         ? "Field CrUX metrics available"
         : "NOT_CONNECTED (PageSpeed / CrUX API provider not configured)",
-      testedViewports: options?.browserResponsiveResults
-        ? options.browserResponsiveResults.filter((r) => r.status === "TESTED").map((r) => r.viewport)
+      testedViewports: resolvedOptions?.browserResponsiveResults
+        ? resolvedOptions.browserResponsiveResults.filter((r) => r.status === "TESTED").map((r) => r.viewport)
         : [],
       horizontalOverflowFound:
-        options?.browserResponsiveResults && options.browserResponsiveResults.some((r) => r.status === "TESTED")
-          ? options.browserResponsiveResults.filter((r) => r.status === "TESTED").some((r) => r.horizontalOverflow)
+        resolvedOptions?.browserResponsiveResults && resolvedOptions.browserResponsiveResults.some((r) => r.status === "TESTED")
+          ? resolvedOptions.browserResponsiveResults.filter((r) => r.status === "TESTED").some((r) => r.horizontalOverflow)
           : null,
       responsiveStatus:
-        options?.browserResponsiveResults && options.browserResponsiveResults.filter((r) => r.status === "TESTED").length === 7
+        resolvedOptions?.browserResponsiveResults && resolvedOptions.browserResponsiveResults.filter((r) => r.status === "TESTED").length === 7
           ? "TESTED"
           : "NOT_TESTED",
     },

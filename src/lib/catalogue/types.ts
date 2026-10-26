@@ -10,7 +10,8 @@ import { PageSpeedResult } from "../providers/types";
 export interface RuleEvaluationContext {
   targetUrl: string;
   domain: string;
-  businessCategory: BusinessCategory;
+  businessCategory: BusinessCategory | "auto";
+  businessCategoryDetection?: import("@/types").BusinessCategoryDetection;
   pages: PageObservation[];
   robotsTxt?: string;
   isRobotsTruncated?: boolean;

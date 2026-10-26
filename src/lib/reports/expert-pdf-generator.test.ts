@@ -97,9 +97,9 @@ describe("Milestone 2: Expert PDF Generator & Print Layout", () => {
     const html = generateExpertReportHtml(report);
 
     expect(html).toContain("<!DOCTYPE html>");
-    expect(html).toContain("Company B Expert Diagnostic & Growth Intelligence Report");
+    expect(html).toMatch(/Company B Expert Diagnostic &(?:amp;)? Growth Intelligence Report/);
     expect(html).toContain("pdf-test.company.com");
-    expect(html).toContain("Assessment Catalogue & Score Ledger");
+    expect(html).toMatch(/Assessment Catalogue &(?:amp;)? Score Ledger/);
     expect(html).toContain("Diagnostic Finding Ledger");
     expect(html).toContain("Specialist Remediation Action Plan");
     expect(html).toContain("Cryptographic Integrity Sign-Off");

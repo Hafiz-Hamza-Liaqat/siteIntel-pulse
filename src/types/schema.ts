@@ -58,6 +58,37 @@ export const BusinessCategorySchema = z.enum([
 ]);
 export type BusinessCategory = z.infer<typeof BusinessCategorySchema>;
 
+// Business Category Decision Source
+export const CategoryDecisionSourceSchema = z.enum([
+  "AUTO_DETECTED",
+  "MANUALLY_OVERRIDDEN",
+  "UNRESOLVED",
+]);
+export type CategoryDecisionSource = z.infer<typeof CategoryDecisionSourceSchema>;
+
+// Evidence-based Automatic Business Category Detection Schema
+export const BusinessCategoryDetectionSchema = z.object({
+  primaryCategory: BusinessCategorySchema,
+  categoryLabel: z.string(),
+  confidence: ConfidenceSchema,
+  confidenceScore: z.number().min(0).max(1),
+  evidenceSignals: z.array(z.string()),
+  alternativeCandidates: z.array(
+    z.object({
+      category: BusinessCategorySchema,
+      label: z.string(),
+      score: z.number().min(0).max(1),
+    })
+  ).default([]),
+  secondaryFacets: z.array(z.string()).default([]),
+  decisionSource: CategoryDecisionSourceSchema,
+  effectiveCategory: BusinessCategorySchema,
+  detectorVersion: z.string().default("1.0.0"),
+  detectedAt: z.string(),
+  uncertaintyReason: z.string().optional(),
+});
+export type BusinessCategoryDetection = z.infer<typeof BusinessCategoryDetectionSchema>;
+
 // Assessment Category Enum (11 categories)
 export const AssessmentCategorySchema = z.enum([
   "technical_health",
@@ -82,7 +113,8 @@ export const ScanRequestSchema = z.object({
   targetUrl: z.string().min(1, "Website URL or domain is required"),
   reportType: ReportTypeSchema,
   platformName: z.string().optional(),
-  businessCategory: BusinessCategorySchema.default("ecommerce"),
+  businessCategory: z.union([BusinessCategorySchema, z.literal("auto")]).default("auto"),
+  manualCategoryOverride: BusinessCategorySchema.optional(),
   targetMarket: z.string().default("US"),
   preferredLanguage: z.string().default("en"),
   businessGoal: z.string().optional(),
@@ -384,6 +416,7 @@ export const OwnerReportSchema = z.object({
     targetUrl: z.string(),
     logoUrl: z.string().optional(),
     businessCategory: BusinessCategorySchema,
+    businessCategoryDetection: BusinessCategoryDetectionSchema.optional(),
     targetMarket: z.string(),
     preferredLanguage: z.string(),
   }),

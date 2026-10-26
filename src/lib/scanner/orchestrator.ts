@@ -9,6 +9,7 @@ import { runResponsiveAudit, ResponsiveRunnerResult } from "./responsive-runner"
 import { checkPublicExposure, ExposureCheckResult } from "./exposure-checker";
 import { PageSpeedProvider } from "../providers/pagespeed";
 import { PageSpeedResult } from "../providers/types";
+import { detectBusinessCategory } from "../classifier/business-category-detector";
 
 export class ScanOrchestrator {
   /**
@@ -84,11 +85,31 @@ export class ScanOrchestrator {
         console.warn("[Orchestrator] PageSpeed check warning:", err);
       }
 
+      // Stage 2.5: Evidence-Based Business Model Classification
+      await jobManager.updateProgress(
+        jobId,
+        "assessing",
+        "Classifying business model and conversion expectations from crawl evidence",
+        70,
+        { discovered: crawlResult.coverage.discoveredPages, tested: crawlResult.coverage.testedPages },
+        job.tenantId
+      );
+
+      const categoryDetection = detectBusinessCategory(
+        {
+          pages: crawlResult.pages,
+          sitemapUrls: crawlResult.sitemapUrls,
+          robotsTxt: typeof crawlResult.robotsTxt === "string" ? crawlResult.robotsTxt : (crawlResult.robotsTxt as any)?.raw,
+        },
+        request.businessCategory,
+        (request as any).manualCategoryOverride
+      );
+
       // Stage 3: Assessing
       await jobManager.updateProgress(
         jobId,
         "assessing",
-        "Executing 56 versioned deterministic rules across 11 catalogue categories",
+        `Executing 56 versioned deterministic rules (${categoryDetection.categoryLabel})`,
         75,
         { discovered: crawlResult.coverage.discoveredPages, tested: crawlResult.coverage.testedPages },
         job.tenantId
@@ -98,7 +119,8 @@ export class ScanOrchestrator {
       const evalContext = {
         targetUrl: request.targetUrl,
         domain: parsedUrl.hostname,
-        businessCategory: request.businessCategory,
+        businessCategory: categoryDetection.effectiveCategory,
+        businessCategoryDetection: categoryDetection,
         pages: crawlResult.pages,
         robotsTxt: crawlResult.robotsTxt,
         isRobotsTruncated: crawlResult.isRobotsTruncated,
@@ -138,6 +160,7 @@ export class ScanOrchestrator {
             pageSpeedData: { mobile: pageSpeedMobile, desktop: pageSpeedDesktop },
             browserResponsiveResults: responsiveResult?.viewportResults,
             visualDesign: responsiveResult?.visualDesign,
+            businessCategoryDetection: categoryDetection,
           },
           job.tenantId
         );
@@ -178,6 +201,7 @@ export class ScanOrchestrator {
           {
             pageSpeedData: { mobile: pageSpeedMobile, desktop: pageSpeedDesktop },
             browserResponsiveResults: responsiveResult?.viewportResults,
+            businessCategoryDetection: categoryDetection,
           }
         );
         await scanDb.saveReport(ownerReport, job.tenantId);

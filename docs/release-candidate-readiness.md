@@ -112,6 +112,21 @@ The platform evaluates 56 deterministic rules across 11 audit categories with a 
   - Supports safe environment discovery from `ENV_FILE`, `/etc/siteintel.env`, or `.env.production` without overriding host variables.
   - Outputs only non-sensitive identifiers; passwords and secrets are never printed, stored, or logged.
 
+### 2.5 Evidence-Based Automatic Business Category Detection & Hybrid Facets
+- **Automatic Multi-Dimensional Inference:** Evaluates crawled evidence across structured data (Schema.org types), category-aligned URL paths, navigation and call-to-action anchor texts, headings/copy keyword patterns, and script technology footprints without hardcoded domain lookups or domain-name assumptions.
+- **Support for Diverse Business Models:** Deterministically classifies websites into 10 categories: `ecommerce`, `saas`, `marketplace`, `job_board`, `jobs_marketplace`, `publisher`, `local_service`, `portfolio`, `nonprofit`, and `other`.
+- **Hybrid Platform Classification & Secondary Facets:** Identifies secondary commercial facets (e.g. `education_and_scholarships` for career fellowship platforms like STRIDETO, `b2b_wholesale`, `community_network`) so assessment rules adapt dynamically without forcing misaligned ecommerce expectations.
+- **Deterministic Confidence Scoring & Uncertainty Disclosures:** Computes calibrated confidence (`HIGH`, `MEDIUM`, `LOW`) and signal weights. Ambiguous or sparse evidence gracefully marks `decisionSource: "UNRESOLVED"` and falls back to baseline commercial expectations.
+- **Manual Override Precedence & Audit Transparency:** User overrides in intake forms take precedence while preserving detected signals and disclosing the override transparently across Owner and Expert reports and PDFs.
+- **Invariant Guarantee:** Category adaptation alters contextual expectations (e.g. job apply links vs shopping carts in CRO rules) without ever turning real failures into passes or suppressing genuine technical, security, or SEO defects.
+
+### 2.6 Responsive PDF Layout Integrity & Running Header/Footer Numbering
+- **Printable A4 Portrait Boundary Control:** Enforces strict printable page geometry (`@page { size: A4 portrait; margin: 16mm 14mm 16mm 14mm; }`) with `table-layout: fixed; width: 100%;` and explicit column widths preventing horizontal blowout.
+- **Orphan Prevention & Page Break Management:** Uses `page-break-after: avoid;` on section headers and `page-break-inside: avoid;` on metric cards, finding entries, remediation tasks, and alert containers. Multi-page tables preserve header clarity with `thead { display: table-header-group; }`.
+- **Native Running Headers & Footers:** Leverages Playwright Chromium's native `displayHeaderFooter: true` engine with `headerTemplate` and `footerTemplate` rendering clean "Page X of Y" page numbering on every page within printable margins without body text collisions.
+- **Evidence String & Long URL Word-Wrapping:** Applies `word-break: break-all; overflow-wrap: anywhere;` and HTML entity escaping to ensure exceptionally deep paths, long URLs, and technical discrepancy strings wrap cleanly without layout clipping.
+- **Graceful Handling of Sparse / Incomplete Data:** Neutral badges, explicit explanatory text, and structured fallbacks for `UNKNOWN`, `NOT_TESTED`, `NOT_CONNECTED`, and `NOT_APPLICABLE` states ensure reports render cleanly without unrendered templates, `undefined`, or `NaN`.
+
 ---
 
 ## 3. Local & CI Quality Gates Evidence
@@ -120,16 +135,18 @@ All quality gates have been executed sequentially against the codebase:
 
 | Gate | Execution Command | Result | Verification Notes |
 | :--- | :--- | :---: | :--- |
+| **Business Category Detector Tests** | `npx vitest run src/lib/classifier/business-category-detector.test.ts` | **PASS** | 14/14 tests passed (CafeRemote job board, Naffeez ecommerce, STRIDETO hybrid education/scholarship facets, SaaS, Publisher, Local service, Portfolio, Nonprofit, sparse UNRESOLVED handling, manual override precedence, CRO adaptation, catalogue invariant) |
+| **PDF Layout Integrity Suite** | `npx vitest run src/lib/reports/pdf-layout-integrity.test.ts` | **PASS** | 7/7 fixture tests passed (short report, multi-page expert report, deep URLs/break-all wrapping, provisional notice, missing competitors/integrations fallbacks, sparse content handling, fully populated category detection) |
 | **Focused Account Provisioning Tests** | `npx vitest run src/lib/auth/provision-tenant-owner.test.ts` | **PASS** | 23/23 tests passed (stdin/stdout TTY check, secret validation, atomic transaction, rollback, password non-exposure) |
 | **Focused Staging Security Tests** | `npx vitest run src/lib/security/staging-preflight-security.test.ts` | **PASS** | 20/20 tests passed (64-hex secret format, build-phase independence, CI test fixture rejection, placeholder rejection, IP trust contract) |
 | **Focused Password Security Tests** | `npx vitest run src/lib/auth/password-security.test.ts` | **PASS** | 17/17 tests passed (220k PBKDF2 iterations, benchmark, session rotation) |
 | **Focused Catalogue Integrity Tests** | `npx vitest run src/lib/catalogue/rules-evidence-integrity.test.ts src/lib/catalogue/rules.test.ts` | **PASS** | 36/36 tests passed (13 truncation tests, complete catalogue suite) |
 | **Focused Transport Tests** | `npx vitest run src/lib/scanner/pinned-transport.test.ts src/lib/scanner/crawler.test.ts` | **PASS** | 28/28 tests passed (SSRF pinning, budget enforcement, truncation signals) |
-| **Gate 1: TypeScript Check** | `npm run typecheck` | **PASS** | Clean `tsc --noEmit` across all components, API routes, and schemas |
+| **Gate 1: TypeScript Check** | `npm run typecheck` | **PASS** | Clean `tsc --noEmit` across all components, API routes, classifier, and schemas |
 | **Gate 2: ESLint Hygiene** | `npm run lint` | **PASS** | 0 warnings, 0 errors |
-| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 30 test files passed, 284/284 tests passed (100% pass rate) |
+| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 32 test files passed, 305/305 tests passed (100% pass rate) |
 | **Gate 4: Playwright E2E** | `npm run test:e2e` | **PASS** | 33/33 tests passed across Desktop, Tablet, and Mobile viewports |
-| **Gate 5: PDF Verification** | `npm run test:pdf` | **PASS** | Generated & verified Owner PDF and Expert PDF |
+| **Gate 5: PDF Verification** | `npm run test:pdf` | **PASS** | Generated & verified Owner PDF and Expert PDF with native headers/footers |
 | **Gate 6: SQLite Recovery** | `npm run db:verify` | **PASS** | 100% bit-accurate recovery of tenants, users, scan jobs, and reports |
 | **Gate 7: Production Build** | `npm run build` | **PASS** | Next.js 15 App Router compiled all 19 static and dynamic routes |
 | **Gate 8: Live Scan Validation** | `npx tsx scripts/live-scan-caferemote.mjs` | **PASS** | Live audit of permitted target passed with all catalogue rules intact |

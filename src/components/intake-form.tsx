@@ -40,7 +40,7 @@ export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }:
       targetUrl: "",
       reportType: defaultReportType,
       platformName: "",
-      businessCategory: "ecommerce",
+      businessCategory: "auto",
       targetMarket: "US",
       preferredLanguage: "en",
       businessGoal: "Improve organic search visibility and conversion rate",
@@ -223,7 +223,7 @@ export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }:
             <input
               id="platformName"
               type="text"
-              placeholder="e.g. Acme Commerce"
+              placeholder="e.g. Acme Platform"
               disabled={isLoading}
               {...register("platformName")}
               className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-brand-surface border border-brand-border focus:border-brand-teal text-white placeholder-brand-textMuted/50 text-sm"
@@ -231,26 +231,13 @@ export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }:
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <label htmlFor="businessCategory" className="block text-xs font-semibold text-brand-text uppercase tracking-wider">
-            Business Category
-          </label>
-          <select
-            id="businessCategory"
-            disabled={isLoading}
-            {...register("businessCategory")}
-            className="w-full px-3 py-2.5 rounded-lg bg-brand-surface border border-brand-border focus:border-brand-teal text-white text-sm"
-          >
-            <option value="ecommerce">E-Commerce &amp; Online Retail</option>
-            <option value="job_board">Job Board &amp; Remote Work Marketplace</option>
-            <option value="saas">SaaS &amp; Software Platform</option>
-            <option value="marketplace">Marketplace &amp; Directory</option>
-            <option value="publisher">Publisher &amp; Media Blog</option>
-            <option value="local_service">Local Service Business</option>
-            <option value="portfolio">Portfolio &amp; Agency</option>
-            <option value="nonprofit">Nonprofit &amp; Community</option>
-            <option value="other">General Commercial Platform</option>
-          </select>
+        <div className="space-y-1.5 flex flex-col justify-end">
+          <div className="p-2.5 rounded-lg border border-brand-teal/20 bg-brand-teal/5 text-xs text-brand-tealLight flex items-center gap-2">
+            <Sparkles className="w-4 h-4 flex-shrink-0 text-brand-teal" />
+            <span>
+              <strong>Auto-Detection Enabled:</strong> Category &amp; conversion pathways are automatically classified from crawl evidence.
+            </span>
+          </div>
         </div>
       </div>
 
@@ -262,12 +249,35 @@ export function IntakeForm({ onSubmit, isLoading, defaultReportType = "owner" }:
           className="text-xs font-semibold text-brand-tealLight hover:text-white transition-colors flex items-center gap-1.5"
         >
           <Compass className="w-3.5 h-3.5" />
-          <span>{showAdvanced ? "Hide Market & Benchmark Settings" : "+ Add Competitors, Market & Target Goals"}</span>
+          <span>{showAdvanced ? "Hide Advanced Settings & Category Overrides" : "+ Add Competitors, Category Override & Target Goals"}</span>
         </button>
       </div>
 
       {showAdvanced && (
         <div className="rounded-xl bg-brand-surface/70 border border-brand-borderSubtle p-4 space-y-4 pt-4">
+          <div className="space-y-1.5">
+            <label htmlFor="businessCategory" className="block text-xs font-semibold text-brand-textMuted uppercase tracking-wider">
+              Manual Category Override (Optional)
+            </label>
+            <select
+              id="businessCategory"
+              disabled={isLoading}
+              {...register("businessCategory")}
+              className="w-full px-3 py-2 rounded-lg bg-brand-surface border border-brand-border focus:border-brand-teal text-white text-sm"
+            >
+              <option value="auto">⚡ Automatic Detection from Crawl Evidence (Recommended)</option>
+              <option value="ecommerce">Ecommerce &amp; Online Retail</option>
+              <option value="job_board">Job Board &amp; Remote Work Marketplace</option>
+              <option value="saas">SaaS &amp; Software Platform</option>
+              <option value="marketplace">Marketplace &amp; Directory</option>
+              <option value="publisher">Publisher &amp; Media Blog</option>
+              <option value="local_service">Local Service Business</option>
+              <option value="portfolio">Portfolio &amp; Agency</option>
+              <option value="nonprofit">Nonprofit &amp; Community</option>
+              <option value="other">General Commercial Platform</option>
+            </select>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label htmlFor="targetMarket" className="block text-xs font-semibold text-brand-textMuted uppercase tracking-wider">

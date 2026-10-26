@@ -43,6 +43,7 @@ export interface ExpertAuditOptions {
   browserResponsiveResults?: ResponsiveDiagnostic[];
   visualDesign?: VisualDesignDiagnostic;
   competitorScans?: CompetitorComparison[];
+  businessCategoryDetection?: import("@/types").BusinessCategoryDetection;
 }
 
 export function projectExpertReport(
@@ -57,6 +58,11 @@ export function projectExpertReport(
   const now = new Date().toISOString();
   const entry = crawl.pages[0];
   const domain = new URL(request.targetUrl).hostname;
+  const effectiveCategory =
+    options.businessCategoryDetection?.effectiveCategory ||
+    (request.businessCategory && request.businessCategory !== "auto"
+      ? (request.businessCategory as any)
+      : "other");
   const reportId = `rep_exp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
   // 1. Platform Profile Detection (Evidence-Backed)
@@ -749,7 +755,8 @@ export function projectExpertReport(
         name: request.platformName || domain,
         domain,
         targetUrl: request.targetUrl,
-        businessCategory: request.businessCategory,
+        businessCategory: effectiveCategory,
+        businessCategoryDetection: options.businessCategoryDetection,
         targetMarket: request.targetMarket,
         preferredLanguage: request.preferredLanguage,
         businessGoal: request.businessGoal,

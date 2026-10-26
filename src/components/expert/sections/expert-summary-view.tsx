@@ -107,7 +107,7 @@ export function ExpertSummaryView({ report }: ExpertSummaryViewProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 rounded-xl border border-brand-border bg-brand-card space-y-2">
             <div className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">
               Crawl Coverage & Budget
@@ -140,6 +140,42 @@ export function ExpertSummaryView({ report }: ExpertSummaryViewProps) {
                 ? "Owner consent verified. Dynamic authentication flows evaluated."
                 : "Non-invasive public surface assessment without credential authentication."}
             </p>
+          </div>
+
+          <div className="p-4 rounded-xl border border-brand-border bg-brand-card space-y-2">
+            <div className="text-xs font-bold uppercase tracking-wider text-brand-textMuted">
+              Business Model Detection
+            </div>
+            <div className="text-lg font-bold text-white capitalize">
+              {meta.companyA.businessCategoryDetection?.categoryLabel || meta.companyA.businessCategory.replace("_", " ")}
+            </div>
+            {meta.companyA.businessCategoryDetection ? (
+              <div className="text-xs text-brand-textMuted space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                      meta.companyA.businessCategoryDetection.decisionSource === "AUTO_DETECTED"
+                        ? "bg-teal-500/15 text-teal-300 border border-teal-500/30"
+                        : meta.companyA.businessCategoryDetection.decisionSource === "MANUALLY_OVERRIDDEN"
+                        ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                        : "bg-slate-500/15 text-slate-300 border border-slate-500/30"
+                    }`}
+                  >
+                    {meta.companyA.businessCategoryDetection.decisionSource}
+                  </span>
+                  <span className="text-slate-300">
+                    {meta.companyA.businessCategoryDetection.confidence} ({Math.round(meta.companyA.businessCategoryDetection.confidenceScore * 100)}%)
+                  </span>
+                </div>
+                {meta.companyA.businessCategoryDetection.secondaryFacets && meta.companyA.businessCategoryDetection.secondaryFacets.length > 0 && (
+                  <div className="text-[11px] text-cyan-300/90 truncate" title={meta.companyA.businessCategoryDetection.secondaryFacets.join(", ")}>
+                    Facets: {meta.companyA.businessCategoryDetection.secondaryFacets.map(f => f.replace(/_/g, " ")).join(", ")}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-brand-textMuted">Assigned via audit profile.</p>
+            )}
           </div>
 
           <div className="p-4 rounded-xl border border-brand-border bg-brand-card space-y-2">

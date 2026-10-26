@@ -32,9 +32,18 @@ export const conversionRules: RuleDefinition[] = [
         };
       }
 
-      const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
+      const category = ctx.businessCategory;
+      const isJobBoard = category === "job_board" || category === ("jobs_marketplace" as any);
+      const isEcommerce = category === "ecommerce";
+      const isSaas = category === "saas";
+      const isPublisher = category === "publisher";
+      const isNonprofit = category === "nonprofit";
+      const isLocal = category === "local_service";
+      const isPortfolio = category === "portfolio";
+      const isMarketplace = category === "marketplace";
+
       const hasCtaLink = entry.links.some((l) => {
-        const text = l.anchorText.toLowerCase();
+        const text = (l.anchorText || "").toLowerCase();
         if (isJobBoard) {
           return (
             text.includes("search") ||
@@ -45,7 +54,81 @@ export const conversionRules: RuleDefinition[] = [
             text.includes("post a job") ||
             text.includes("hire") ||
             text.includes("sign up") ||
-            text.includes("get started")
+            text.includes("get started") ||
+            text.includes("scholarship") ||
+            text.includes("career")
+          );
+        }
+        if (isEcommerce) {
+          return (
+            text.includes("shop") ||
+            text.includes("buy") ||
+            text.includes("cart") ||
+            text.includes("order") ||
+            text.includes("get started") ||
+            text.includes("view products") ||
+            text.includes("explore collection")
+          );
+        }
+        if (isSaas) {
+          return (
+            text.includes("trial") ||
+            text.includes("demo") ||
+            text.includes("pricing") ||
+            text.includes("get started") ||
+            text.includes("sign up") ||
+            text.includes("try free") ||
+            text.includes("start for free")
+          );
+        }
+        if (isPublisher) {
+          return (
+            text.includes("subscribe") ||
+            text.includes("newsletter") ||
+            text.includes("read more") ||
+            text.includes("latest") ||
+            text.includes("sign up") ||
+            text.includes("join")
+          );
+        }
+        if (isNonprofit) {
+          return (
+            text.includes("donate") ||
+            text.includes("give") ||
+            text.includes("volunteer") ||
+            text.includes("support") ||
+            text.includes("join us") ||
+            text.includes("get involved")
+          );
+        }
+        if (isLocal) {
+          return (
+            text.includes("call") ||
+            text.includes("appointment") ||
+            text.includes("quote") ||
+            text.includes("estimate") ||
+            text.includes("schedule") ||
+            text.includes("contact")
+          );
+        }
+        if (isPortfolio) {
+          return (
+            text.includes("view work") ||
+            text.includes("case stud") ||
+            text.includes("projects") ||
+            text.includes("hire us") ||
+            text.includes("get in touch") ||
+            text.includes("start a project")
+          );
+        }
+        if (isMarketplace) {
+          return (
+            text.includes("browse") ||
+            text.includes("explore") ||
+            text.includes("directory") ||
+            text.includes("become a seller") ||
+            text.includes("list your") ||
+            text.includes("sign up")
           );
         }
         return (
@@ -56,7 +139,8 @@ export const conversionRules: RuleDefinition[] = [
           text.includes("book") ||
           text.includes("sign up") ||
           text.includes("order") ||
-          text.includes("contact")
+          text.includes("contact") ||
+          text.includes("learn more")
         );
       });
 
@@ -124,30 +208,146 @@ export const conversionRules: RuleDefinition[] = [
       }
 
       const allLinks = ctx.pages.flatMap((p) => p.links);
-      const isEcommerce = ctx.businessCategory === "ecommerce";
-      const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
+      const category = ctx.businessCategory;
+      const isEcommerce = category === "ecommerce";
+      const isJobBoard = category === "job_board" || category === ("jobs_marketplace" as any);
+      const isSaas = category === "saas";
+      const isPublisher = category === "publisher";
+      const isNonprofit = category === "nonprofit";
+      const isLocal = category === "local_service";
+      const isPortfolio = category === "portfolio";
+      const isMarketplace = category === "marketplace";
+
+      const pathwayName = isEcommerce
+        ? "Cart / Checkout"
+        : isJobBoard
+        ? "Job Search / Application"
+        : isSaas
+        ? "Trial / Demo / Pricing"
+        : isPublisher
+        ? "Newsletter / Subscription"
+        : isNonprofit
+        ? "Donation / Giving"
+        : isLocal
+        ? "Appointment / Quote"
+        : isPortfolio
+        ? "Project Inquiry / Hire"
+        : isMarketplace
+        ? "Listings / Seller Onboarding"
+        : "Lead / Inquiry";
 
       const hasConversionPath = allLinks.some((l) => {
-        const t = l.targetUrl.toLowerCase();
+        let path = "";
+        try {
+          path = new URL(l.targetUrl, ctx.targetUrl).pathname.toLowerCase();
+        } catch {
+          path = (l.targetUrl || "").toLowerCase();
+        }
         const text = (l.anchorText || "").toLowerCase();
         if (isEcommerce) {
-          return t.includes("cart") || t.includes("checkout") || t.includes("bag") || t.includes("basket");
+          return (
+            path.includes("/cart") ||
+            path.includes("/checkout") ||
+            path.includes("/bag") ||
+            path.includes("/basket") ||
+            path.includes("/shop") ||
+            path.includes("/products") ||
+            text.includes("add to cart") ||
+            text.includes("checkout")
+          );
         }
         if (isJobBoard) {
           return (
-            t.includes("/jobs/") ||
-            t.includes("/job/") ||
-            t.includes("search") ||
-            t.includes("post-a-job") ||
-            t.includes("post_a_job") ||
-            t.includes("hire") ||
-            t.includes("apply") ||
+            path.includes("/jobs") ||
+            path.includes("/job/") ||
+            path.includes("/careers") ||
+            path.includes("/post-a-job") ||
+            path.includes("/post_a_job") ||
+            path.includes("/apply") ||
+            path.includes("/scholarship") ||
             text.includes("apply") ||
             text.includes("view job") ||
-            text.includes("browse")
+            text.includes("browse") ||
+            text.includes("search jobs") ||
+            text.includes("post a job")
           );
         }
-        return t.includes("contact") || t.includes("book") || t.includes("demo") || t.includes("pricing") || t.includes("signup");
+        if (isSaas) {
+          return (
+            path.includes("/pricing") ||
+            path.includes("/trial") ||
+            path.includes("/demo") ||
+            path.includes("/signup") ||
+            path.includes("/register") ||
+            path.includes("/app") ||
+            path.includes("/dashboard") ||
+            text.includes("start free") ||
+            text.includes("request demo") ||
+            text.includes("try free") ||
+            text.includes("pricing")
+          );
+        }
+        if (isPublisher) {
+          return (
+            path.includes("/subscribe") ||
+            path.includes("/newsletter") ||
+            path.includes("/rss") ||
+            path.includes("/membership") ||
+            text.includes("subscribe") ||
+            text.includes("newsletter")
+          );
+        }
+        if (isNonprofit) {
+          return (
+            path.includes("/donate") ||
+            path.includes("/give") ||
+            path.includes("/volunteer") ||
+            path.includes("/fundraising") ||
+            text.includes("donate") ||
+            text.includes("give")
+          );
+        }
+        if (isLocal) {
+          return (
+            path.includes("/appointment") ||
+            path.includes("/quote") ||
+            path.includes("/estimate") ||
+            path.includes("/contact") ||
+            path.includes("/schedule") ||
+            path.includes("/booking") ||
+            text.includes("book") ||
+            text.includes("quote")
+          );
+        }
+        if (isPortfolio) {
+          return (
+            path.includes("/contact") ||
+            path.includes("/hire") ||
+            path.includes("/inquiry") ||
+            path.includes("/project") ||
+            text.includes("get in touch") ||
+            text.includes("hire us")
+          );
+        }
+        if (isMarketplace) {
+          return (
+            path.includes("/vendors") ||
+            path.includes("/sellers") ||
+            path.includes("/listings") ||
+            path.includes("/directory") ||
+            path.includes("/marketplace") ||
+            text.includes("explore directory") ||
+            text.includes("become a seller")
+          );
+        }
+        return (
+          path.includes("/contact") ||
+          path.includes("/book") ||
+          path.includes("/demo") ||
+          path.includes("/pricing") ||
+          path.includes("/signup") ||
+          path.includes("/inquiry")
+        );
       });
 
       if (hasConversionPath) {
@@ -160,7 +360,7 @@ export const conversionRules: RuleDefinition[] = [
           severity: "INFORMATIONAL",
           maxPoints: 1,
           earnedPoints: 1,
-          title: `Active ${isEcommerce ? "Cart / Checkout" : isJobBoard ? "Job Search / Application" : "Lead / Inquiry"} Pathway Confirmed`,
+          title: `Active ${pathwayName} Pathway Confirmed`,
           summary: `Navigable conversion pathway verified matching business model (${ctx.businessCategory}).`,
           timestamp: now,
           confidence: "HIGH",
@@ -177,7 +377,7 @@ export const conversionRules: RuleDefinition[] = [
         maxPoints: 1,
         earnedPoints: 0.5,
         title: "Conversion Pathway Hard to Locate",
-        summary: `Did not observe direct links to ${isEcommerce ? "cart or checkout" : isJobBoard ? "job search, listings, or application flows" : "inquiry or signup"} in main navigation.`,
+        summary: `Did not observe direct links to ${pathwayName.toLowerCase()} in main navigation.`,
         timestamp: now,
         confidence: "MEDIUM",
       };
@@ -296,11 +496,36 @@ export const conversionRules: RuleDefinition[] = [
       }
 
       const allLinks = ctx.pages.flatMap((p) => p.links);
-      const isEcommerce = ctx.businessCategory === "ecommerce";
-      const isJobBoard = ctx.businessCategory === "job_board" || ctx.businessCategory === ("jobs_marketplace" as any);
+      const category = ctx.businessCategory;
+      const isEcommerce = category === "ecommerce";
+      const isJobBoard = category === "job_board" || category === ("jobs_marketplace" as any);
+      const isSaas = category === "saas";
+      const isPublisher = category === "publisher";
+      const isNonprofit = category === "nonprofit";
+      const isLocal = category === "local_service";
+      const isPortfolio = category === "portfolio";
+      const isMarketplace = category === "marketplace";
+
+      const policyLabel = isEcommerce
+        ? "Shipping/Returns/Pricing"
+        : isJobBoard
+        ? "Employer Pricing / Terms"
+        : isSaas
+        ? "Pricing / SLA / Terms"
+        : isPublisher
+        ? "Editorial Policy / Terms"
+        : isNonprofit
+        ? "501(c)(3) Disclosure / Donor Privacy"
+        : isLocal
+        ? "Estimates / Guarantee / License"
+        : isPortfolio
+        ? "Engagement Terms / Pricing Guide"
+        : isMarketplace
+        ? "Seller Fees / Protection Terms"
+        : "Pricing / Terms";
 
       const hasPolicyOrPricing = allLinks.some((l) => {
-        const t = l.targetUrl.toLowerCase();
+        const t = (l.targetUrl || "").toLowerCase();
         const text = (l.anchorText || "").toLowerCase();
         if (isJobBoard) {
           return (
@@ -318,7 +543,99 @@ export const conversionRules: RuleDefinition[] = [
             text.includes("employers")
           );
         }
-        return t.includes("pricing") || t.includes("plans") || t.includes("shipping") || t.includes("returns") || t.includes("faq");
+        if (isEcommerce) {
+          return (
+            t.includes("pricing") ||
+            t.includes("shipping") ||
+            t.includes("returns") ||
+            t.includes("refund") ||
+            t.includes("faq") ||
+            t.includes("terms") ||
+            t.includes("guarantee") ||
+            text.includes("shipping") ||
+            text.includes("returns")
+          );
+        }
+        if (isSaas) {
+          return (
+            t.includes("pricing") ||
+            t.includes("plans") ||
+            t.includes("terms") ||
+            t.includes("privacy") ||
+            t.includes("security") ||
+            t.includes("sla") ||
+            text.includes("pricing") ||
+            text.includes("plans")
+          );
+        }
+        if (isPublisher) {
+          return (
+            t.includes("editorial") ||
+            t.includes("ethics") ||
+            t.includes("terms") ||
+            t.includes("privacy") ||
+            t.includes("subscribe") ||
+            t.includes("about") ||
+            text.includes("editorial") ||
+            text.includes("privacy")
+          );
+        }
+        if (isNonprofit) {
+          return (
+            t.includes("donor") ||
+            t.includes("annual-report") ||
+            t.includes("financial") ||
+            t.includes("tax") ||
+            t.includes("501") ||
+            t.includes("terms") ||
+            t.includes("privacy") ||
+            text.includes("tax-deductible") ||
+            text.includes("financial")
+          );
+        }
+        if (isLocal) {
+          return (
+            t.includes("estimate") ||
+            t.includes("pricing") ||
+            t.includes("guarantee") ||
+            t.includes("warranty") ||
+            t.includes("terms") ||
+            t.includes("license") ||
+            text.includes("estimate") ||
+            text.includes("guarantee")
+          );
+        }
+        if (isPortfolio) {
+          return (
+            t.includes("terms") ||
+            t.includes("pricing") ||
+            t.includes("faq") ||
+            t.includes("process") ||
+            t.includes("privacy") ||
+            text.includes("pricing") ||
+            text.includes("process")
+          );
+        }
+        if (isMarketplace) {
+          return (
+            t.includes("fees") ||
+            t.includes("commission") ||
+            t.includes("protection") ||
+            t.includes("terms") ||
+            t.includes("privacy") ||
+            text.includes("fees") ||
+            text.includes("protection")
+          );
+        }
+        return (
+          t.includes("pricing") ||
+          t.includes("plans") ||
+          t.includes("shipping") ||
+          t.includes("returns") ||
+          t.includes("faq") ||
+          t.includes("terms") ||
+          t.includes("privacy")
+        );
       });
 
       if (hasPolicyOrPricing) {
@@ -332,7 +649,7 @@ export const conversionRules: RuleDefinition[] = [
           maxPoints: 1,
           earnedPoints: 1,
           title: "Transparent Customer Policies Discovered",
-          summary: `Identified customer policy links (${isEcommerce ? "Shipping/Returns" : isJobBoard ? "Employer Pricing / Terms" : "Pricing/Terms"}) supporting buyer confidence.`,
+          summary: `Identified customer policy links (${policyLabel}) supporting stakeholder trust.`,
           timestamp: now,
           confidence: "HIGH",
         };
@@ -348,7 +665,7 @@ export const conversionRules: RuleDefinition[] = [
         maxPoints: 1,
         earnedPoints: 0.5,
         title: "Policy or Pricing Transparency Opportunity",
-        summary: "No clear links to pricing or refund/shipping guarantees were detected in the primary navigation.",
+        summary: `No clear links to ${policyLabel.toLowerCase()} were detected in the primary navigation.`,
         timestamp: now,
         confidence: "MEDIUM",
       };

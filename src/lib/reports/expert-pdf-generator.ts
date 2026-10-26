@@ -3,16 +3,26 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 
+function escapeHtml(str: unknown): string {
+  if (str == null) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export function generateExpertReportHtml(report: ExpertReport): string {
   const meta = report.metadata;
   const exec = report.executiveSummary;
   const platform = report.platformProfile;
+  const detection = meta.companyA.businessCategoryDetection;
+
   const dateFormatted = new Date(meta.generatedAt).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 
   const getScoreColor = (score: number) => {
@@ -26,36 +36,38 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   const getSeverityBadge = (sev: string) => {
     switch (sev) {
       case "CRITICAL":
-        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">CRITICAL</span>`;
+        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">CRITICAL</span>`;
       case "HIGH":
-        return `<span style="background: #FFEDD5; color: #9A3412; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">HIGH</span>`;
+        return `<span style="background: #FFEDD5; color: #9A3412; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">HIGH</span>`;
       case "MEDIUM":
-        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">MEDIUM</span>`;
+        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">MEDIUM</span>`;
       case "LOW":
-        return `<span style="background: #E0E7FF; color: #3730A3; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">LOW</span>`;
+        return `<span style="background: #E0E7FF; color: #3730A3; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">LOW</span>`;
       default:
-        return `<span style="background: #F1F5F9; color: #475569; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">INFO</span>`;
+        return `<span style="background: #F1F5F9; color: #475569; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">INFO</span>`;
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "PASS":
-        return `<span style="background: #DCFCE7; color: #166534; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">PASS</span>`;
+        return `<span style="background: #DCFCE7; color: #166534; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">PASS</span>`;
       case "FAIL":
-        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">FAIL</span>`;
+        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">FAIL</span>`;
       case "WARNING":
-        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">WARN</span>`;
+        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">WARN</span>`;
       case "BLOCKED":
-        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">BLOCKED</span>`;
+        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">BLOCKED</span>`;
       case "NOT_APPLICABLE":
-        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">N/A</span>`;
+        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">N/A</span>`;
+      case "UNKNOWN":
+        return `<span style="background: #FEF3C7; color: #78350F; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">UNKNOWN</span>`;
       default:
-        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 8pt;">NOT TESTED</span>`;
+        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">NOT TESTED</span>`;
     }
   };
 
-  const totalEstimatedHours = report.remediationRegister.reduce(
+  const totalEstimatedHours = (report.remediationRegister || []).reduce(
     (acc, t) => acc + (t.estimatedHours || 0),
     0
   );
@@ -64,11 +76,11 @@ export function generateExpertReportHtml(report: ExpertReport): string {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Company B Expert Diagnostic Report — ${meta.companyA.domain}</title>
+  <title>Company B Expert Diagnostic Report — ${escapeHtml(meta.companyA.domain)}</title>
   <style>
     @page {
-      size: A4;
-      margin: 14mm 14mm 14mm 14mm;
+      size: A4 portrait;
+      margin: 16mm 14mm 16mm 14mm;
     }
     * {
       box-sizing: border-box;
@@ -79,7 +91,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: #0F172A;
       background: #FFFFFF;
-      font-size: 9.5pt;
+      font-size: 9pt;
       line-height: 1.45;
     }
     .page-break {
@@ -92,20 +104,20 @@ export function generateExpertReportHtml(report: ExpertReport): string {
     }
     .header {
       border-bottom: 2px solid #0F9D91;
-      padding-bottom: 12px;
-      margin-bottom: 20px;
+      padding-bottom: 10px;
+      margin-bottom: 18px;
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
     }
     .brand-title {
-      font-size: 16pt;
+      font-size: 15pt;
       font-weight: 800;
       color: #042F2E;
       letter-spacing: -0.5px;
     }
     .brand-subtitle {
-      font-size: 8.5pt;
+      font-size: 8pt;
       color: #0F9D91;
       font-weight: 600;
       text-transform: uppercase;
@@ -117,50 +129,58 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       color: #64748B;
     }
     h1 {
-      font-size: 20pt;
+      font-size: 18pt;
       font-weight: 800;
       color: #0F172A;
       margin-bottom: 6px;
+      page-break-after: avoid;
+      break-after: avoid;
     }
     h2 {
-      font-size: 13pt;
+      font-size: 12pt;
       font-weight: 700;
       color: #042F2E;
-      margin-top: 18px;
-      margin-bottom: 10px;
+      margin-top: 16px;
+      margin-bottom: 8px;
       padding-bottom: 4px;
       border-bottom: 1px solid #E2E8F0;
+      page-break-after: avoid;
+      break-after: avoid;
     }
     h3 {
-      font-size: 10.5pt;
+      font-size: 10pt;
       font-weight: 700;
       color: #1E293B;
       margin-top: 10px;
       margin-bottom: 4px;
+      page-break-after: avoid;
+      break-after: avoid;
     }
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 14px;
+      gap: 10px;
+      margin-bottom: 12px;
     }
     .grid-3 {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 10px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .grid-4 {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr 1fr;
       gap: 8px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .card {
       background: #F8FAFC;
       border: 1px solid #E2E8F0;
       border-radius: 6px;
-      padding: 10px 12px;
+      padding: 9px 11px;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     .card-title {
       font-size: 7.5pt;
@@ -168,19 +188,27 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       letter-spacing: 0.5px;
       color: #64748B;
       font-weight: 700;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     .card-value {
-      font-size: 15pt;
+      font-size: 14pt;
       font-weight: 800;
       color: #0F172A;
     }
     table {
+      table-layout: fixed;
       width: 100%;
       border-collapse: collapse;
       margin-top: 8px;
       margin-bottom: 14px;
-      font-size: 8.5pt;
+      font-size: 8pt;
+    }
+    thead {
+      display: table-header-group;
+    }
+    tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     th {
       background: #042F2E;
@@ -188,42 +216,40 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       text-align: left;
       padding: 6px 8px;
       font-weight: 600;
-      font-size: 8pt;
+      font-size: 7.5pt;
+      word-break: break-word;
+      overflow-wrap: break-word;
     }
     td {
       padding: 6px 8px;
       border-bottom: 1px solid #E2E8F0;
       vertical-align: top;
+      word-break: break-word;
+      overflow-wrap: break-word;
     }
     tr:nth-child(even) td {
       background: #F8FAFC;
     }
-    .code-box {
+    .code-box, .url-cell, code, pre {
       background: #0F172A;
       color: #F8FAFC;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 7.5pt;
-      padding: 6px 8px;
+      font-size: 7pt;
+      padding: 5px 7px;
       border-radius: 4px;
       word-break: break-all;
-      margin-top: 4px;
+      overflow-wrap: anywhere;
+      margin-top: 3px;
     }
     .alert-box {
       background: #EFF6FF;
       border-left: 3px solid #3B82F6;
-      padding: 8px 10px;
+      padding: 7px 10px;
       border-radius: 0 4px 4px 0;
-      font-size: 8.5pt;
+      font-size: 8pt;
       margin-bottom: 12px;
-    }
-    .footer {
-      border-top: 1px solid #E2E8F0;
-      padding-top: 8px;
-      margin-top: 20px;
-      font-size: 7.5pt;
-      color: #94A3B8;
-      display: flex;
-      justify-content: space-between;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
   </style>
 </head>
@@ -233,35 +259,35 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <div class="header">
     <div>
       <div class="brand-title">SiteIntel Pulse</div>
-      <div class="brand-subtitle">Company B Expert Diagnostic & Growth Intelligence Report</div>
+      <div class="brand-subtitle">Company B Expert Diagnostic &amp; Growth Intelligence Report</div>
     </div>
     <div class="report-meta">
-      <div>Report ID: <strong>${meta.reportId}</strong></div>
+      <div>Report ID: <strong>${escapeHtml(meta.reportId)}</strong></div>
       <div>Audit Date: <strong>${dateFormatted}</strong></div>
       <div>Engine: <strong>SiteIntel Pulse v2.0.0</strong></div>
     </div>
   </div>
 
   <h1>Expert Technical Diagnostic Report</h1>
-  <p style="font-size: 11pt; color: #475569; margin-bottom: 16px;">
-    In-depth engineering inspection, page-level diagnostic inventory, security posture, and specialist workstream plan for <strong>${meta.companyA.targetUrl}</strong>.
+  <p style="font-size: 10pt; color: #475569; margin-bottom: 14px; word-break: break-word;">
+    In-depth engineering inspection, page-level diagnostic inventory, security posture, and specialist workstream plan for <strong>${escapeHtml(meta.companyA.targetUrl)}</strong>.
   </p>
 
   <div class="grid-4">
     <div class="card">
       <div class="card-title">Overall Score</div>
       <div class="card-value" style="color: ${getScoreColor(exec.overallScore.score)}">
-        ${exec.overallScore.score}<span style="font-size: 10pt; color: #64748B;">/100</span>
+        ${exec.overallScore.score}<span style="font-size: 9pt; color: #64748B;">/100</span>
       </div>
-      <div style="font-size: 7.5pt; color: #64748B; margin-top: 2px;">
-        Rating: <strong>${exec.overallScore.ratingBand}</strong>
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
+        Rating: <strong>${escapeHtml(exec.overallScore.ratingBand)}</strong>
       </div>
     </div>
 
     <div class="card">
       <div class="card-title">Discovered Pages</div>
       <div class="card-value">${report.coverage.discoveredPages}</div>
-      <div style="font-size: 7.5pt; color: #64748B; margin-top: 2px;">
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
         Tested: <strong>${report.coverage.testedPages}</strong> (${report.coverage.coveragePercentage}%)
       </div>
     </div>
@@ -271,7 +297,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       <div class="card-value" style="color: #DC2626;">
         ${exec.issueTotals.critical + exec.issueTotals.high}
       </div>
-      <div style="font-size: 7.5pt; color: #64748B; margin-top: 2px;">
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
         ${exec.issueTotals.critical} Critical / ${exec.issueTotals.high} High / ${exec.issueTotals.medium} Med
       </div>
     </div>
@@ -279,70 +305,89 @@ export function generateExpertReportHtml(report: ExpertReport): string {
     <div class="card">
       <div class="card-title">Remediation Effort</div>
       <div class="card-value" style="color: #0F9D91;">
-        ${totalEstimatedHours}<span style="font-size: 10pt; color: #64748B;"> hrs</span>
+        ${totalEstimatedHours}<span style="font-size: 9pt; color: #64748B;"> hrs</span>
       </div>
-      <div style="font-size: 7.5pt; color: #64748B; margin-top: 2px;">
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
         Across ${exec.workstreamEstimates.length} technical workstreams
       </div>
     </div>
   </div>
 
   <div class="alert-box">
-    <strong>Auditor Scope & Methodology:</strong> ${meta.scopeAndBoundaries}
+    <strong>Auditor Scope &amp; Methodology:</strong> ${escapeHtml(meta.scopeAndBoundaries)}
   </div>
 
   <!-- SECTION 2: METADATA & SCOPE -->
-  <h2>1. Scope & Execution Parameters</h2>
-  <div class="grid-3">
+  <h2>1. Scope &amp; Execution Parameters</h2>
+  <div class="grid-4">
     <div class="card">
       <div class="card-title">Target Hostname</div>
-      <div style="font-weight: 700;">${meta.companyA.domain}</div>
-      <div style="font-size: 8pt; color: #64748B;">Category: ${meta.companyA.businessCategory} | Market: ${meta.companyA.targetMarket}</div>
+      <div style="font-weight: 700; word-break: break-all;">${escapeHtml(meta.companyA.domain)}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">Market: ${escapeHtml(meta.companyA.targetMarket || "Global")}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Business Model</div>
+      <div style="font-weight: 700;">${escapeHtml(detection ? detection.categoryLabel : meta.companyA.businessCategory)}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">
+        ${detection ? `${detection.decisionSource === "AUTO_DETECTED" ? "Auto" : "Manual"} (${detection.confidence} · ${Math.round(detection.confidenceScore * 100)}%)` : "Assigned"}
+      </div>
+      ${detection && detection.secondaryFacets && detection.secondaryFacets.length > 0 ? `
+        <div style="font-size: 6.5pt; color: #0D9488; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          ${escapeHtml(detection.secondaryFacets.map(f => f.replace(/_/g, " ")).join(", "))}
+        </div>
+      ` : ""}
     </div>
     <div class="card">
       <div class="card-title">Crawl Execution</div>
-      <div style="font-weight: 700;">Depth ${report.coverage.crawlDepthReached} | Budget ${report.coverage.totalPagesBudget} pages</div>
-      <div style="font-size: 8pt; color: #64748B;">Exhaustive: ${report.coverage.isExhaustive ? "Yes" : "Budget Limited"}</div>
+      <div style="font-weight: 700;">Depth ${report.coverage.crawlDepthReached} | Budget ${report.coverage.totalPagesBudget}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">Exhaustive: ${report.coverage.isExhaustive ? "Yes" : "Budget Capped"}</div>
     </div>
     <div class="card">
       <div class="card-title">Audit Mode</div>
       <div style="font-weight: 700; color: ${meta.authorization.isAuthorizedForAuthScan ? "#0F9D91" : "#D97706"};">
-        ${meta.authorization.isAuthorizedForAuthScan ? "AUTHORIZED DYNAMIC" : "PASSIVE PUBLIC"}
+        ${meta.authorization.isAuthorizedForAuthScan ? "AUTHORIZED" : "PASSIVE PUBLIC"}
       </div>
-      <div style="font-size: 8pt; color: #64748B;">Repo Authorized: ${meta.authorization.repositoryAuthorized ? "Yes" : "No"}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">Repo Auth: ${meta.authorization.repositoryAuthorized ? "Yes" : "No"}</div>
     </div>
   </div>
 
   <!-- SECTION 3: PLATFORM PROFILE & STACK -->
-  <h2>2. Platform Profile & Detected Stack</h2>
+  <h2>2. Platform Profile &amp; Detected Stack</h2>
   <div class="grid-4">
     <div class="card">
       <div class="card-title">CMS Category</div>
-      <div style="font-weight: 700;">${platform.cmsCategory}</div>
-      <div style="font-size: 8pt; color: #64748B;">Confidence: ${platform.confidence}</div>
+      <div style="font-weight: 700;">${escapeHtml(platform.cmsCategory || "Custom Web Application")}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">Confidence: ${escapeHtml(platform.confidence || "MEDIUM")}</div>
     </div>
     <div class="card">
       <div class="card-title">Framework Hints</div>
-      <div style="font-weight: 700;">${platform.frameworkHints.join(", ") || "Vanilla / Static"}</div>
-      <div style="font-size: 8pt; color: #64748B;">Modern Frontend</div>
+      <div style="font-weight: 700; word-break: break-word;">${escapeHtml((platform.frameworkHints || []).join(", ") || "Vanilla / Static")}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">Modern Frontend</div>
     </div>
     <div class="card">
-      <div class="card-title">Server & CDN Clues</div>
-      <div style="font-weight: 700;">${platform.serverCdnClues.join(", ") || "Standard HTTP/2"}</div>
-      <div style="font-size: 8pt; color: #64748B;">Edge Distribution</div>
+      <div class="card-title">Server &amp; CDN Clues</div>
+      <div style="font-weight: 700; word-break: break-word;">${escapeHtml((platform.serverCdnClues || []).join(", ") || "Standard HTTP/2")}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">Edge Distribution</div>
     </div>
     <div class="card">
       <div class="card-title">Client Tech</div>
-      <div style="font-weight: 700;">${platform.clientTechnologies.join(", ") || "Standard"}</div>
-      <div style="font-size: 8pt; color: #64748B;">Integrations: ${report.integrations.length}</div>
+      <div style="font-weight: 700; word-break: break-word;">${escapeHtml((platform.clientTechnologies || []).join(", ") || "Standard")}</div>
+      <div style="font-size: 7.5pt; color: #64748B;">Integrations: ${(report.integrations || []).length}</div>
     </div>
   </div>
 
   <div class="page-break"></div>
 
   <!-- SECTION 4: SCORE LEDGER & COVERAGE -->
-  <h2>3. Assessment Catalogue & Score Ledger (56 Rules / 11 Categories)</h2>
+  <h2>3. Assessment Catalogue &amp; Score Ledger (56 Rules / 11 Categories)</h2>
   <table>
+    <colgroup>
+      <col style="width: 32%;">
+      <col style="width: 16%;">
+      <col style="width: 18%;">
+      <col style="width: 16%;">
+      <col style="width: 18%;">
+    </colgroup>
     <thead>
       <tr>
         <th>Category</th>
@@ -356,7 +401,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       ${exec.categoryScores
         .map(
           (c) => `<tr>
-        <td><strong>${c.categoryName}</strong></td>
+        <td><strong>${escapeHtml(c.categoryName)}</strong></td>
         <td><strong>${c.scorePercentage}%</strong></td>
         <td>${c.earnedAllocationPercentage}%</td>
         <td>${c.coveragePercentage}%</td>
@@ -372,8 +417,17 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   </table>
 
   <!-- SECTION 5: URL INVENTORY -->
-  <h2>4. Discovered Page Diagnostics (Top ${Math.min(report.urlInventory.length, 12)} Pages)</h2>
+  <h2>4. Discovered Page Diagnostics (Top ${Math.min((report.urlInventory || []).length, 12)} Pages)</h2>
   <table>
+    <colgroup>
+      <col style="width: 36%;">
+      <col style="width: 10%;">
+      <col style="width: 14%;">
+      <col style="width: 8%;">
+      <col style="width: 14%;">
+      <col style="width: 9%;">
+      <col style="width: 9%;">
+    </colgroup>
     <thead>
       <tr>
         <th>Path / URL</th>
@@ -386,20 +440,20 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       </tr>
     </thead>
     <tbody>
-      ${report.urlInventory
+      ${(report.urlInventory || []).length > 0 ? report.urlInventory
         .slice(0, 12)
         .map(
           (u) => `<tr>
-        <td style="max-width: 200px; word-break: break-all; font-family: monospace; font-size: 8pt;">${u.url}</td>
+        <td style="word-break: break-all; font-family: monospace; font-size: 7.5pt;">${escapeHtml(u.url)}</td>
         <td>${u.statusCode}</td>
-        <td><strong>${u.indexabilityStatus}</strong></td>
+        <td><strong>${escapeHtml(u.indexabilityStatus)}</strong></td>
         <td>${u.crawlDepth}</td>
-        <td style="font-size: 7.5pt; color: #64748B;">${u.canonicalStatus}</td>
+        <td style="font-size: 7pt; color: #64748B;">${escapeHtml(u.canonicalStatus)}</td>
         <td>${u.wordCount}</td>
         <td>${u.responseTimeMs}ms</td>
       </tr>`
         )
-        .join("")}
+        .join("") : `<tr><td colspan="7" style="text-align: center; color: #64748B; padding: 10px;">No crawled URL records observed.</td></tr>`}
     </tbody>
   </table>
 
@@ -409,31 +463,31 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       <h2>5. SEO Structural Health</h2>
       <div class="card" style="margin-bottom: 8px;">
         <div class="card-title">Structured Data Entities</div>
-        <div style="font-size: 8.5pt;">
-          ${report.seoDiagnostics.structuredDataEntities.length > 0
-            ? report.seoDiagnostics.structuredDataEntities.map(e => e.type || e["@type"] || "Entity").slice(0, 6).join(", ")
+        <div style="font-size: 8pt; word-break: break-word;">
+          ${(report.seoDiagnostics.structuredDataEntities || []).length > 0
+            ? report.seoDiagnostics.structuredDataEntities.map(e => escapeHtml(e.type || e["@type"] || "Entity")).slice(0, 6).join(", ")
             : "No Schema.org entities detected"}
         </div>
       </div>
       <div class="card">
         <div class="card-title">Heading Hierarchy Sample</div>
-        <div style="font-size: 8pt; font-family: monospace;">
-          H1: ${report.seoDiagnostics.headingHierarchy.h1?.length || 0} found | H2: ${report.seoDiagnostics.headingHierarchy.h2?.length || 0} found
+        <div style="font-size: 7.5pt; font-family: monospace;">
+          H1: ${report.seoDiagnostics.headingHierarchy?.h1?.length || 0} found | H2: ${report.seoDiagnostics.headingHierarchy?.h2?.length || 0} found
         </div>
       </div>
     </div>
 
     <div>
-      <h2>6. Link Architecture & Status</h2>
+      <h2>6. Link Architecture &amp; Status</h2>
       <div class="card" style="margin-bottom: 8px;">
         <div class="card-title">Link Breakdown</div>
-        <div>Internal Links: <strong>${report.linkAudit.internalLinks.length}</strong></div>
-        <div>Outbound Links: <strong>${report.linkAudit.outboundLinks.length}</strong></div>
-        <div>Broken Links: <strong style="color: ${report.linkAudit.brokenLinks.length > 0 ? '#DC2626' : '#059669'}">${report.linkAudit.brokenLinks.length}</strong></div>
+        <div>Internal Links: <strong>${(report.linkAudit.internalLinks || []).length}</strong></div>
+        <div>Outbound Links: <strong>${(report.linkAudit.outboundLinks || []).length}</strong></div>
+        <div>Broken Links: <strong style="color: ${(report.linkAudit.brokenLinks || []).length > 0 ? '#DC2626' : '#059669'}">${(report.linkAudit.brokenLinks || []).length}</strong></div>
       </div>
       <div class="card">
         <div class="card-title">Orphan Candidates</div>
-        <div style="font-size: 8pt;">${report.linkAudit.orphanCandidates.length > 0 ? report.linkAudit.orphanCandidates.join(", ") : "None identified"}</div>
+        <div style="font-size: 7.5pt; word-break: break-all;">${(report.linkAudit.orphanCandidates || []).length > 0 ? report.linkAudit.orphanCandidates.map(escapeHtml).join(", ") : "None identified"}</div>
       </div>
     </div>
   </div>
@@ -441,31 +495,38 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <div class="page-break"></div>
 
   <!-- SECTION 8 & 9: PERFORMANCE & RESPONSIVE MATRIX -->
-  <h2>7. Core Web Vitals & Multi-Viewport Matrix</h2>
+  <h2>7. Core Web Vitals &amp; Multi-Viewport Matrix</h2>
   <div class="grid-4">
     <div class="card">
       <div class="card-title">Lab TTFB</div>
-      <div class="card-value" style="font-size: 13pt;">${report.performanceDiagnostics.labScores.ttfbMs != null ? `${report.performanceDiagnostics.labScores.ttfbMs}ms` : "—"}</div>
+      <div class="card-value" style="font-size: 12pt;">${report.performanceDiagnostics.labScores?.ttfbMs != null ? `${report.performanceDiagnostics.labScores.ttfbMs}ms` : "—"}</div>
     </div>
     <div class="card">
-      <div class="card-title">Render-Blocking</div>
-      <div class="card-value" style="font-size: 13pt; color: ${report.performanceDiagnostics.blockingResources.length > 0 ? '#D97706' : '#059669'};">
-        ${report.performanceDiagnostics.blockingResources.length} assets
+      <div class="card-title">Lab Speed Index</div>
+      <div class="card-value" style="font-size: 12pt;">${report.performanceDiagnostics.labScores?.speedIndex != null ? `${report.performanceDiagnostics.labScores.speedIndex}ms` : "—"}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">PageSpeed Status</div>
+      <div class="card-value" style="font-size: 11pt; color: ${report.performanceDiagnostics.labScores?.mobileScore != null ? "#0F9D91" : "#64748B"};">
+        ${report.performanceDiagnostics.labScores?.mobileScore != null ? `${report.performanceDiagnostics.labScores.mobileScore}/100` : "Not Configured"}
       </div>
     </div>
     <div class="card">
-      <div class="card-title">Mobile Lab Score</div>
-      <div class="card-value" style="font-size: 13pt;">${report.performanceDiagnostics.labScores.mobile != null ? `${report.performanceDiagnostics.labScores.mobile}/100` : "Not connected"}</div>
-    </div>
-    <div class="card">
       <div class="card-title">Responsive Breakpoints</div>
-      <div class="card-value" style="font-size: 13pt; color: #0F9D91;">
-        ${report.responsiveDiagnostics.length > 0 ? `${report.responsiveDiagnostics.length} tested` : "Not tested"}
+      <div class="card-value" style="font-size: 11pt; color: #0F9D91;">
+        ${(report.responsiveDiagnostics || []).length > 0 ? `${report.responsiveDiagnostics.length} tested` : "Not tested"}
       </div>
     </div>
   </div>
 
   <table>
+    <colgroup>
+      <col style="width: 20%;">
+      <col style="width: 20%;">
+      <col style="width: 20%;">
+      <col style="width: 20%;">
+      <col style="width: 20%;">
+    </colgroup>
     <thead>
       <tr>
         <th>Viewport Width</th>
@@ -476,7 +537,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       </tr>
     </thead>
     <tbody>
-      ${report.responsiveDiagnostics.length > 0
+      ${(report.responsiveDiagnostics || []).length > 0
         ? report.responsiveDiagnostics
             .map(
               (b) => `<tr>
@@ -488,16 +549,21 @@ export function generateExpertReportHtml(report: ExpertReport): string {
           </tr>`
             )
             .join("")
-        : '<tr><td colspan="5" style="text-align: center; color: #64748B; padding: 12px;">Passive crawl only — browser-automated responsive tests were not executed for this run.</td></tr>'}
+        : '<tr><td colspan="5" style="text-align: center; color: #64748B; padding: 10px;">Passive crawl only — browser-automated responsive tests were not executed for this run.</td></tr>'}
     </tbody>
   </table>
 
   <!-- SECTION 10 & 11: SECURITY & AUTH -->
-  <h2>8. Security Configuration & Authentication Posture</h2>
+  <h2>8. Security Configuration &amp; Authentication Posture</h2>
   <div class="grid-2">
     <div>
       <h3>HTTP Security Headers</h3>
       <table>
+        <colgroup>
+          <col style="width: 38%;">
+          <col style="width: 18%;">
+          <col style="width: 44%;">
+        </colgroup>
         <thead>
           <tr>
             <th>Control</th>
@@ -506,13 +572,13 @@ export function generateExpertReportHtml(report: ExpertReport): string {
           </tr>
         </thead>
         <tbody>
-          ${report.securityDiagnostics
+          ${(report.securityDiagnostics || [])
             .slice(0, 7)
             .map(
               (h) => `<tr>
-            <td><strong>${h.title}</strong></td>
+            <td><strong>${escapeHtml(h.title)}</strong></td>
             <td>${getSeverityBadge(h.severity)}</td>
-            <td style="font-family: monospace; font-size: 7.5pt; max-width: 150px; word-break: break-all;">${h.observedValue || "—"}</td>
+            <td style="font-family: monospace; font-size: 7pt; word-break: break-all;">${escapeHtml(h.observedValue || "—")}</td>
           </tr>`
             )
             .join("")}
@@ -524,9 +590,9 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       <h3>Authentication Posture</h3>
       <div class="card" style="margin-bottom: 8px;">
         <div class="card-title">Discovered Public Surfaces</div>
-        <div style="font-size: 8.5pt;">
-          ${report.authenticationAssessment.publicLoginSurfaces.length > 0
-            ? report.authenticationAssessment.publicLoginSurfaces.map(s => `<div><strong>Login:</strong> ${s.url} (HTTPS: ${s.isHttps ? 'Yes' : 'No'})</div>`).join("")
+        <div style="font-size: 8pt; word-break: break-all;">
+          ${(report.authenticationAssessment.publicLoginSurfaces || []).length > 0
+            ? report.authenticationAssessment.publicLoginSurfaces.map(s => `<div><strong>Login:</strong> ${escapeHtml(s.url)} (HTTPS: ${s.isHttps ? 'Yes' : 'No'})</div>`).join("")
             : "No explicit public login or register forms detected"}
         </div>
       </div>
@@ -534,7 +600,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         <div class="card-title">Session Cookie Flags</div>
         <div>Secure Flag: <strong>${report.authenticationAssessment.sessionSecurity.cookieSecure === null ? "Unknown (No Cookies)" : report.authenticationAssessment.sessionSecurity.cookieSecure ? "Enforced" : "Vulnerable"}</strong></div>
         <div>HttpOnly Flag: <strong>${report.authenticationAssessment.sessionSecurity.cookieHttpOnly === null ? "Unknown (No Cookies)" : report.authenticationAssessment.sessionSecurity.cookieHttpOnly ? "Enforced" : "Vulnerable"}</strong></div>
-        <div>SameSite Policy: <strong>${report.authenticationAssessment.sessionSecurity.cookieSameSite || "Unobserved"}</strong></div>
+        <div>SameSite Policy: <strong>${escapeHtml(report.authenticationAssessment.sessionSecurity.cookieSameSite || "Unobserved")}</strong></div>
       </div>
     </div>
   </div>
@@ -542,11 +608,16 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <div class="page-break"></div>
 
   <!-- SECTION 12 & 13: GEO/AEO & INTEGRATIONS -->
-  <h2>9. Integrations, GEO / AEO & AI Readiness</h2>
+  <h2>9. Integrations, GEO / AEO &amp; AI Readiness</h2>
   <div class="grid-2">
     <div>
-      <h3>Detected Integrations & Tags</h3>
+      <h3>Detected Integrations &amp; Tags</h3>
       <table>
+        <colgroup>
+          <col style="width: 40%;">
+          <col style="width: 35%;">
+          <col style="width: 25%;">
+        </colgroup>
         <thead>
           <tr>
             <th>Service</th>
@@ -555,34 +626,34 @@ export function generateExpertReportHtml(report: ExpertReport): string {
           </tr>
         </thead>
         <tbody>
-          ${report.integrations
+          ${(report.integrations || []).length > 0 ? report.integrations
             .map(
               (i) => `<tr>
-            <td><strong>${i.name}</strong></td>
-            <td>${i.category}</td>
-            <td>${i.state === "NOT_DETECTED" ? '<span style="color: #64748B;">NOT DETECTED</span>' : '<span style="color: #059669; font-weight: bold;">ACTIVE / DETECTED</span>'}</td>
+            <td><strong>${escapeHtml(i.name)}</strong></td>
+            <td>${escapeHtml(i.category)}</td>
+            <td>${i.state === "NOT_DETECTED" ? '<span style="color: #64748B;">NOT DETECTED</span>' : '<span style="color: #059669; font-weight: bold;">ACTIVE</span>'}</td>
           </tr>`
             )
-            .join("")}
+            .join("") : `<tr><td colspan="3" style="text-align: center; color: #64748B; padding: 10px;">No third-party tool integrations detected.</td></tr>`}
         </tbody>
       </table>
     </div>
 
     <div>
-      <h3>AI Crawler Policies & Schema</h3>
+      <h3>AI Crawler Policies &amp; Schema</h3>
       <div class="card" style="margin-bottom: 8px;">
         <div class="card-title">Robots.txt AI Crawlers</div>
-        <div style="font-size: 8.5pt;">
-          GPTBot: <strong>${report.geoAeoDiagnostics.crawlerPolicies.GPTBot || "Open"}</strong><br/>
-          ClaudeBot: <strong>${report.geoAeoDiagnostics.crawlerPolicies.ClaudeBot || "Open"}</strong><br/>
-          CCBot: <strong>${report.geoAeoDiagnostics.crawlerPolicies.CCBot || "Open"}</strong>
+        <div style="font-size: 8pt;">
+          GPTBot: <strong>${escapeHtml(report.geoAeoDiagnostics.crawlerPolicies?.GPTBot || "Open")}</strong><br/>
+          ClaudeBot: <strong>${escapeHtml(report.geoAeoDiagnostics.crawlerPolicies?.ClaudeBot || "Open")}</strong><br/>
+          CCBot: <strong>${escapeHtml(report.geoAeoDiagnostics.crawlerPolicies?.CCBot || "Open")}</strong>
         </div>
       </div>
       <div class="card">
         <div class="card-title">Direct Answer Readiness</div>
-        <div style="font-size: 8.5pt;">
-          FAQ Schema: <strong>${report.geoAeoDiagnostics.directAnswerReadiness.faqSchemaPresent ? "Present" : "Missing"}</strong><br/>
-          HowTo Schema: <strong>${report.geoAeoDiagnostics.directAnswerReadiness.howToSchemaPresent ? "Present" : "Missing"}</strong>
+        <div style="font-size: 8pt;">
+          FAQ Schema: <strong>${report.geoAeoDiagnostics.directAnswerReadiness?.faqSchemaPresent ? "Present" : "Missing"}</strong><br/>
+          HowTo Schema: <strong>${report.geoAeoDiagnostics.directAnswerReadiness?.howToSchemaPresent ? "Present" : "Missing"}</strong>
         </div>
       </div>
     </div>
@@ -591,6 +662,12 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <!-- SECTION 16: COMPETITOR BENCHMARK -->
   <h2>10. Competitor Benchmark Analysis</h2>
   <table>
+    <colgroup>
+      <col style="width: 32%;">
+      <col style="width: 18%;">
+      <col style="width: 28%;">
+      <col style="width: 22%;">
+    </colgroup>
     <thead>
       <tr>
         <th>Domain</th>
@@ -601,63 +678,76 @@ export function generateExpertReportHtml(report: ExpertReport): string {
     </thead>
     <tbody>
       <tr style="background: #CCFBF1;">
-        <td><strong>${meta.companyA.domain} (Company A)</strong></td>
+        <td class="url-cell"><strong>${escapeHtml(meta.companyA.domain)} (Company A)</strong></td>
         <td><strong>${exec.overallScore.score}/100</strong></td>
-        <td>Live Crawl & Deterministic Catalogue</td>
+        <td>Live Crawl &amp; Deterministic Catalogue</td>
         <td>Full Inspection</td>
       </tr>
-      ${report.competitorComparisons
+      ${(report.competitorComparisons || []).length > 0 ? report.competitorComparisons
         .map(
           (comp) => `<tr>
-        <td><strong>${comp.domain}</strong></td>
+        <td class="url-cell"><strong>${escapeHtml(comp.domain)}</strong></td>
         <td>${comp.status === "NOT_ASSESSED" || comp.overallScore == null ? "NOT ASSESSED" : `${comp.overallScore}/100`}</td>
-        <td>${comp.dataProvenance}</td>
+        <td>${escapeHtml(comp.dataProvenance)}</td>
         <td>${comp.status === "NOT_ASSESSED" ? "Pending Scan" : "Public Surface Benchmark"}</td>
       </tr>`
         )
-        .join("")}
+        .join("") : `<tr><td colspan="4" style="text-align: center; color: #64748B; padding: 8px;">No competitor domains specified for comparative evaluation.</td></tr>`}
     </tbody>
   </table>
 
   <div class="page-break"></div>
 
   <!-- SECTION 17: FINDING LEDGER -->
-  <h2>11. Diagnostic Finding Ledger (Top 15 of ${report.findings.filter((f) => f.status === "FAIL" || f.status === "WARNING").length} Total Issues — Full Ledger in Export)</h2>
+  <h2>11. Diagnostic Finding Ledger (Top 15 of ${(report.findings || []).filter((f) => f.status === "FAIL" || f.status === "WARNING").length} Total Issues — Full Ledger in Export)</h2>
   <table>
+    <colgroup>
+      <col style="width: 12%;">
+      <col style="width: 22%;">
+      <col style="width: 12%;">
+      <col style="width: 30%;">
+      <col style="width: 24%;">
+    </colgroup>
     <thead>
       <tr>
         <th>Finding ID</th>
-        <th>Category & Rule</th>
+        <th>Category &amp; Rule</th>
         <th>Sev / Stat</th>
-        <th>Technical Impact & Evidence</th>
+        <th>Technical Impact &amp; Evidence</th>
         <th>Remediation Advice</th>
       </tr>
     </thead>
     <tbody>
-      ${report.findings
-        .filter((f) => f.status === "FAIL" || f.status === "WARNING" || f.severity === "CRITICAL" || f.severity === "HIGH")
-        .slice(0, 15)
-        .map(
-          (f) => `<tr>
-        <td style="font-family: monospace; font-size: 8pt; white-space: nowrap;">${f.id}</td>
-        <td>
-          <strong>${f.categoryName}</strong><br/>
-          <span style="font-size: 8pt; color: #475569;">${f.title}</span>
-        </td>
-        <td style="white-space: nowrap;">
-          ${getSeverityBadge(f.severity)}<br/>
-          ${getStatusBadge(f.status)}
-        </td>
-        <td style="font-size: 8pt;">
-          <strong>Technical:</strong> ${f.technicalImpact}<br/>
-          ${f.evidence?.[0]?.discrepancy ? `<div class="code-box">${f.evidence[0].discrepancy}</div>` : ""}
-        </td>
-        <td style="font-size: 8pt; color: #042F2E;">
-          ${f.remediation}
-        </td>
-      </tr>`
-        )
-        .join("")}
+      ${(() => {
+        const issues = (report.findings || [])
+          .filter((f) => f.status === "FAIL" || f.status === "WARNING" || f.severity === "CRITICAL" || f.severity === "HIGH")
+          .slice(0, 15);
+        if (issues.length === 0) {
+          return `<tr><td colspan="5" style="text-align: center; color: #64748B; padding: 14px;">No critical or high-severity issues observed across all evaluated catalogue rules.</td></tr>`;
+        }
+        return issues
+          .map(
+            (f) => `<tr>
+          <td style="font-family: monospace; font-size: 7.5pt;">${escapeHtml(f.id)}</td>
+          <td>
+            <strong>${escapeHtml(f.categoryName)}</strong><br/>
+            <span style="font-size: 7.5pt; color: #475569;">${escapeHtml(f.title)}</span>
+          </td>
+          <td>
+            ${getSeverityBadge(f.severity)}<br/>
+            ${getStatusBadge(f.status)}
+          </td>
+          <td style="font-size: 7.5pt;">
+            <strong>Technical:</strong> ${escapeHtml(f.technicalImpact)}<br/>
+            ${f.evidence?.[0]?.discrepancy ? `<div class="code-box">${escapeHtml(f.evidence[0].discrepancy)}</div>` : ""}
+          </td>
+          <td style="font-size: 7.5pt; color: #042F2E;">
+            ${escapeHtml(f.remediation)}
+          </td>
+        </tr>`
+          )
+          .join("");
+      })()}
     </tbody>
   </table>
 
@@ -666,49 +756,56 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <!-- SECTION 18: REMEDIATION PLAN -->
   <h2>12. Specialist Remediation Action Plan (Company B Engineering Tasks)</h2>
   <table>
+    <colgroup>
+      <col style="width: 12%;">
+      <col style="width: 20%;">
+      <col style="width: 10%;">
+      <col style="width: 12%;">
+      <col style="width: 46%;">
+    </colgroup>
     <thead>
       <tr>
         <th>Task ID</th>
         <th>Workstream</th>
         <th>Pri</th>
         <th>Effort</th>
-        <th>Task Action & Validation</th>
+        <th>Task Action &amp; Validation</th>
       </tr>
     </thead>
     <tbody>
-      ${report.remediationRegister
-        .slice(0, 15)
-        .map(
-          (t) => `<tr>
-        <td style="font-family: monospace; font-size: 8pt; white-space: nowrap;">${t.id}</td>
-        <td><strong>${t.workstream}</strong></td>
-        <td>${getSeverityBadge(t.priority)}</td>
-        <td>${t.estimatedEffort}</td>
-        <td>
-          <strong>${t.title}</strong>
-          <div style="font-size: 7.5pt; color: #475569; margin-top: 2px;">${t.actionSteps.join(" -> ")}</div>
-          <div style="font-size: 7.5pt; color: #0F9D91; margin-top: 2px;"><strong>Validation:</strong> ${t.validationProcedure}</div>
-        </td>
-      </tr>`
-        )
-        .join("")}
+      ${(() => {
+        const tasks = (report.remediationRegister || []).slice(0, 15);
+        if (tasks.length === 0) {
+          return `<tr><td colspan="5" style="text-align: center; color: #64748B; padding: 14px;">No remediation tasks scheduled. Target meets evaluated baseline specifications.</td></tr>`;
+        }
+        return tasks
+          .map(
+            (t) => `<tr>
+          <td style="font-family: monospace; font-size: 7.5pt;">${escapeHtml(t.id)}</td>
+          <td><strong>${escapeHtml(t.workstream)}</strong></td>
+          <td>${getSeverityBadge(t.priority)}</td>
+          <td>${escapeHtml(t.estimatedEffort)}</td>
+          <td>
+            <strong>${escapeHtml(t.title)}</strong>
+            <div style="font-size: 7pt; color: #475569; margin-top: 2px;">${escapeHtml((t.actionSteps || []).join(" -> "))}</div>
+            <div style="font-size: 7pt; color: #0F9D91; margin-top: 2px;"><strong>Validation:</strong> ${escapeHtml(t.validationProcedure)}</div>
+          </td>
+        </tr>`
+          )
+          .join("");
+      })()}
     </tbody>
   </table>
 
   <!-- SECTION 19: EXPORT MANIFEST & SIGN-OFF -->
-  <h2>13. Cryptographic Integrity Sign-Off & Manifest</h2>
-  <div class="card" style="margin-top: 10px;">
-    <div><strong>Export ID:</strong> ${report.exportManifest.exportId}</div>
-    <div><strong>Audit Core Manifest Hash:</strong> <span style="font-family: monospace; font-size: 8pt;">${report.exportManifest.checksum || "NOT_GENERATED"}</span></div>
+  <h2>13. Cryptographic Integrity Sign-Off &amp; Manifest</h2>
+  <div class="card" style="margin-top: 10px; font-size: 8pt;">
+    <div><strong>Export ID:</strong> ${escapeHtml(report.exportManifest?.exportId || "EXP_DEFAULT")}</div>
+    <div><strong>Audit Core Manifest Hash:</strong> <span style="font-family: monospace; font-size: 7.5pt; word-break: break-all;">${escapeHtml(report.exportManifest?.checksum || "NOT_GENERATED")}</span></div>
     <div><strong>Digest Scope:</strong> Canonical serialization of audit dataset (scanId, targetUrl, overallScore, categoryScores, findings ledger, and platformProfile).</div>
-    <div><strong>Verification Status:</strong> <span style="font-family: monospace; font-size: 8.5pt; font-weight: 700; color: #0D9488;">${report.exportManifest.verificationStatus || "DIGEST_GENERATED"}</span></div>
-    <div><strong>Generated At:</strong> ${report.exportManifest.generatedAt}</div>
-    <div style="font-size: 8pt; color: #64748B; margin-top: 6px;">* Binary artifact note: The manifest hash verifies the structured report data model. Generated PDF bytes have an independent byte-level SHA-256 calculated upon binary rendering.</div>
-  </div>
-
-  <div class="footer">
-    <div>Generated by <strong>SiteIntel Pulse v2.0</strong> — Discover Issues. Prove with Evidence. Improve. Grow.</div>
-    <div>Company B Confidential Diagnostic Work Product</div>
+    <div><strong>Verification Status:</strong> <span style="font-family: monospace; font-size: 8pt; font-weight: 700; color: #0D9488;">${escapeHtml(report.exportManifest?.verificationStatus || "DIGEST_GENERATED")}</span></div>
+    <div><strong>Generated At:</strong> ${escapeHtml(report.exportManifest?.generatedAt || new Date().toISOString())}</div>
+    <div style="font-size: 7.5pt; color: #64748B; margin-top: 6px;">* Binary artifact note: The manifest hash verifies the structured report data model. Generated PDF bytes have an independent byte-level SHA-256 calculated upon binary rendering.</div>
   </div>
 
 </body>
@@ -741,7 +838,18 @@ export class ExpertPdfGenerator {
       const pdfBuffer = await page.pdf({
         format: "A4",
         printBackground: true,
-        margin: { top: "14mm", bottom: "14mm", left: "14mm", right: "14mm" },
+        displayHeaderFooter: true,
+        headerTemplate: `
+          <div style="font-size: 7.5pt; width: 100%; display: flex; justify-content: space-between; padding: 0 14mm; color: #94A3B8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <span>SiteIntel Pulse — Company B Expert Diagnostic Report</span>
+            <span>${escapeHtml(report.metadata.companyA.domain)}</span>
+          </div>`,
+        footerTemplate: `
+          <div style="font-size: 7.5pt; width: 100%; display: flex; justify-content: space-between; padding: 0 14mm; color: #94A3B8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <span>Confidential — Company B Technical Advisory</span>
+            <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+          </div>`,
+        margin: { top: "16mm", bottom: "16mm", left: "14mm", right: "14mm" },
       });
 
       // Compute independent SHA-256 of generated PDF artifact
