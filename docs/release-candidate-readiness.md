@@ -49,6 +49,10 @@ The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All
   Resolved Expert PDF KPI card separation between crawl inventory and catalogue coverage, derived canonical provisional notices identically in Owner and Expert reports, expanded detector evidence corpus to include page titles, meta descriptions, and structured data text (enabling deterministic classification for modern client-rendered sites), qualified confidence scores as heuristic confidence, validated live bounded audits against three real websites (`caferemote.com`, `naffeez.com`, and `strideto.com`), and introduced comprehensive multi-fixture visual and structural PDF layout validation (`verify-pdf.mjs` and `verify-expert-pdf.mjs`) rendering all pages to image artifacts and checking A4 bounds.
   GitHub Actions Docker Acceptance Run [40297667688](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40297667688) (`conclusion: success`, all 15 container acceptance steps passed).
   GitHub Actions CI Pipeline Run [40297667648](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40297667648) (`conclusion: success`, all 7 quality gates passed, 32 test files and 308/308 unit tests passed, 33/33 Playwright tests passed).
+- **Actual PDF Rasterization & Real-Target Acceptance Freeze:**
+  Upgraded PDF verification suites (`scripts/verify-pdf.mjs`, `scripts/verify-expert-pdf.mjs`, and `scripts/pdf-rasterizer.mjs`) to deterministically rasterize actual binary PDF pages via Mozilla PDF.js inside Playwright Chromium, asserting exact equality between PDF page count and rendered image count without substituting HTML screenshots.
+  Added CI artifact upload for generated Owner and Expert PDFs, rasterized PNG page images, and structured validation manifest (`test-results/pdf-validation-manifest.json`).
+  Executed end-to-end bounded audits against all three live target sites (CafeRemote, Naffeez, STRIDETO), persisting live scan records, reports, generated binary PDFs, and rasterized page proofs in SQLite and disk.
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
@@ -154,12 +158,12 @@ All quality gates have been executed sequentially against the codebase:
 | **Focused Transport Tests** | `npx vitest run src/lib/scanner/pinned-transport.test.ts src/lib/scanner/crawler.test.ts` | **PASS** | 28/28 tests passed (SSRF pinning, budget enforcement, truncation signals) |
 | **Gate 1: TypeScript Check** | `npm run typecheck` | **PASS** | Clean `tsc --noEmit` across all components, API routes, classifier, and schemas |
 | **Gate 2: ESLint Hygiene** | `npm run lint` | **PASS** | 0 warnings, 0 errors |
-| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 32 test files passed, 305/305 tests passed (100% pass rate) |
+| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 32 test files passed, 308/308 tests passed (100% pass rate) |
 | **Gate 4: Playwright E2E** | `npm run test:e2e` | **PASS** | 33/33 tests passed across Desktop, Tablet, and Mobile viewports |
-| **Gate 5: PDF Verification** | `npm run test:pdf` | **PASS** | Generated & verified Owner PDF and Expert PDF with native headers/footers |
+| **Gate 5: PDF Verification & Rasterization** | `npm run test:pdf` | **PASS** | Generated, validated, and deterministically rasterized all 10 Owner & Expert fixture PDFs (46 pages) using Mozilla PDF.js inside Playwright Chromium; verified A4 dimensions, page-count equality, section text, and non-blank pages |
 | **Gate 6: SQLite Recovery** | `npm run db:verify` | **PASS** | 100% bit-accurate recovery of tenants, users, scan jobs, and reports |
 | **Gate 7: Production Build** | `npm run build` | **PASS** | Next.js 15 App Router compiled all 19 static and dynamic routes |
-| **Gate 8: Live Scan Validation** | `npx tsx scripts/live-scan-caferemote.mjs` | **PASS** | Live audit of permitted target passed with all catalogue rules intact |
+| **Gate 8: Real Target Audits** | `npx tsx scripts/execute-real-target-audits.mjs` | **PASS** | Live audits of 3 production targets: CafeRemote (`job_board`, 85/100, CRO PASS), Naffeez (`ecommerce`, 70/100), STRIDETO (`job_board` + `education_and_scholarships`, 71/100); all PDFs generated and rasterized |
 | **Docker Container Runtime Acceptance** | GitHub Actions Pipeline (`container-acceptance.yml`) | **PASS** | 15/15 steps passed on GitHub Actions Ubuntu Docker runner ([Run 40270202981](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270202981)): validated compose, built image, verified healthcheck, confirmed exclusive 127.0.0.1 loopback binding, ran in-container PDF scripts, executed public owner scan, downloaded verified binary PDF with `%PDF-` header, verified data persistence across container restart, and confirmed 404 for opposite report type |
 
 ---

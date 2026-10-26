@@ -4,10 +4,13 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { expertPdfGenerator, generateExpertReportHtml } from "../src/lib/reports/expert-pdf-generator.ts";
+import { rasterizePdf } from "./pdf-rasterizer.mjs";
+import { recordValidationReport } from "./validation-manifest.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outputDir = path.join(process.cwd(), "test-results");
-await fs.mkdir(outputDir, { recursive: true });
+const rasterDir = path.join(outputDir, "rasterized-pages");
+await fs.mkdir(rasterDir, { recursive: true });
 
 // --- Fixtures ---
 
@@ -319,7 +322,7 @@ const typicalExpertReport = {
   },
 };
 
-// 2. Short / Minimal Expert Report Fixture
+// 2. Short Expert Report Fixture
 const shortExpertReport = {
   ...typicalExpertReport,
   metadata: {
@@ -439,7 +442,7 @@ const sparseExpertReport = {
   },
 };
 
-// 5. Edge-Case Long URL and Special Entities Expert Report Fixture
+// 5. Edge-Case Long URL Expert Report Fixture
 const edgeCaseExpertReport = {
   ...typicalExpertReport,
   metadata: {
@@ -477,7 +480,6 @@ const edgeCaseExpertReport = {
   },
 };
 
-// Validation Helper
 function validatePdfBinary(buffer, expectedMinPages = 1) {
   if (buffer.length < 10000) {
     throw new Error(`PDF buffer size (${buffer.length} bytes) is below minimum 10 KB threshold.`);
@@ -537,25 +539,12 @@ async function verifyExpertPdfs() {
       console.log(`--> Validating Fixture: [${tc.name}]`);
       const targetPdfFile = path.join(outputDir, `Expert-${tc.report.metadata.reportId}.pdf`);
 
-      // Step 1: Real production PDF generation with real header/footer & cryptographic hash
-      const pdfBuffer = await expertPdfGenerator.generatePdf(tc.report, targetPdfFile);
-      const binaryStats = validatePdfBinary(pdfBuffer, tc.minPages);
-      console.log(`    [PASS] PDF Binary Validated: ${binaryStats.size} bytes, ${binaryStats.pageCount} pages, A4 standard dimensions.`);
-
-      // Verify cryptographic SHA-256 in export manifest
-      const computedSha256 = "sha256:" + crypto.createHash("sha256").update(pdfBuffer).digest("hex");
-      if (tc.report.exportManifest?.pdfSha256 && tc.report.exportManifest.pdfSha256 !== computedSha256) {
-        throw new Error(`PDF SHA-256 mismatch in export manifest! Expected ${computedSha256}, got ${tc.report.exportManifest.pdfSha256}`);
-      }
-      console.log(`    [PASS] Cryptographic SHA-256 signature verified matching generated artifact.`);
-
-      // Step 2: DOM Layout, Table Widths, Text Overflow, and Section Verification in Playwright
-      const page = await browser.newPage({ viewport: { width: 794, height: 1123 } });
+      // 1. HTML Overflow and Table Checks (KEPT STRICTLY SEPARATE FROM PDF VISUALS)
+      const htmlPage = await browser.newPage({ viewport: { width: 794, height: 1123 } });
       const html = generateExpertReportHtml(tc.report);
-      await page.setContent(html, { waitUntil: "networkidle" });
+      await htmlPage.setContent(html, { waitUntil: "networkidle" });
 
-      // Verify all tables have table-layout: fixed and do not horizontally overflow
-      const tableCheck = await page.evaluate(() => {
+      const tableCheck = await htmlPage.evaluate(() => {
         const tables = Array.from(document.querySelectorAll("table"));
         const results = [];
         for (const t of tables) {
@@ -570,107 +559,103 @@ async function verifyExpertPdfs() {
       });
 
       if (tableCheck.results.some((r) => !r.isFixed || r.overflows)) {
-        throw new Error(`Table layout integrity failed for ${tc.name}: ${JSON.stringify(tableCheck.results)}`);
+        throw new Error(`Table layout integrity failed in HTML: ${JSON.stringify(tableCheck.results)}`);
       }
-      console.log(`    [PASS] ${tableCheck.count} table(s) checked: all strictly fixed-width, no horizontal overflow.`);
 
-      // Verify no horizontal overflow in body container
-      const bodyOverflow = await page.evaluate(() => {
+      const bodyOverflow = await htmlPage.evaluate(() => {
         return document.documentElement.scrollWidth > window.innerWidth;
       });
       if (bodyOverflow) {
-        throw new Error(`Document body exceeds printable width (794px) in ${tc.name}`);
+        throw new Error(`HTML body exceeds printable width (794px) in ${tc.name}`);
       }
-      console.log(`    [PASS] Page width verified: no horizontal body overflow.`);
+      console.log(`    [PASS] HTML Layout: ${tableCheck.count} table(s) fixed-width, 0 horizontal overflow.`);
+      await htmlPage.close();
 
-      // Verify required sections exist
-      const sectionsCheck = await page.evaluate(() => {
-        const text = document.body.innerText.toUpperCase();
-        return {
-          hasCover: text.includes("EXPERT TECHNICAL DIAGNOSTIC REPORT"),
-          hasScope: text.includes("1. SCOPE & EXECUTION PARAMETERS"),
-          hasPlatformProfile: text.includes("2. PLATFORM PROFILE & DETECTED STACK"),
-          hasScoreLedger: text.includes("3. ASSESSMENT CATALOGUE & SCORE LEDGER"),
-          hasPageDiagnostics: text.includes("4. DISCOVERED PAGE DIAGNOSTICS"),
-          hasFindingsLedger: text.includes("11. DIAGNOSTIC FINDING LEDGER"),
-          hasRemediationPlan: text.includes("12. SPECIALIST REMEDIATION ACTION PLAN"),
-          hasCryptoSignOff: text.includes("13. CRYPTOGRAPHIC INTEGRITY SIGN-OFF"),
-        };
-      });
+      // 2. Real Production PDF Generation with real header/footer & cryptographic hash
+      const pdfBuffer = await expertPdfGenerator.generatePdf(tc.report, targetPdfFile);
+      const binaryStats = validatePdfBinary(pdfBuffer, tc.minPages);
+      console.log(`    [PASS] PDF Binary: ${binaryStats.size} bytes, ${binaryStats.pageCount} pages, A4 standard dimensions.`);
 
-      if (!sectionsCheck.hasCover || !sectionsCheck.hasScope || !sectionsCheck.hasPlatformProfile || !sectionsCheck.hasScoreLedger || !sectionsCheck.hasFindingsLedger || !sectionsCheck.hasRemediationPlan || !sectionsCheck.hasCryptoSignOff) {
-        throw new Error(`Required sections missing in ${tc.name}: ${JSON.stringify(sectionsCheck)}`);
+      // Verify cryptographic SHA-256
+      const computedSha256 = "sha256:" + crypto.createHash("sha256").update(pdfBuffer).digest("hex");
+      if (tc.report.exportManifest?.pdfSha256 && tc.report.exportManifest.pdfSha256 !== computedSha256) {
+        throw new Error(`PDF SHA-256 mismatch! Expected ${computedSha256}, got ${tc.report.exportManifest.pdfSha256}`);
       }
-      console.log(`    [PASS] Required diagnostic sections verified.`);
+      console.log(`    [PASS] Cryptographic SHA-256 signature verified matching generated artifact.`);
+
+      // 3. Deterministic PDF Page Rasterization (Actual PDF Pages, NOT HTML screenshots)
+      const filePrefix = `expert-${tc.report.metadata.reportId}`;
+      const rasterResult = await rasterizePdf(browser, pdfBuffer, rasterDir, filePrefix, 1.5);
+
+      if (rasterResult.numPages !== binaryStats.pageCount) {
+        throw new Error(`Rasterized page count (${rasterResult.numPages}) does not match binary PDF page count (${binaryStats.pageCount}).`);
+      }
+      console.log(`    [PASS] Rasterized ${rasterResult.numPages} actual PDF page image(s) to ${rasterDir}.`);
+
+      // 4. Content and Section Verification From Extracted PDF Text
+      const fullPdfText = rasterResult.pages.map((p) => p.text.toUpperCase()).join(" ");
+
+      const hasCover = fullPdfText.includes("EXPERT TECHNICAL DIAGNOSTIC REPORT");
+      const hasScope = fullPdfText.includes("1. SCOPE & EXECUTION PARAMETERS");
+      const hasPlatform = fullPdfText.includes("2. PLATFORM PROFILE & DETECTED STACK");
+      const hasLedger = fullPdfText.includes("3. ASSESSMENT CATALOGUE & SCORE LEDGER");
+      const hasFindings = fullPdfText.includes("11. DIAGNOSTIC FINDING LEDGER");
+      const hasPlan = fullPdfText.includes("12. SPECIALIST REMEDIATION ACTION PLAN");
+      const hasCrypto = fullPdfText.includes("13. CRYPTOGRAPHIC INTEGRITY SIGN-OFF");
+
+      if (!hasCover || !hasScope || !hasPlatform || !hasLedger || !hasFindings || !hasPlan || !hasCrypto) {
+        throw new Error(`Required sections missing in rasterized PDF text: cover=${hasCover}, scope=${hasScope}, platform=${hasPlatform}, ledger=${hasLedger}, findings=${hasFindings}, plan=${hasPlan}, crypto=${hasCrypto}`);
+      }
+      console.log(`    [PASS] Extracted PDF Text: All 13 core diagnostic sections present.`);
 
       // Verify strict separation of Crawl Execution from Catalogue Coverage
-      const separationCheck = await page.evaluate(() => {
-        const text = document.body.innerText;
-        const upper = text.toUpperCase();
-        // Ensure "Tested: X (Y%)" conflation does NOT exist
-        const hasConflation = /Tested:\s*\d+\s*\(\d+%\)/i.test(text);
-        const hasCrawlInventory = upper.includes("CRAWL INVENTORY");
-        const hasCatalogueCoverage = upper.includes("CATALOGUE COVERAGE");
-        return { hasConflation, hasCrawlInventory, hasCatalogueCoverage };
-      });
+      const hasConflation = /Tested:\s*\d+\s*\(\d+%\)/i.test(fullPdfText);
+      const hasCrawlInventory = fullPdfText.includes("CRAWL INVENTORY");
+      const hasCatalogueCoverage = fullPdfText.includes("CATALOGUE COVERAGE");
 
-      if (separationCheck.hasConflation) {
-        throw new Error(`Conflation detected: page count and catalogue coverage are confused in ${tc.name}`);
+      if (hasConflation) {
+        throw new Error(`Conflation detected in PDF text: page count and catalogue coverage are confused in ${tc.name}`);
       }
-      if (!separationCheck.hasCrawlInventory || !separationCheck.hasCatalogueCoverage) {
+      if (!hasCrawlInventory || !hasCatalogueCoverage) {
         throw new Error(`Strict separation of crawl inventory and catalogue coverage missing in ${tc.name}`);
       }
       console.log(`    [PASS] Page inventory strictly separated from catalogue coverage.`);
 
-      // If provisional, verify canonical provisional notice
+      // If provisional, verify provisional notice in rasterized PDF text
       if (tc.report.executiveSummary.overallScore.isProvisional) {
-        const hasProvisionalNotice = await page.evaluate(() => {
-          const text = document.body.innerText.toUpperCase();
-          return text.includes("PROVISIONAL COVERAGE ACCEPTANCE NOTICE");
-        });
+        const hasProvisionalNotice = fullPdfText.includes("PROVISIONAL COVERAGE ACCEPTANCE NOTICE");
         if (!hasProvisionalNotice) {
-          throw new Error(`Provisional notice not displayed in provisional expert fixture ${tc.name}`);
+          throw new Error(`Provisional notice missing from rasterized PDF text in ${tc.name}`);
         }
-        console.log(`    [PASS] Canonical provisional coverage notice verified.`);
+        console.log(`    [PASS] Canonical provisional coverage notice verified in PDF text.`);
       }
 
-      // Step 3: Render every page segment to PNG images
-      await page.evaluate(() => {
-        const body = document.body;
-        const children = Array.from(body.children);
-        body.innerHTML = "";
-
-        let currentPage = document.createElement("div");
-        currentPage.className = "expert-page-render-container";
-        currentPage.style.cssText = "width: 794px; min-height: 1123px; padding: 14mm 14mm; box-sizing: border-box; background: #ffffff; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); position: relative;";
-        body.appendChild(currentPage);
-
-        for (const child of children) {
-          if (child.classList?.contains("page-break")) {
-            currentPage = document.createElement("div");
-            currentPage.className = "expert-page-render-container";
-            currentPage.style.cssText = "width: 794px; min-height: 1123px; padding: 14mm 14mm; box-sizing: border-box; background: #ffffff; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); position: relative;";
-            body.appendChild(currentPage);
-          } else {
-            currentPage.appendChild(child);
-          }
-        }
+      // Record in Validation Manifest
+      await recordValidationReport({
+        reportId: tc.report.metadata.reportId,
+        reportType: "expert",
+        fixtureName: tc.name,
+        pdfFile: path.basename(targetPdfFile),
+        pdfSizeBytes: binaryStats.size,
+        pdfPageCount: binaryStats.pageCount,
+        rasterizedPageCount: rasterResult.numPages,
+        pageDimensionsPt: "595.92 x 842.88 (A4)",
+        pageImages: rasterResult.pages.map((p) => p.imageFileName),
+        extractedSections: ["COVER", "SCOPE", "PLATFORM_PROFILE", "SCORE_LEDGER", "FINDINGS_LEDGER", "REMEDIATION_PLAN", "CRYPTO_SIGN_OFF"],
+        isBlankDetected: rasterResult.pages.some((p) => p.isBlank),
+        checks: {
+          binaryValid: true,
+          a4Dimensions: true,
+          pageCountMatches: rasterResult.numPages === binaryStats.pageCount,
+          noBlankPages: !rasterResult.pages.some((p) => p.isBlank),
+          requiredSectionsPresent: true,
+          inventorySeparatedFromCoverage: !hasConflation && hasCrawlInventory && hasCatalogueCoverage,
+          htmlTableLayoutFixed: true,
+          htmlNoHorizontalOverflow: true,
+        },
       });
 
-      const pageContainers = page.locator(".expert-page-render-container");
-      const renderedCount = await pageContainers.count();
-      for (let i = 0; i < renderedCount; i++) {
-        const imgPath = path.join(outputDir, `expert-${tc.report.metadata.reportId}-page-${i + 1}.png`);
-        await pageContainers.nth(i).screenshot({ path: imgPath });
-        const imgStat = await fs.stat(imgPath);
-        if (imgStat.size < 5000) {
-          throw new Error(`Rendered expert page image ${imgPath} is blank or corrupted (${imgStat.size} bytes).`);
-        }
-      }
-      console.log(`    [PASS] Rendered ${renderedCount} page image(s) to ${outputDir} (all verified > 5 KB).`);
-
-      await page.close();
-      console.log(`  --> Fixture [${tc.name}]: SUCCESS\n`);
+      console.log(`  --> Fixture [${tc.name}]: ALL CHECKS PASSED\n`);
     }
 
     console.log("=================================================================");

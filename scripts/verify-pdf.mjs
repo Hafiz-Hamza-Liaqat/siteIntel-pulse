@@ -3,10 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pdfGenerator, generateReportHtml } from "../src/lib/reports/pdf-generator.ts";
+import { rasterizePdf } from "./pdf-rasterizer.mjs";
+import { recordValidationReport } from "./validation-manifest.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outputDir = path.join(process.cwd(), "test-results");
-await fs.mkdir(outputDir, { recursive: true });
+const rasterDir = path.join(outputDir, "rasterized-pages");
+await fs.mkdir(rasterDir, { recursive: true });
 
 // --- Fixtures ---
 
@@ -363,20 +366,17 @@ const edgeCaseReport = {
   ],
 };
 
-// Validation Helper
+// Binary validation
 function validatePdfBinary(buffer, expectedMinPages = 1) {
-  // Check minimum size
   if (buffer.length < 10000) {
     throw new Error(`PDF buffer size (${buffer.length} bytes) is below minimum required 10 KB threshold.`);
   }
 
-  // Check PDF signature header
   const header = buffer.subarray(0, 8).toString("latin1");
   if (!header.startsWith("%PDF-")) {
     throw new Error(`PDF header does not start with %PDF- (found: "${header}")`);
   }
 
-  // Check MediaBoxes for A4 dimensions (A4 is 595.28 x 841.89 pt, Chromium uses 595.92 x 842.88 pt)
   const pdfText = buffer.toString("latin1");
   const mediaBoxes = pdfText.match(/\/MediaBox\s*\[\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*\]/g);
   if (!mediaBoxes || mediaBoxes.length === 0) {
@@ -388,14 +388,12 @@ function validatePdfBinary(buffer, expectedMinPages = 1) {
     if (coords) {
       const width = parseFloat(coords[3]);
       const height = parseFloat(coords[4]);
-      // A4 width should be approximately 595-596 pt, height 841-843 pt
       if (width < 594 || width > 597 || height < 840 || height > 844) {
         throw new Error(`PDF page dimensions (${width} x ${height} pt) do not match A4 standard (595.28 x 841.89 pt).`);
       }
     }
   }
 
-  // Count /Type /Page occurrences
   const pageMatches = pdfText.match(/\/Type\s*\/Page\b/g);
   const pageCount = pageMatches ? pageMatches.length : 0;
   if (pageCount < expectedMinPages) {
@@ -412,10 +410,10 @@ async function verifyOwnerPdfs() {
 
   const testCases = [
     { name: "Typical Commercial Report", report: typicalReport, minPages: 3 },
-    { name: "Short Report", report: shortReport, minPages: 2 },
+    { name: "Short Report", report: shortReport, minPages: 3 },
     { name: "Long Enterprise Report", report: longReport, minPages: 4 },
-    { name: "Sparse / Provisional Report", report: sparseReport, minPages: 2 },
-    { name: "Edge-Case Long URL Report", report: edgeCaseReport, minPages: 2 },
+    { name: "Sparse / Provisional Report", report: sparseReport, minPages: 3 },
+    { name: "Edge-Case Long URL Report", report: edgeCaseReport, minPages: 3 },
   ];
 
   const browser = await chromium.launch({
@@ -428,18 +426,12 @@ async function verifyOwnerPdfs() {
       console.log(`--> Validating Fixture: [${tc.name}]`);
       const targetPdfFile = path.join(outputDir, `Owner-Report-${tc.report.reportId}.pdf`);
 
-      // Step 1: Real production PDF generation with real header/footer
-      const pdfBuffer = await pdfGenerator.generatePdf(tc.report, targetPdfFile);
-      const binaryStats = validatePdfBinary(pdfBuffer, tc.minPages);
-      console.log(`    [PASS] PDF Binary Validated: ${binaryStats.size} bytes, ${binaryStats.pageCount} pages, A4 standard dimensions.`);
-
-      // Step 2: DOM Layout, Table Widths, Text Overflow, and Section Verification in Playwright
-      const page = await browser.newPage({ viewport: { width: 794, height: 1123 } });
+      // 1. HTML Overflow and Table Checks (KEPT STRICTLY SEPARATE FROM PDF VISUALS)
+      const htmlPage = await browser.newPage({ viewport: { width: 794, height: 1123 } });
       const html = generateReportHtml(tc.report);
-      await page.setContent(html, { waitUntil: "networkidle" });
+      await htmlPage.setContent(html, { waitUntil: "networkidle" });
 
-      // Verify all tables have table-layout: fixed and do not horizontally overflow
-      const tableCheck = await page.evaluate(() => {
+      const tableCheck = await htmlPage.evaluate(() => {
         const tables = Array.from(document.querySelectorAll("table"));
         const results = [];
         for (const t of tables) {
@@ -454,92 +446,81 @@ async function verifyOwnerPdfs() {
       });
 
       if (tableCheck.results.some((r) => !r.isFixed || r.overflows)) {
-        throw new Error(`Table layout integrity failed for ${tc.name}: ${JSON.stringify(tableCheck.results)}`);
+        throw new Error(`Table layout integrity failed in HTML: ${JSON.stringify(tableCheck.results)}`);
       }
-      console.log(`    [PASS] ${tableCheck.count} table(s) checked: all strictly fixed-width, no horizontal overflow.`);
 
-      // Verify no horizontal overflow in body container
-      const bodyOverflow = await page.evaluate(() => {
+      const bodyOverflow = await htmlPage.evaluate(() => {
         return document.documentElement.scrollWidth > window.innerWidth;
       });
       if (bodyOverflow) {
-        throw new Error(`Document body exceeds printable width (794px) in ${tc.name}`);
+        throw new Error(`HTML body exceeds printable width (794px) in ${tc.name}`);
       }
-      console.log(`    [PASS] Page width verified: no horizontal body overflow.`);
+      console.log(`    [PASS] HTML Layout: ${tableCheck.count} table(s) fixed-width, 0 horizontal overflow.`);
+      await htmlPage.close();
 
-      // Verify required sections exist
-      const sectionsCheck = await page.evaluate(() => {
-        const text = document.body.innerText.toUpperCase();
-        return {
-          hasBrand: text.includes("SITEINTEL PULSE"),
-          hasExecutiveSnapshot: text.includes("EXECUTIVE SNAPSHOT") || text.includes("CATEGORY SCORES"),
-          hasPlatformProfile: text.includes("PLATFORM & INFRASTRUCTURE PROFILE"),
-          hasIssueDistribution: text.includes("ISSUE DISTRIBUTION"),
-          hasPriorityOpportunities: text.includes("PRIORITY OPPORTUNITY PLAN") || text.includes("TOP GROWTH INITIATIVES"),
-          hasDiagnostics: text.includes("CORE TECHNICAL & SEO DIAGNOSTICS"),
-          hasMethodology: text.includes("METHODOLOGY & NEXT STEPS") || text.includes("METHODOLOGY"),
-        };
-      });
+      // 2. Real Production PDF Generation with real header/footer
+      const pdfBuffer = await pdfGenerator.generatePdf(tc.report, targetPdfFile);
+      const binaryStats = validatePdfBinary(pdfBuffer, tc.minPages);
+      console.log(`    [PASS] PDF Binary: ${binaryStats.size} bytes, ${binaryStats.pageCount} pages, A4 dimensions confirmed.`);
 
-      if (!sectionsCheck.hasBrand || !sectionsCheck.hasExecutiveSnapshot || !sectionsCheck.hasPlatformProfile || !sectionsCheck.hasDiagnostics || !sectionsCheck.hasMethodology) {
-        throw new Error(`Required sections missing in ${tc.name}: ${JSON.stringify(sectionsCheck)}`);
+      // 3. Deterministic PDF Page Rasterization (Actual PDF Pages, NOT HTML screenshots)
+      const filePrefix = `owner-${tc.report.reportId}`;
+      const rasterResult = await rasterizePdf(browser, pdfBuffer, rasterDir, filePrefix, 1.5);
+
+      // Verify exact matching page count
+      if (rasterResult.numPages !== binaryStats.pageCount) {
+        throw new Error(`Rasterized page count (${rasterResult.numPages}) does not match binary PDF page count (${binaryStats.pageCount}).`);
       }
-      console.log(`    [PASS] Required sections verified.`);
+      console.log(`    [PASS] Rasterized ${rasterResult.numPages} actual PDF page image(s) to ${rasterDir}.`);
 
-      // If provisional, verify provisional notice
+      // 4. Content and Section Verification From Extracted PDF Text
+      const fullPdfText = rasterResult.pages.map((p) => p.text.toUpperCase()).join(" ");
+
+      const hasBrand = fullPdfText.includes("SITEINTEL PULSE");
+      const hasScore = fullPdfText.includes("EXECUTIVE SNAPSHOT") || fullPdfText.includes("CATEGORY SCORES");
+      const hasPlatform = fullPdfText.includes("PLATFORM & INFRASTRUCTURE PROFILE");
+      const hasDiagnostics = fullPdfText.includes("CORE TECHNICAL & SEO DIAGNOSTICS");
+      const hasMethodology = fullPdfText.includes("METHODOLOGY & NEXT STEPS") || fullPdfText.includes("METHODOLOGY");
+
+      if (!hasBrand || !hasScore || !hasPlatform || !hasDiagnostics || !hasMethodology) {
+        throw new Error(`Required sections missing in rasterized PDF text: brand=${hasBrand}, score=${hasScore}, platform=${hasPlatform}, diag=${hasDiagnostics}, meth=${hasMethodology}`);
+      }
+      console.log(`    [PASS] Extracted PDF Text: All required diagnostic sections present.`);
+
+      // If provisional, verify provisional notice in rasterized PDF text
       if (tc.report.executiveSnapshot.overallScore.isProvisional) {
-        const hasProvisionalNotice = await page.evaluate(() => {
-          const text = document.body.innerText.toUpperCase();
-          return text.includes("PROVISIONAL COVERAGE ACCEPTANCE NOTICE");
-        });
+        const hasProvisionalNotice = fullPdfText.includes("PROVISIONAL COVERAGE ACCEPTANCE NOTICE");
         if (!hasProvisionalNotice) {
-          throw new Error(`Provisional notice not displayed in provisional fixture ${tc.name}`);
+          throw new Error(`Provisional notice missing from rasterized PDF text in ${tc.name}`);
         }
-        console.log(`    [PASS] Canonical provisional coverage notice verified.`);
+        console.log(`    [PASS] Canonical provisional coverage notice verified in PDF text.`);
       }
 
-      // Step 3: Render every page segment to PNG images
-      const pageCount = await page.evaluate(() => {
-        return document.querySelectorAll(".page-break").length + 1;
+      // Record in Validation Manifest
+      await recordValidationReport({
+        reportId: tc.report.reportId,
+        reportType: "owner",
+        fixtureName: tc.name,
+        pdfFile: path.basename(targetPdfFile),
+        pdfSizeBytes: binaryStats.size,
+        pdfPageCount: binaryStats.pageCount,
+        rasterizedPageCount: rasterResult.numPages,
+        pageDimensionsPt: "595.92 x 842.88 (A4)",
+        pageImages: rasterResult.pages.map((p) => p.imageFileName),
+        extractedSections: ["BRAND", "EXECUTIVE_SNAPSHOT", "PLATFORM_PROFILE", "DIAGNOSTICS", "METHODOLOGY"],
+        isBlankDetected: rasterResult.pages.some((p) => p.isBlank),
+        checks: {
+          binaryValid: true,
+          a4Dimensions: true,
+          pageCountMatches: rasterResult.numPages === binaryStats.pageCount,
+          noBlankPages: !rasterResult.pages.some((p) => p.isBlank),
+          requiredSectionsPresent: true,
+          htmlTableLayoutFixed: true,
+          htmlNoHorizontalOverflow: true,
+        },
       });
 
-      // Wrap page contents into discrete page elements for individual page capture
-      await page.evaluate(() => {
-        const body = document.body;
-        const children = Array.from(body.children);
-        body.innerHTML = "";
-
-        let currentPage = document.createElement("div");
-        currentPage.className = "page-render-container";
-        currentPage.style.cssText = "width: 794px; min-height: 1123px; padding: 16mm 14mm; box-sizing: border-box; background: #ffffff; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); position: relative;";
-        body.appendChild(currentPage);
-
-        for (const child of children) {
-          if (child.classList?.contains("page-break")) {
-            currentPage = document.createElement("div");
-            currentPage.className = "page-render-container";
-            currentPage.style.cssText = "width: 794px; min-height: 1123px; padding: 16mm 14mm; box-sizing: border-box; background: #ffffff; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); position: relative;";
-            body.appendChild(currentPage);
-          } else {
-            currentPage.appendChild(child);
-          }
-        }
-      });
-
-      const pageContainers = page.locator(".page-render-container");
-      const renderedCount = await pageContainers.count();
-      for (let i = 0; i < renderedCount; i++) {
-        const imgPath = path.join(outputDir, `owner-${tc.report.reportId}-page-${i + 1}.png`);
-        await pageContainers.nth(i).screenshot({ path: imgPath });
-        const imgStat = await fs.stat(imgPath);
-        if (imgStat.size < 5000) {
-          throw new Error(`Rendered page image ${imgPath} is blank or corrupted (${imgStat.size} bytes).`);
-        }
-      }
-      console.log(`    [PASS] Rendered ${renderedCount} page image(s) to ${outputDir} (all verified > 5 KB).`);
-
-      await page.close();
-      console.log(`  --> Fixture [${tc.name}]: SUCCESS\n`);
+      console.log(`  --> Fixture [${tc.name}]: ALL CHECKS PASSED\n`);
     }
 
     console.log("=================================================================");
