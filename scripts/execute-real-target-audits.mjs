@@ -17,7 +17,7 @@ const targets = [
   { name: "STRIDETO", url: "https://www.strideto.com/" },
 ];
 
-const resultsDir = path.resolve("test-results");
+const resultsDir = path.resolve("pdf-review-artifacts");
 const rasterDir = path.join(resultsDir, "rasterized-pages");
 await fs.mkdir(rasterDir, { recursive: true });
 

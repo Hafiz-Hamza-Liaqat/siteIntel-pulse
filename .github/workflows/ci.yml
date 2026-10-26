@@ -69,7 +69,8 @@ jobs:
         with:
           name: pdf-review-artifacts
           path: |
-            test-results/*.pdf
-            test-results/rasterized-pages/*.png
-            test-results/pdf-validation-manifest.json
+            pdf-review-artifacts/*.pdf
+            pdf-review-artifacts/rasterized-pages/*.png
+            pdf-review-artifacts/pdf-validation-manifest.json
+          if-no-files-found: error
           retention-days: 14

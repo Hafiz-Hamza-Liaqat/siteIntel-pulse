@@ -6,6 +6,7 @@ node_modules/
 # Testing & Coverage
 coverage/
 test-results/
+pdf-review-artifacts/
 playwright-report/
 blob-report/
 playwright/.cache/

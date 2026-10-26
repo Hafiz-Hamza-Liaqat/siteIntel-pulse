@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const manifestPath = path.resolve("test-results/pdf-validation-manifest.json");
+const manifestPath = path.resolve("pdf-review-artifacts/pdf-validation-manifest.json");
 
 export async function recordValidationReport(reportEntry) {
   let manifest = {

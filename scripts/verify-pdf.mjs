@@ -7,7 +7,7 @@ import { rasterizePdf } from "./pdf-rasterizer.mjs";
 import { recordValidationReport } from "./validation-manifest.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const outputDir = path.join(process.cwd(), "test-results");
+const outputDir = path.resolve("pdf-review-artifacts");
 const rasterDir = path.join(outputDir, "rasterized-pages");
 await fs.mkdir(rasterDir, { recursive: true });
 
