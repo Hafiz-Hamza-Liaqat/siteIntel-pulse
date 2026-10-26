@@ -74,13 +74,17 @@ export class CrawlBudgetTracker {
     return this.sitemapUrlsDiscovered < this.budgets.maxSitemapUrls;
   }
 
-  recordPageFetched(bytes: number) {
-    this.pagesFetched += 1;
-    this.totalBytesFetched += bytes;
+  recordBytesFetched(bytes: number) {
+    this.totalBytesFetched += Math.max(0, bytes);
     if (this.totalBytesFetched >= this.budgets.maxTotalScanBytes) {
       this.isTruncated = true;
       this.truncationReason = `Total scan byte budget reached (${Math.round(this.budgets.maxTotalScanBytes / (1024 * 1024))} MiB)`;
     }
+  }
+
+  recordPageFetched(bytes: number) {
+    this.pagesFetched += 1;
+    this.recordBytesFetched(bytes);
   }
 
   recordExternalLinkTested() {

@@ -47,4 +47,42 @@ describe("budget tracker", () => {
     tracker.recordExternalLinkTested();
     expect(tracker.canTestMoreExternalLinks()).toBe(false);
   });
+
+  it("separates resource bytes from page counts with recordBytesFetched", () => {
+    const tracker = new CrawlBudgetTracker({ maxPages: 1, maxTotalScanBytes: 10000 });
+    expect(tracker.canFetchMorePages()).toBe(true);
+
+    // Record non-page resource bytes (e.g., robots.txt or sitemap.xml)
+    tracker.recordBytesFetched(300);
+    tracker.recordBytesFetched(700);
+
+    const statsAfterBytes = tracker.getStats();
+    expect(statsAfterBytes.pagesFetched).toBe(0);
+    expect(statsAfterBytes.totalBytesFetched).toBe(1000);
+    // Page quota is unaffected
+    expect(tracker.canFetchMorePages()).toBe(true);
+
+    // Now record an actual page fetch
+    tracker.recordPageFetched(500);
+    expect(tracker.canFetchMorePages()).toBe(false);
+    const statsAfterPage = tracker.getStats();
+    expect(statsAfterPage.pagesFetched).toBe(1);
+    expect(statsAfterPage.totalBytesFetched).toBe(1500); // 1000 + 500 without double-counting
+    // Page budget reached (maxPages: 1)
+    expect(statsAfterPage.isTruncated).toBe(true);
+  });
+
+  it("halts when recordBytesFetched exhausts total scan byte budget", () => {
+    const tracker = new CrawlBudgetTracker({ maxPages: 5, maxTotalScanBytes: 500 });
+    tracker.recordBytesFetched(600); // Exceeds 500 maxTotalScanBytes
+
+    expect(tracker.canFetchMorePages()).toBe(false);
+    expect(tracker.canFetchMoreSitemaps()).toBe(false);
+    expect(tracker.canDiscoverMoreSitemapUrls()).toBe(false);
+    const stats = tracker.getStats();
+    expect(stats.pagesFetched).toBe(0);
+    expect(stats.totalBytesFetched).toBe(600);
+    expect(stats.isTruncated).toBe(true);
+    expect(stats.truncationReason).toContain("Total scan byte budget reached");
+  });
 });

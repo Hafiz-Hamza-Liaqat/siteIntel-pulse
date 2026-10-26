@@ -235,7 +235,7 @@ export class SafeCrawler {
           signal: this.abortSignal,
           timeoutMs: 5000,
         });
-        this.tracker.recordPageFetched(bytesRead);
+        this.tracker.recordBytesFetched(bytesRead);
         this.robotsTxtContent = text;
         const lines = text.split("\n");
         for (const line of lines) {
@@ -298,7 +298,7 @@ export class SafeCrawler {
           signal: this.abortSignal,
           timeoutMs: 8000,
         });
-        this.tracker.recordPageFetched(bytesRead);
+        this.tracker.recordBytesFetched(bytesRead);
         // Regex extract <loc> URLs
         const locMatches = text.match(/<loc>(.*?)<\/loc>/gi);
         if (locMatches) {

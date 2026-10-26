@@ -214,5 +214,109 @@ describe("SafeCrawler", () => {
       // Only the valid on-domain sitemap should be fetched and extracted
       expect(result.sitemapUrls).toEqual(["https://example.com/valid-page"]);
     });
+
+    it("with maxPages: 1, fetching robots.txt does not prevent the entry page from being crawled", async () => {
+      const mockRobots = "User-agent: *\nDisallow: /admin\n";
+      const mockHtml = "<html><head><title>Home</title></head><body><h1>Welcome Home</h1></body></html>";
+
+      const fetchedUrls: string[] = [];
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        fetchedUrls.push(url);
+        if (url.endsWith("/robots.txt")) {
+          return Promise.resolve(new Response(mockRobots, { status: 200 }));
+        }
+        return Promise.resolve(
+          new Response(mockHtml, {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          })
+        );
+      });
+
+      // maxPages is strictly 1
+      const crawler = new SafeCrawler({ maxPages: 1 }, undefined, mockFetch);
+      const result = await crawler.crawlWebsite("https://example.com");
+
+      // robots.txt was fetched first
+      expect(fetchedUrls).toContain("https://example.com/robots.txt");
+      // And the entry page was STILL crawled because robots.txt did not consume the 1-page budget
+      expect(result.pages.length).toBe(1);
+      expect(result.coverage.testedPages).toBe(1);
+      expect(result.pages[0].requestedUrl).toBe("https://example.com/");
+      // Total bytes includes both robots.txt and the HTML page
+      expect(result.coverage.totalBytesFetched).toBeGreaterThan(mockRobots.length);
+    });
+
+    it("sitemap downloads count toward total bytes but not HTML page count", async () => {
+      const mockRobots = "User-agent: *\nSitemap: https://example.com/sitemap.xml";
+      const mockSitemap = `<?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://example.com/catalog</loc></url>
+        </urlset>`;
+      const mockHomeHtml = "<html><head><title>Home</title></head><body><h1>Home</h1></body></html>";
+      const mockCatalogHtml = "<html><head><title>Catalog</title></head><body><h1>Catalog</h1></body></html>";
+
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith("/robots.txt")) {
+          return Promise.resolve(new Response(mockRobots, { status: 200 }));
+        }
+        if (url.endsWith("/sitemap.xml")) {
+          return Promise.resolve(new Response(mockSitemap, { status: 200 }));
+        }
+        if (url.includes("/catalog")) {
+          return Promise.resolve(
+            new Response(mockCatalogHtml, {
+              status: 200,
+              headers: { "content-type": "text/html" },
+            })
+          );
+        }
+        return Promise.resolve(
+          new Response(mockHomeHtml, {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          })
+        );
+      });
+
+      // maxPages is 2. If robots.txt and sitemap.xml counted as pages, neither home nor catalog could both crawl!
+      const crawler = new SafeCrawler({ maxPages: 2 }, undefined, mockFetch);
+      const result = await crawler.crawlWebsite("https://example.com");
+
+      // Both actual HTML pages must be crawled
+      expect(result.pages.length).toBe(2);
+      expect(result.coverage.testedPages).toBe(2);
+      const urls = result.pages.map((p) => p.requestedUrl);
+      expect(urls).toContain("https://example.com/");
+      expect(urls).toContain("https://example.com/catalog");
+      // Total bytes accounts for robots + sitemap + both pages
+      expect(result.coverage.totalBytesFetched).toBe(
+        mockRobots.length + mockSitemap.length + mockHomeHtml.length + mockCatalogHtml.length
+      );
+    });
+
+    it("halts further crawling when total scan-byte budget is exhausted", async () => {
+      // 1000 bytes robots.txt exceeds a small 500-byte maxTotalScanBytes limit
+      const bigRobots = "User-agent: *\n" + "#".repeat(800);
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith("/robots.txt")) {
+          return Promise.resolve(new Response(bigRobots, { status: 200 }));
+        }
+        return Promise.resolve(
+          new Response("<html><body><h1>Never reached</h1></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          })
+        );
+      });
+
+      const crawler = new SafeCrawler({ maxPages: 5, maxTotalScanBytes: 500 }, undefined, mockFetch);
+      const result = await crawler.crawlWebsite("https://example.com");
+
+      // Entry page was not fetched because robots.txt exhausted the total scan byte budget
+      expect(result.pages.length).toBe(0);
+      expect(result.coverage.testedPages).toBe(0);
+      expect(result.coverage.truncationReason).toContain("Total scan byte budget reached");
+    });
   });
 });
