@@ -70,14 +70,14 @@ export function ExecutiveSnapshot({ report }: ExecutiveSnapshotProps) {
               overall.score
             )}`}
           >
-            <span className="text-4xl font-black text-white leading-none">{overall.score}%</span>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-brand-textMuted mt-1">Normalized</span>
+            <span className="text-4xl font-black text-white leading-none">{overall.score}</span>
+            <span className="text-xs uppercase font-bold tracking-wider text-brand-textMuted mt-1">/ 100</span>
           </div>
           <span className="text-xs font-semibold text-brand-textMuted">
             {isProvisional ? (
               <span className="text-amber-400 font-bold uppercase tracking-wider">Provisional Score</span>
             ) : (
-              "Normalized Score"
+              "Normalized Composite Score"
             )}
           </span>
         </div>
