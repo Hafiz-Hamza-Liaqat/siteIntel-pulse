@@ -15,7 +15,18 @@ function escapeHtml(str: unknown): string {
 export function generateReportHtml(report: OwnerReport): string {
   const overall = report.executiveSnapshot.overallScore;
   const company = report.companyIdentity;
-  const currSymbol = report.costOfInaction?.currency === "EUR" ? "€" : report.costOfInaction?.currency === "GBP" ? "£" : "$";
+  const getPdfCurrencySymbol = (currency?: string) => {
+    switch ((currency || "USD").toUpperCase()) {
+      case "EUR": return "€";
+      case "GBP": return "£";
+      case "CAD": return "CA$";
+      case "AUD": return "A$";
+      case "JPY": return "¥";
+      case "CHF": return "CHF ";
+      case "USD": default: return "$";
+    }
+  };
+  const currSymbol = getPdfCurrencySymbol(report.costOfInaction?.currency);
   const detection = company.businessCategoryDetection;
   const dateFormatted = new Date(report.generatedAt).toLocaleDateString("en-US", {
     year: "numeric",
@@ -620,8 +631,8 @@ export function generateReportHtml(report: OwnerReport): string {
         <tr>
           <td><strong>Est. Payback</strong></td>
           <td>${report.costOfInaction.scenarios.conservative.paybackMonths != null ? `${report.costOfInaction.scenarios.conservative.paybackMonths} mo` : 'N/A'}</td>
-          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${report.costOfInaction.scenarios.base.paybackMonths != null ? `${report.costOfInaction.scenarios.base.paybackMonths} mo` : 'Immediate'}</td>
-          <td>${report.costOfInaction.scenarios.upside.paybackMonths != null ? `${report.costOfInaction.scenarios.upside.paybackMonths} mo` : 'Immediate'}</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${report.costOfInaction.scenarios.base.paybackMonths != null ? `${report.costOfInaction.scenarios.base.paybackMonths} mo` : 'N/A'}</td>
+          <td>${report.costOfInaction.scenarios.upside.paybackMonths != null ? `${report.costOfInaction.scenarios.upside.paybackMonths} mo` : 'N/A'}</td>
         </tr>
       </tbody>
     </table>

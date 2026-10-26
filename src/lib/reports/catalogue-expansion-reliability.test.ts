@@ -390,6 +390,121 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
         expect(card.missingEvidenceNotes).toContain("unassessed");
       }
     });
+
+    it("ensures UNKNOWN, NOT_TESTED, BLOCKED, and NOT_APPLICABLE do not count as evaluated points or artificially inflate dimension coverage", () => {
+      // Dimension performance_speed has ruleIds: PERF-01..05 (2 pts each) and TCH-06 (2 pts) = 12 total points
+      const mixedResults: AssessmentResult[] = [
+        {
+          testId: "PERF-01",
+          testVersion: "1.0.0",
+          testName: "Render-blocking resources",
+          category: "performance",
+          status: "PASS",
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 2,
+          title: "Critical assets optimized",
+          summary: "No render-blocking scripts found",
+          timestamp: new Date().toISOString(),
+          confidence: "HIGH",
+        },
+        {
+          testId: "PERF-02",
+          testVersion: "1.0.0",
+          testName: "Speed Index / FCP",
+          category: "performance",
+          status: "UNKNOWN", // Non-evaluable: e.g. truncated or ambiguous stream
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Speed index unknown",
+          summary: "Stream truncated before completion",
+          timestamp: new Date().toISOString(),
+          confidence: "LOW",
+        },
+        {
+          testId: "PERF-03",
+          testVersion: "1.0.0",
+          testName: "LCP / Core Web Vitals",
+          category: "performance",
+          status: "NOT_TESTED", // Non-evaluable: e.g. PageSpeed provider unconfigured
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "LCP Not Tested",
+          summary: "Provider unconfigured",
+          timestamp: new Date().toISOString(),
+          confidence: "LOW",
+        },
+        {
+          testId: "PERF-04",
+          testVersion: "1.0.0",
+          testName: "TTFB / Server Latency",
+          category: "performance",
+          status: "BLOCKED", // Non-evaluable: e.g. blocked by SSRF firewall / robots
+          severity: "HIGH",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "TTFB Blocked",
+          summary: "Egress firewall blocked socket",
+          timestamp: new Date().toISOString(),
+          confidence: "LOW",
+        },
+        {
+          testId: "PERF-05",
+          testVersion: "1.0.0",
+          testName: "Payload efficiency",
+          category: "performance",
+          status: "NOT_APPLICABLE", // Non-evaluable: not applicable for this surface
+          severity: "INFORMATIONAL",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Payload N/A",
+          summary: "Surface exempt from payload limits",
+          timestamp: new Date().toISOString(),
+          confidence: "HIGH",
+        },
+        // TCH-06 is left omitted / unassessed
+      ];
+
+      const cards = computeDimensionScorecards(mixedResults, 1);
+      const perfCard = cards.find((c) => c.id === "performance_speed")!;
+
+      // Only PERF-01 is evaluable (PASS)
+      // UNKNOWN, NOT_TESTED, BLOCKED, NOT_APPLICABLE MUST NOT count towards evaluatedTestsCount!
+      expect(perfCard.evaluatedTestsCount).toBe(1);
+      expect(perfCard.totalTestsCount).toBe(6);
+
+      // Evaluated points: exactly 2 points (PERF-01) out of 12 total possible points
+      // Coverage = Math.round((2 / 12) * 100) = 17%
+      // Crucial: UNKNOWN, NOT_TESTED, BLOCKED did NOT artificially inflate coverage to 50% or 67%!
+      expect(perfCard.coveragePercentage).toBe(17);
+
+      // Earned points: 2 out of 2 evaluated = 100%
+      expect(perfCard.score).toBe(100);
+
+      // Coverage < 50% correctly triggers Provisional rating band and LOW confidence
+      expect(perfCard.ratingBand).toBe("Provisional / Incomplete");
+      expect(perfCard.confidence).toBe("LOW");
+
+      // Verify detailed execution status counts are preserved
+      expect(perfCard.statusCounts).toEqual({
+        pass: 1,
+        warning: 0,
+        fail: 0,
+        not_detected: 0,
+        unknown: 1,
+        not_tested: 1,
+        blocked: 1,
+        not_applicable: 1,
+        unassessed: 1,
+      });
+
+      // Verify missing evidence notes clearly list non-evaluable rules with their statuses
+      expect(perfCard.missingEvidenceNotes).toContain("unknown");
+      expect(perfCard.missingEvidenceNotes).toContain("not tested");
+      expect(perfCard.missingEvidenceNotes).toContain("blocked");
+    });
   });
 
   describe("Phase B: Cost of Inaction Calculator v1", () => {
@@ -461,6 +576,60 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
       expect(coi.disclaimers[0]).toContain("NOT verified historical lost revenue");
     });
 
+    it("verifies zero gross margin (grossMarginPct: 0) does not silently use a 100% multiplier and distinguishes revenue from profit", () => {
+      const coiZeroMargin = calculateCostOfInaction({
+        businessCategory: "ecommerce",
+        request: {
+          targetUrl: "https://example.com",
+          reportType: "owner",
+          monthlySessions: 50000,
+          averageOrderValue: 100,
+          grossMarginPct: 0, // Explicit zero gross margin
+          currency: "USD",
+        } as ScanRequest,
+      });
+
+      expect(coiZeroMargin.status).toBe("ESTIMATED");
+      expect(coiZeroMargin.grossMarginPct).toBe(0);
+
+      // Top-line revenue opportunity is still 50000 * 0.005 * 100 = 25000 / mo
+      expect(coiZeroMargin.scenarios?.base.monthlyRevenueOpportunity).toBe(25000);
+      expect(coiZeroMargin.scenarios?.base.annualRevenueOpportunity).toBe(25000 * 12);
+
+      // Gross profit opportunity MUST be 0 (0% margin) and NOT silently fall back to 100% ($25,000)
+      expect(coiZeroMargin.scenarios?.base.monthlyGrossProfitOpportunity).toBe(0);
+      expect(coiZeroMargin.scenarios?.base.annualGrossProfitOpportunity).toBe(0);
+      expect(coiZeroMargin.scenarios?.base.monthlyOpportunity).toBe(0);
+      expect(coiZeroMargin.scenarios?.base.annualOpportunity).toBe(0);
+
+      // Conservative & Upside must also be 0 gross profit
+      expect(coiZeroMargin.scenarios?.conservative.monthlyOpportunity).toBe(0);
+      expect(coiZeroMargin.scenarios?.upside.monthlyOpportunity).toBe(0);
+
+      // When monthly opportunity is zero, payback period is not calculable (null, rendered as N/A)
+      expect(coiZeroMargin.scenarios?.base.paybackMonths).toBeNull();
+      expect(coiZeroMargin.scenarios?.conservative.paybackMonths).toBeNull();
+      expect(coiZeroMargin.scenarios?.upside.paybackMonths).toBeNull();
+
+      // Check assumptions note zero margin explicitly
+      expect(coiZeroMargin.assumptions.some((a) => a.includes("Zero gross margin (0%)"))).toBe(true);
+
+      // Contrast with omitted gross margin where default 100% gross revenue is applied
+      const coiOmittedMargin = calculateCostOfInaction({
+        businessCategory: "ecommerce",
+        request: {
+          targetUrl: "https://example.com",
+          reportType: "owner",
+          monthlySessions: 50000,
+          averageOrderValue: 100,
+          currency: "USD",
+        } as ScanRequest,
+      });
+      expect(coiOmittedMargin.grossMarginPct).toBeUndefined();
+      expect(coiOmittedMargin.scenarios?.base.monthlyOpportunity).toBe(25000);
+      expect(coiOmittedMargin.scenarios?.base.paybackMonths).not.toBeNull();
+    });
+
     it("labels scenario assumptions explicitly when owner traffic is supplied but commercial value is omitted", () => {
       const coi = calculateCostOfInaction({
         businessCategory: "ecommerce",
@@ -474,7 +643,7 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
       expect(coi.status).toBe("ESTIMATED");
       expect(coi.confidence).toBe("MEDIUM");
       expect(coi.inputSource).toBe("Owner Traffic with Labeled Baseline Assumptions");
-      expect(coi.assumptions.some((a) => a.includes("[Labeled Scenario Assumption]"))).toBe(true);
+      expect(coi.assumptions.some((a) => a.includes("[Default Scenario Assumption") || a.includes("[Labeled Scenario Assumption]"))).toBe(true);
     });
 
     it("calculates lead generation model using leadConversionRatePct, leadToCustomerRatePct, and customerValue", () => {
@@ -499,6 +668,68 @@ describe("Assessment Catalogue Expansion & Report Reliability Suite", () => {
       expect(coi.scenarios?.conservative.monthlyOpportunity).toBe(2400);
       expect(coi.scenarios?.base.monthlyOpportunity).toBe(6000);
       expect(coi.scenarios?.upside.monthlyOpportunity).toBe(12000);
+    });
+
+    it("explicitly tracks before/after modeled conversion rates and treats lift as an absolute percentage-point increase", () => {
+      const coi = calculateCostOfInaction({
+        businessCategory: "ecommerce",
+        request: {
+          targetUrl: "https://example.com",
+          reportType: "owner",
+          monthlySessions: 30000,
+          averageOrderValue: 80,
+          leadConversionRatePct: 2.25, // Current baseline conversion rate (2.25%)
+          currency: "EUR",
+        } as ScanRequest,
+      });
+
+      expect(coi.status).toBe("ESTIMATED");
+      expect(coi.currency).toBe("EUR");
+
+      // Verify baseline rate is preserved across all scenarios
+      expect(coi.scenarios?.conservative.baselineConversionRatePct).toBe(2.25);
+      expect(coi.scenarios?.base.baselineConversionRatePct).toBe(2.25);
+      expect(coi.scenarios?.upside.baselineConversionRatePct).toBe(2.25);
+
+      // Verify modeled conversion rates are absolute additions:
+      // Conservative: 2.25% + 0.20% = 2.45%
+      expect(coi.scenarios?.conservative.conversionRateDeltaPct).toBe(0.2);
+      expect(coi.scenarios?.conservative.modeledConversionRatePct).toBe(2.45);
+
+      // Base: 2.25% + 0.50% = 2.75%
+      expect(coi.scenarios?.base.conversionRateDeltaPct).toBe(0.5);
+      expect(coi.scenarios?.base.modeledConversionRatePct).toBe(2.75);
+
+      // Upside: 2.25% + 1.00% = 3.25%
+      expect(coi.scenarios?.upside.conversionRateDeltaPct).toBe(1.0);
+      expect(coi.scenarios?.upside.modeledConversionRatePct).toBe(3.25);
+
+      // Verify currency symbol in assumptions uses EUR symbol (€), not "EUR $"
+      expect(coi.assumptions.some((a) => a.includes("€80"))).toBe(true);
+      expect(coi.assumptions.some((a) => a.includes("EUR $"))).toBe(false);
+
+      // Verify distinctions between owner provided and default scenario assumptions
+      expect(coi.assumptions.some((a) => a.startsWith("[Owner Provided]"))).toBe(true);
+      expect(coi.assumptions.some((a) => a.startsWith("[Illustrative Scenario Assumption]"))).toBe(true);
+    });
+
+    it("verifies unavailable payback and zero opportunity yield null payback period (displayed as N/A)", () => {
+      // 0 monthly opportunity from 0 margin
+      const zeroOpp = calculateCostOfInaction({
+        businessCategory: "saas",
+        request: {
+          targetUrl: "https://example.com",
+          reportType: "owner",
+          monthlySessions: 10000,
+          subscriptionRevenue: 50,
+          grossMarginPct: 0,
+        } as ScanRequest,
+      });
+
+      expect(zeroOpp.scenarios?.base.monthlyOpportunity).toBe(0);
+      expect(zeroOpp.scenarios?.base.paybackMonths).toBeNull();
+      expect(zeroOpp.scenarios?.conservative.paybackMonths).toBeNull();
+      expect(zeroOpp.scenarios?.upside.paybackMonths).toBeNull();
     });
   });
 });

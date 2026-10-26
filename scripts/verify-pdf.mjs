@@ -237,6 +237,97 @@ const typicalReport = {
 };
 typicalReport.scoreDetails = typicalReport.executiveSnapshot.categoryScores;
 
+// Add Dimension Scorecards & Cost of Inaction to Typical Report
+typicalReport.dimensionScorecards = [
+  {
+    id: "seo",
+    name: "SEO (Search Engine Optimization)",
+    description: "Covers title tags, meta descriptions, headings, robots, and sitemaps.",
+    score: 85,
+    ratingBand: "Strong observed baseline",
+    coveragePercentage: 90,
+    confidence: "HIGH",
+    evaluatedTestsCount: 9,
+    totalTestsCount: 10,
+    urlsAssessedCount: 20,
+    isNonAdditiveView: true,
+  },
+  {
+    id: "performance_speed",
+    name: "Performance & Speed",
+    description: "Measures render-blocking resources, payload efficiency, server latency.",
+    score: 80,
+    ratingBand: "Generally healthy",
+    coveragePercentage: 83,
+    confidence: "MEDIUM",
+    evaluatedTestsCount: 5,
+    totalTestsCount: 6,
+    urlsAssessedCount: 20,
+    isNonAdditiveView: true,
+  },
+];
+
+typicalReport.costOfInaction = {
+  status: "ESTIMATED",
+  businessModel: "ecommerce",
+  currency: "USD",
+  scenarios: {
+    conservative: {
+      scenario: "conservative",
+      monthlyOpportunity: 3600,
+      annualOpportunity: 43200,
+      conversionRateDeltaPct: 0.20,
+      paybackMonths: 1.5,
+      monthlyRevenueOpportunity: 9000,
+      annualRevenueOpportunity: 108000,
+      monthlyGrossProfitOpportunity: 3600,
+      annualGrossProfitOpportunity: 43200,
+      baselineConversionRatePct: 1.80,
+      modeledConversionRatePct: 2.00,
+    },
+    base: {
+      scenario: "base",
+      monthlyOpportunity: 9000,
+      annualOpportunity: 108000,
+      conversionRateDeltaPct: 0.50,
+      paybackMonths: 0.6,
+      monthlyRevenueOpportunity: 22500,
+      annualRevenueOpportunity: 270000,
+      monthlyGrossProfitOpportunity: 9000,
+      annualGrossProfitOpportunity: 108000,
+      baselineConversionRatePct: 1.80,
+      modeledConversionRatePct: 2.30,
+    },
+    upside: {
+      scenario: "upside",
+      monthlyOpportunity: 18000,
+      annualOpportunity: 216000,
+      conversionRateDeltaPct: 1.00,
+      paybackMonths: 0.3,
+      monthlyRevenueOpportunity: 45000,
+      annualRevenueOpportunity: 540000,
+      monthlyGrossProfitOpportunity: 18000,
+      annualGrossProfitOpportunity: 216000,
+      baselineConversionRatePct: 1.80,
+      modeledConversionRatePct: 2.80,
+    },
+  },
+  grossMarginPct: 40,
+  formula: "Gross Profit Opportunity = Monthly Sessions × Incremental Conversion Lift (% pts) × Transaction Value × Gross Margin %",
+  inputSource: "Owner Provided Commercial Inputs",
+  confidence: "HIGH",
+  calculatedAt: new Date().toISOString(),
+  methodologyNotes: "Calculated via SiteIntel Cost of Inaction Calculator v1.",
+  assumptions: [
+    "[Owner Provided] Monthly traffic: 50,000 unique visitor sessions.",
+    "[Owner Provided] Average Order Value (AOV): $90.00.",
+    "[Owner Provided] Gross Margin: 40% applied.",
+  ],
+  disclaimers: [
+    "Results represent forward-looking modeled growth opportunity from resolving identified UX, speed, and conversion barriers; this is NOT verified historical lost revenue.",
+  ],
+};
+
 // 2. Short Report Fixture
 const shortReport = {
   ...typicalReport,
@@ -494,6 +585,24 @@ async function verifyOwnerPdfs() {
           throw new Error(`Provisional notice missing from rasterized PDF text in ${tc.name}`);
         }
         console.log(`    [PASS] Canonical provisional coverage notice verified in PDF text.`);
+      }
+
+      // If dimensionScorecards exist, verify presence in rasterized PDF text
+      if (tc.report.dimensionScorecards && tc.report.dimensionScorecards.length > 0) {
+        const hasScorecards = fullPdfText.includes("SPECIALIZED DIAGNOSTIC DIMENSIONS") || fullPdfText.includes("DIAGNOSTIC DIMENSION");
+        if (!hasScorecards) {
+          throw new Error(`Diagnostic Dimension Scorecards section missing from rasterized PDF text in ${tc.name}`);
+        }
+        console.log(`    [PASS] Diagnostic Dimension Scorecards verified in PDF text.`);
+      }
+
+      // If costOfInaction exists, verify presence in rasterized PDF text
+      if (tc.report.costOfInaction) {
+        const hasCalculator = fullPdfText.includes("COST OF INACTION") || fullPdfText.includes("OPPORTUNITY CALCULATOR");
+        if (!hasCalculator) {
+          throw new Error(`Cost of Inaction section missing from rasterized PDF text in ${tc.name}`);
+        }
+        console.log(`    [PASS] Cost of Inaction Calculator verified in PDF text.`);
       }
 
       // Record in Validation Manifest

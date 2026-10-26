@@ -7,14 +7,35 @@ interface CostOfInactionCardProps {
   result?: CostOfInactionResult;
 }
 
+function getCurrencySymbol(currency: string = "USD"): string {
+  switch (currency.toUpperCase()) {
+    case "EUR":
+      return "€";
+    case "GBP":
+      return "£";
+    case "CAD":
+      return "CA$";
+    case "AUD":
+      return "A$";
+    case "JPY":
+      return "¥";
+    case "CHF":
+      return "CHF ";
+    case "USD":
+    default:
+      return "$";
+  }
+}
+
 export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCardProps) {
   const data = costOfInaction || result;
   if (!data) return null;
 
   const isEstimated = data.status === "ESTIMATED" && Boolean(data.scenarios);
-  const currencySymbol = data.currency === "EUR" ? "€" : data.currency === "GBP" ? "£" : "$";
+  const currencySymbol = getCurrencySymbol(data.currency);
   const businessModel = (data.businessModel || "ecommerce").toUpperCase();
   const confidence = data.confidence || "MEDIUM";
+  const hasExplicitGrossMargin = data.grossMarginPct != null;
 
   return (
     <div className="rounded-2xl border border-brand-border bg-brand-card p-6 sm:p-8 space-y-6 shadow-xl">
@@ -89,9 +110,19 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                   <span className="text-xs text-brand-textMuted font-normal"> / mo</span>
                 </div>
                 <div className="text-xs text-brand-teal font-semibold mt-1">
-                  {currencySymbol}{data.scenarios!.conservative.annualOpportunity.toLocaleString()} annualized opportunity
+                  {currencySymbol}{data.scenarios!.conservative.annualOpportunity.toLocaleString()} annualized {hasExplicitGrossMargin ? "gross profit" : "revenue"}
                 </div>
+                {hasExplicitGrossMargin && data.scenarios!.conservative.monthlyRevenueOpportunity != null && (
+                  <div className="text-[11px] text-brand-textMuted mt-0.5">
+                    Top-line revenue: {currencySymbol}{data.scenarios!.conservative.monthlyRevenueOpportunity.toLocaleString()} / mo
+                  </div>
+                )}
               </div>
+              {data.scenarios!.conservative.baselineConversionRatePct != null && data.scenarios!.conservative.modeledConversionRatePct != null && (
+                <div className="text-[10px] font-mono text-brand-textMuted bg-brand-card/80 p-1.5 rounded border border-brand-borderSubtle">
+                  CR: {data.scenarios!.conservative.baselineConversionRatePct.toFixed(2)}% → {data.scenarios!.conservative.modeledConversionRatePct.toFixed(2)}% (+{data.scenarios!.conservative.conversionRateDeltaPct}% abs)
+                </div>
+              )}
               <div className="pt-2 border-t border-brand-borderSubtle/60 flex items-center justify-between text-xs text-brand-textMuted">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-brand-teal" />
@@ -121,9 +152,19 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                   <span className="text-xs text-brand-textMuted font-normal"> / mo</span>
                 </div>
                 <div className="text-xs text-brand-tealLight font-bold mt-1">
-                  {currencySymbol}{data.scenarios!.base.annualOpportunity.toLocaleString()} annualized opportunity
+                  {currencySymbol}{data.scenarios!.base.annualOpportunity.toLocaleString()} annualized {hasExplicitGrossMargin ? "gross profit" : "revenue"}
                 </div>
+                {hasExplicitGrossMargin && data.scenarios!.base.monthlyRevenueOpportunity != null && (
+                  <div className="text-[11px] text-brand-textMuted mt-0.5">
+                    Top-line revenue: {currencySymbol}{data.scenarios!.base.monthlyRevenueOpportunity.toLocaleString()} / mo
+                  </div>
+                )}
               </div>
+              {data.scenarios!.base.baselineConversionRatePct != null && data.scenarios!.base.modeledConversionRatePct != null && (
+                <div className="text-[10px] font-mono text-brand-tealLight bg-brand-card/80 p-1.5 rounded border border-brand-teal/30">
+                  CR: {data.scenarios!.base.baselineConversionRatePct.toFixed(2)}% → {data.scenarios!.base.modeledConversionRatePct.toFixed(2)}% (+{data.scenarios!.base.conversionRateDeltaPct}% abs)
+                </div>
+              )}
               <div className="pt-2 border-t border-brand-teal/30 flex items-center justify-between text-xs text-brand-textMuted">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-brand-teal" />
@@ -132,7 +173,7 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                 <span className="font-bold text-brand-tealLight">
                   {data.scenarios!.base.paybackMonths != null
                     ? `${data.scenarios!.base.paybackMonths} months`
-                    : "Immediate"}
+                    : "N/A"}
                 </span>
               </div>
             </div>
@@ -153,9 +194,19 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                   <span className="text-xs text-brand-textMuted font-normal"> / mo</span>
                 </div>
                 <div className="text-xs text-cyan-400 font-semibold mt-1">
-                  {currencySymbol}{data.scenarios!.upside.annualOpportunity.toLocaleString()} annualized opportunity
+                  {currencySymbol}{data.scenarios!.upside.annualOpportunity.toLocaleString()} annualized {hasExplicitGrossMargin ? "gross profit" : "revenue"}
                 </div>
+                {hasExplicitGrossMargin && data.scenarios!.upside.monthlyRevenueOpportunity != null && (
+                  <div className="text-[11px] text-brand-textMuted mt-0.5">
+                    Top-line revenue: {currencySymbol}{data.scenarios!.upside.monthlyRevenueOpportunity.toLocaleString()} / mo
+                  </div>
+                )}
               </div>
+              {data.scenarios!.upside.baselineConversionRatePct != null && data.scenarios!.upside.modeledConversionRatePct != null && (
+                <div className="text-[10px] font-mono text-brand-textMuted bg-brand-card/80 p-1.5 rounded border border-brand-borderSubtle">
+                  CR: {data.scenarios!.upside.baselineConversionRatePct.toFixed(2)}% → {data.scenarios!.upside.modeledConversionRatePct.toFixed(2)}% (+{data.scenarios!.upside.conversionRateDeltaPct}% abs)
+                </div>
+              )}
               <div className="pt-2 border-t border-brand-borderSubtle/60 flex items-center justify-between text-xs text-brand-textMuted">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-brand-teal" />
@@ -164,7 +215,7 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                 <span className="font-semibold text-white">
                   {data.scenarios!.upside.paybackMonths != null
                     ? `${data.scenarios!.upside.paybackMonths} months`
-                    : "Immediate"}
+                    : "N/A"}
                 </span>
               </div>
             </div>

@@ -97,6 +97,18 @@ export function computeDimensionScorecards(
     let earnedPoints = 0;
     let evaluatedCount = 0;
     const missingRules: string[] = [];
+    const nonEvaluableRules: string[] = [];
+    const statusCounts: Record<string, number> = {
+      pass: 0,
+      warning: 0,
+      fail: 0,
+      not_detected: 0,
+      unknown: 0,
+      not_tested: 0,
+      blocked: 0,
+      not_applicable: 0,
+      unassessed: 0,
+    };
 
     for (const ruleId of dim.ruleIds) {
       const ruleDef = REGISTERED_RULES_MAP.get(ruleId);
@@ -110,28 +122,33 @@ export function computeDimensionScorecards(
 
       const res = resultsByTestId.get(ruleId);
       if (!res) {
+        statusCounts.unassessed += 1;
         missingRules.push(`${ruleId} (unassessed)`);
+        nonEvaluableRules.push(`${ruleId} (unassessed)`);
         continue;
       }
 
+      // Record detailed execution status
+      const statusKey = res.status.toLowerCase();
+      statusCounts[statusKey] = (statusCounts[statusKey] || 0) + 1;
+
+      // Evaluated states: PASS, WARNING, FAIL, NOT_DETECTED
+      // Non-evaluable states: UNKNOWN, NOT_TESTED, BLOCKED, NOT_APPLICABLE, etc.
+      // Non-evaluable states DO NOT count as evaluated points or increase scorecard coverage.
       const isEvaluated =
         res.status === "PASS" ||
         res.status === "WARNING" ||
         res.status === "FAIL" ||
-        res.status === "UNKNOWN" ||
         res.status === "NOT_DETECTED";
 
       if (isEvaluated) {
         evaluatedCount += 1;
         evaluatedPoints += ruleMax;
         earnedPoints += Math.min(res.earnedPoints, ruleMax);
-      } else if (res.status === "NOT_TESTED") {
-        missingRules.push(`${ruleId} (not tested)`);
-      } else if (res.status === "BLOCKED") {
-        missingRules.push(`${ruleId} (blocked)`);
-      } else if (res.status === "NOT_APPLICABLE") {
-        // Explicitly accounted as not applicable for this business model
-        missingRules.push(`${ruleId} (not applicable)`);
+      } else {
+        const statusLabel = res.status.toLowerCase().replace(/_/g, " ");
+        missingRules.push(`${ruleId} (${statusLabel})`);
+        nonEvaluableRules.push(`${ruleId} (${statusLabel})`);
       }
     }
 
@@ -181,6 +198,11 @@ export function computeDimensionScorecards(
       urlsAssessedCount: assessedUrlsCount,
       missingEvidenceNotes,
       isNonAdditiveView: true,
+      statusCounts,
+      nonEvaluableRules,
     };
   });
 }
+
+// Backward-compatible alias
+export const calculateDimensionScorecards = computeDimensionScorecards;

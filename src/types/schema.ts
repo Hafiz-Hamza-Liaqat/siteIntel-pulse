@@ -461,6 +461,8 @@ export const DimensionScorecardSchema = z.object({
   urlsAssessedCount: z.number().int(),
   missingEvidenceNotes: z.string().optional(),
   isNonAdditiveView: z.literal(true).default(true),
+  statusCounts: z.record(z.number()).optional(),
+  nonEvaluableRules: z.array(z.string()).optional(),
 });
 export type DimensionScorecard = z.infer<typeof DimensionScorecardSchema>;
 
@@ -479,6 +481,12 @@ export const ScenarioEstimateSchema = z.object({
   annualOpportunity: z.number(),
   conversionRateDeltaPct: z.number(),
   paybackMonths: z.number().nullable().optional(),
+  monthlyRevenueOpportunity: z.number().optional(),
+  annualRevenueOpportunity: z.number().optional(),
+  monthlyGrossProfitOpportunity: z.number().optional(),
+  annualGrossProfitOpportunity: z.number().optional(),
+  baselineConversionRatePct: z.number().optional(),
+  modeledConversionRatePct: z.number().optional(),
 });
 export type ScenarioEstimate = z.infer<typeof ScenarioEstimateSchema>;
 
@@ -495,7 +503,7 @@ export const CostOfInactionResultSchema = z.object({
     .optional(),
   currency: z.string().default("USD"),
   remediationCostEstimate: z.number().optional(),
-  grossMarginPct: z.number().optional(),
+  grossMarginPct: z.number().nullable().optional(),
   formula: z.string().optional(),
   assumptions: z.array(z.string()).default([]),
   disclaimers: z.array(z.string()).default([]),
