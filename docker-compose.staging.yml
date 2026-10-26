@@ -7,13 +7,13 @@ services:
     container_name: siteintel-pulse-staging
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
       - HOST=0.0.0.0
-      - NEXT_PUBLIC_APP_URL=http://localhost:3000
-      - SESSION_SECRET=staging_session_secret_min_32_chars_random_string_here
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET environment variable is required and must contain at least 32 characters of high-entropy randomness}
       - DATABASE_PATH=/app/data/siteintel.db
       - ALLOW_STAGING_SEEDS=false
       - RATE_LIMIT_ENABLED=true

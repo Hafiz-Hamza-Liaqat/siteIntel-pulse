@@ -37,8 +37,9 @@ NODE_ENV=production
 # Persistence (Durable SQLite on persistent storage mount)
 DATABASE_PATH=/app/data/siteintel.db
 
-# Authentication & Session Security (MANDATORY: Generate with `openssl rand -hex 32`)
-SESSION_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# Authentication & Session Security (MANDATORY: Generate unique secret via `openssl rand -hex 32`)
+# Do NOT use a placeholder or commit this secret. Must be >= 32 characters of high-entropy randomness.
+SESSION_SECRET=<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>
 
 # Staging Demonstration Seed Guard
 # Keep false in production. Set to true only in temporary non-production demo environments.
@@ -149,6 +150,65 @@ PAGESPEED_API_KEY=
 
 ---
 
+### Method C: Network Exposure & Nginx Reverse Proxy Architecture
+
+For both Docker Compose and Native Linux deployments, the application backend is designed to run behind a trusted reverse proxy with HTTPS termination.
+
+#### 1. Loopback Port Binding Security
+- In `docker-compose.staging.yml`, the published port is strictly `127.0.0.1:3000:3000`.
+- The application inside the container listens on `0.0.0.0:3000` to support container networking, while the host Docker daemon binds only to `127.0.0.1`.
+- **Under no circumstances should port 3000 be exposed to `0.0.0.0:3000` on the host.** Direct public access to the Node.js backend without TLS termination and proxy filtering is prohibited.
+
+#### 2. Nginx Reverse Proxy & TLS Configuration (`/etc/nginx/sites-available/siteintel-staging`)
+```nginx
+server {
+    listen 80;
+    server_name staging.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name staging.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/staging.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/staging.yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # Security Headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+
+        # Trusted Reverse Proxy Headers:
+        # Overwrite client-supplied forwarding headers with authentic TCP connection info
+        # to prevent X-Forwarded-For spoofing and rate-limit evasion.
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 120s;
+    }
+}
+```
+
+#### 3. Topology-Specific Considerations
+- **Same-Host Proxy (Default Staging Topology):** Nginx and Docker/Node.js run on the same VM/host. Loopback binding (`127.0.0.1:3000`) guarantees all external traffic arrives through Nginx.
+- **Container PaaS / Ingress Overlay (e.g. Fly.io, Render, AWS ECS + ALB):**
+  If the container runs within an isolated container network where the cloud edge router or ALB connects directly to the container's private IP, port publishing is handled by the platform's ingress. In this scenario, set `TRUSTED_IP_HEADER` to match the platform's authentic edge header (e.g., `fly-client-ip` or `cf-connecting-ip`). In production mode, the application requires the trusted header and rejects unmetered spoofed traffic.
+
+---
+
 ## 4. Staging Data Seeding
 
 In staging, initial demonstration accounts can be seeded for team verification:
@@ -204,18 +264,21 @@ curl -i http://localhost:3000/api/health
 
 ---
 
-## 6. Staging Acceptance Verification Checklist
+## 6. Staging Acceptance Verification Checklist (Post-Deployment Execution)
 
-| Step | Operation | Expected Outcome | Status |
+> [!NOTE]
+> This checklist is to be executed by platform administrators immediately following deployment to the live staging environment. Automated preflight tests have been validated in CI/local suites, but live host acceptance must be performed once the staging host and domain are live.
+
+| Step | Operation | Expected Outcome | Live Staging Status |
 | :--- | :--- | :--- | :--- |
-| **1** | `GET /api/health` | Returns HTTP 200, `"status":"healthy"`, `"database":"connected"` | [x] Passed |
-| **2** | Login as Tenant A | Authenticates via PBKDF2 (220k iter), sets secure HttpOnly session cookie | [x] Passed |
-| **3** | Submit Target URL | Discovers pages within budgets, respects robots and SSRF guardrails | [x] Passed |
-| **4** | Generate Owner Report | Computes 56 rules, displays honest provenance scores, renders 13 cards | [x] Passed |
-| **5** | Download Owner PDF | Headless Playwright Chromium streams verified binary PDF (`application/pdf`) | [x] Passed |
-| **6** | Login as Tenant B | Navigates to `/expert-audit`, opens Company B Diagnostic Workbench | [x] Passed |
-| **7** | Manage Remediation | Updates task status to `in_progress` and persists to SQLite database | [x] Passed |
-| **8** | Export Expert CSV | Downloads 56-finding remediation plan spreadsheet | [x] Passed |
-| **9** | Download Expert PDF | Streams 8-page diagnostic PDF with executive triage and audit ledger | [x] Passed |
-| **10** | Multi-Tenant Isolation | Tenant B request to Tenant A report returns HTTP 403 Forbidden | [x] Passed |
-| **11** | Backup & Restore Run | Executes `npm run db:verify`, confirming 100% data fidelity on recovery | [x] Passed |
+| **1** | `GET /api/health` | Returns HTTP 200, `"status":"healthy"`, `"database":"connected"` | [ ] Pending live deployment |
+| **2** | Login as Tenant A | Authenticates via PBKDF2 (220k iter), sets secure HttpOnly session cookie | [ ] Pending live deployment |
+| **3** | Submit Target URL | Discovers pages within budgets, respects robots and SSRF guardrails | [ ] Pending live deployment |
+| **4** | Generate Owner Report | Computes 56 rules, displays honest provenance scores, renders 13 cards | [ ] Pending live deployment |
+| **5** | Download Owner PDF | Headless Playwright Chromium streams verified binary PDF (`application/pdf`) | [ ] Pending live deployment |
+| **6** | Login as Tenant B | Navigates to `/expert-audit`, opens Company B Diagnostic Workbench | [ ] Pending live deployment |
+| **7** | Manage Remediation | Updates task status to `in_progress` and persists to SQLite database | [ ] Pending live deployment |
+| **8** | Export Expert CSV | Downloads 56-finding remediation plan spreadsheet | [ ] Pending live deployment |
+| **9** | Download Expert PDF | Streams 8-page diagnostic PDF with executive triage and audit ledger | [ ] Pending live deployment |
+| **10** | Multi-Tenant Isolation | Tenant B request to Tenant A report returns HTTP 403 Forbidden | [ ] Pending live deployment |
+| **11** | Backup & Restore Run | Executes `npm run db:verify`, confirming 100% data fidelity on recovery | [ ] Pending live deployment |

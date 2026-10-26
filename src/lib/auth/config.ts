@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 const KNOWN_INSECURE_SECRETS = new Set([
   "siteintel_staging_session_secret_change_in_production_32bytes_min",
+  "staging_session_secret_min_32_chars_random_string_here",
   "secret",
   "changeme",
   "password",
