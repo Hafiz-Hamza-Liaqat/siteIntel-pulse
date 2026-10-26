@@ -513,6 +513,7 @@ async function verifyOwnerPdfs() {
           binaryValid: true,
           a4Dimensions: true,
           pageCountMatches: rasterResult.numPages === binaryStats.pageCount,
+          pageNumberingValid: rasterResult.pages.every((p) => p.pageNumberingValid),
           noBlankPages: !rasterResult.pages.some((p) => p.isBlank),
           requiredSectionsPresent: true,
           htmlTableLayoutFixed: true,

@@ -1,0 +1,57 @@
+name: Real Target Live Audits
+
+on:
+  workflow_dispatch:
+    inputs:
+      maxPages:
+        description: "Maximum pages per target crawl budget"
+        required: false
+        default: "5"
+      maxDepth:
+        description: "Maximum crawl depth"
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  audit-real-targets:
+    name: Execute Bounded Real Target Audits
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime (v22)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Execute End-to-End Audits (CafeRemote, Naffeez, STRIDETO)
+        run: npx tsx scripts/execute-real-target-audits.mjs
+        env:
+          NODE_ENV: test
+          SESSION_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+      - name: Upload Real Target Audit Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-target-audit-artifacts
+          path: |
+            pdf-review-artifacts/real-site-audits.json
+            pdf-review-artifacts/real-target-audit-manifest.json
+            pdf-review-artifacts/Live-Scan-*.pdf
+            pdf-review-artifacts/rasterized-pages/live-*.png
+          if-no-files-found: error
+          retention-days: 14

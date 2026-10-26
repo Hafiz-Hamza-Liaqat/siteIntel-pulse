@@ -160,11 +160,17 @@ export async function rasterizePdf(browser, pdfBuffer, outputDir, filePrefix, sc
         throw new Error(`Rasterized page image ${imgPath} is suspiciously small (${imgStat.size} bytes).`);
       }
 
-      // Check for page numbering strings in extracted text
-      const hasPageNumber =
-        /page\s+\d+\s+of\s+\d+/i.test(rec.text) ||
-        new RegExp(`page\\s+${rec.pageNum}`, "i").test(rec.text) ||
-        rec.text.includes(String(rec.pageNum));
+      // Enforceable page-number validation: validate expected page number and total page count
+      // Strict regex matching exact pattern: "Page <pageNum> of <numPages>"
+      const pageNumberPattern = new RegExp(`\\bPage\\s+${rec.pageNum}\\s+of\\s+${evaluationResult.numPages}\\b`, "i");
+      const pageNumberingValid = pageNumberPattern.test(rec.text);
+
+      if (!pageNumberingValid) {
+        throw new Error(
+          `Enforceable page-number validation failed on page ${rec.pageNum} of ${filePrefix}: ` +
+          `Expected exact pattern "Page ${rec.pageNum} of ${evaluationResult.numPages}" in extracted text, but it was missing or incorrect.`
+        );
+      }
 
       pages.push({
         pageNum: rec.pageNum,
@@ -177,7 +183,8 @@ export async function rasterizePdf(browser, pdfBuffer, outputDir, filePrefix, sc
         imageSizeBytes: imgStat.size,
         text: rec.text,
         textLength: rec.text.length,
-        hasPageNumber,
+        hasPageNumber: true,
+        pageNumberingValid: true,
         isBlank: rec.isBlank,
       });
     }

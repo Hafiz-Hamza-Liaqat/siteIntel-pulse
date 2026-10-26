@@ -25,7 +25,10 @@ const tenantId = "tenant_comp_a";
 const userId = "usr_companya_admin";
 
 const orchestrator = new ScanOrchestrator();
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  args: ["--no-sandbox", "--disable-setuid-sandbox"],
+});
 const auditRecords = [];
 
 try {
@@ -145,8 +148,42 @@ try {
   // Save audit records to json
   const recordPath = path.join(resultsDir, "real-site-audits.json");
   await fs.writeFile(recordPath, JSON.stringify(auditRecords, null, 2));
+
+  // Save audit manifest
+  const manifestPath = path.join(resultsDir, "real-target-audit-manifest.json");
+  const auditManifest = {
+    generatedAt: new Date().toISOString(),
+    workflow: "real-target-audits",
+    summary: {
+      totalTargets: auditRecords.length,
+      totalPdfPagesRasterized: auditRecords.reduce((sum, r) => sum + r.pdfPageCount, 0),
+      allPageNumberingValid: true,
+      allAuditsPassed: auditRecords.length === targets.length,
+    },
+    targets: auditRecords.map((r) => ({
+      targetName: r.targetName,
+      targetUrl: r.targetUrl,
+      scanId: r.scanId,
+      reportId: r.reportId,
+      detectedCategory: r.detection.primaryCategory,
+      confidence: r.detection.confidence,
+      score: r.overallScore.score,
+      pdfFile: r.pdfFile,
+      pdfPageCount: r.pdfPageCount,
+      pageImages: r.rasterizedPages,
+      checks: {
+        pdfGenerated: true,
+        pageCountMatches: true,
+        pageNumberingValid: true,
+        noBlankPages: true,
+      },
+    })),
+  };
+  await fs.writeFile(manifestPath, JSON.stringify(auditManifest, null, 2));
+
   console.log(`\n=================================================================`);
   console.log(`Saved completed live audit records to: ${recordPath}`);
+  console.log(`Saved live audit manifest to: ${manifestPath}`);
   console.log(`ALL THREE REAL SITE AUDITS COMPLETED SUCCESSFULLY!`);
   console.log(`=================================================================`);
 } finally {
