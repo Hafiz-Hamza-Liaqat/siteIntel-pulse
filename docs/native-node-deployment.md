@@ -122,8 +122,8 @@ DATABASE_PATH=/var/lib/siteintel/data/siteintel.db
 
 # Mandatory Production Security Secret (Minimum 32 random characters)
 # Generate a unique high-entropy secret on your server using: openssl rand -hex 32
-# DO NOT use a hardcoded or default value in production.
-SESSION_SECRET=<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>
+# Set the generated value below. Keep this file private (chmod 600) and OUT of Git.
+SESSION_SECRET=
 
 # Demonstration Seed Account Guard
 # MUST remain false in production to prevent seeding demo accounts

@@ -3,7 +3,7 @@
 > [!NOTE]
 > **Historical Milestone 2 Audit Snapshot (October 22, 2026):**
 > This audit report is preserved as a historical snapshot reflecting the state of the codebase during Milestone 2 prior to durable database persistence and multi-tenant authentication. The test counts (64 unit tests, 11 routes) and implementation status represent that point in time. The critical release blockers identified below (SQLite WAL persistence, multi-tenant isolation, containerization, and bounded response truncation truthfulness) have since been implemented and verified in subsequent milestones.
-> **For the current authoritative release candidate state, refer to the canonical [Release Candidate Readiness Report](file:///d:/Projects/SiteIntel-Pulse/docs/release-candidate-readiness.md).**
+> **For the current authoritative release candidate state, refer to the canonical [Release Candidate Readiness Report](release-candidate-readiness.md).**
 
 **Project:** SiteIntel Pulse — Website Intelligence & Growth Audit Platform  
 **Repository:** `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse`  

@@ -135,6 +135,13 @@ describe("Password and Authentication Security Hardening", () => {
       expect(() => getSessionSecret()).toThrowError(/default placeholder/);
     });
 
+    it("fails startup in production mode if SESSION_SECRET is the documentation runbook placeholder", () => {
+      (process.env as any).NODE_ENV = "production";
+      process.env.SESSION_SECRET = "<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>";
+
+      expect(() => getSessionSecret()).toThrowError(/default placeholder/);
+    });
+
     it("accepts a valid high-entropy SESSION_SECRET in production mode", () => {
       (process.env as any).NODE_ENV = "production";
       const highEntropySecret = crypto.randomBytes(32).toString("hex");

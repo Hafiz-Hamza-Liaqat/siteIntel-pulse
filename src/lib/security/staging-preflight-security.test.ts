@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { getSessionSecret } from "@/lib/auth/config";
 import { extractClientIp } from "@/lib/security/login-rate-limiter";
 import { seedInitialAccounts } from "@/lib/auth/seed";
+import { AuthService } from "@/lib/auth";
 import { DatabaseSync } from "node:sqlite";
 
 describe("Staging Preflight & Production Security Configuration", () => {
@@ -65,6 +66,7 @@ describe("Staging Preflight & Production Security Configuration", () => {
     it("aborts in production mode for all known placeholder secrets", () => {
       (process.env as any).NODE_ENV = "production";
       const placeholders = [
+        "<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>",
         "siteintel_staging_session_secret_change_in_production_32bytes_min",
         "staging_session_secret_min_32_chars_random_string_here",
         "secret",
@@ -78,6 +80,20 @@ describe("Staging Preflight & Production Security Configuration", () => {
         process.env.SESSION_SECRET = placeholder;
         expect(() => getSessionSecret()).toThrowError(/default placeholder/);
       }
+    });
+
+    it("aborts in production mode when SESSION_SECRET is the literal runbook placeholder", () => {
+      (process.env as any).NODE_ENV = "production";
+      process.env.SESSION_SECRET = "<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>";
+
+      expect(() => getSessionSecret()).toThrowError(/default placeholder/);
+    });
+
+    it("aborts in production mode when SESSION_SECRET matches any bracketed placeholder (<...>)", () => {
+      (process.env as any).NODE_ENV = "production";
+      process.env.SESSION_SECRET = "<insert-random-secret-here-at-least-32-characters-long>";
+
+      expect(() => getSessionSecret()).toThrowError(/default placeholder/);
     });
 
     it("accepts a cryptographically strong 32+ character random secret in production", () => {
@@ -110,7 +126,7 @@ describe("Staging Preflight & Production Security Configuration", () => {
     });
   });
 
-  describe("Production Demonstration Seed Lockout", () => {
+  describe("Production Demonstration Seed Lockout & Account Provisioning Contract", () => {
     it("strictly prevents demo seeding in production even if ALLOW_STAGING_SEEDS is true", () => {
       (process.env as any).NODE_ENV = "production";
       (process.env as any).ALLOW_STAGING_SEEDS = "true";
@@ -121,6 +137,30 @@ describe("Staging Preflight & Production Security Configuration", () => {
 
       expect(result.seeded).toBe(false);
       expect(result.message).toContain("cannot be seeded when NODE_ENV=production");
+    });
+
+    it("dynamically provisions separate isolated guest tenants for public intake without pre-seeded accounts", () => {
+      (process.env as any).NODE_ENV = "production";
+      (process.env as any).SESSION_SECRET = "production_secret_32_characters_minimum_randomness_here";
+
+      const memDb = new DatabaseSync(":memory:");
+      memDb.exec(`
+        CREATE TABLE tenants (id TEXT PRIMARY KEY, name TEXT, slug TEXT, plan TEXT, max_concurrent_scans INTEGER, scans_per_hour_quota INTEGER, created_at TEXT);
+        CREATE TABLE users (id TEXT PRIMARY KEY, tenant_id TEXT, email TEXT, password_hash TEXT, salt TEXT, role TEXT, name TEXT, created_at TEXT);
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, token_hash TEXT, user_id TEXT, tenant_id TEXT, expires_at TEXT, created_at TEXT);
+      `);
+
+      const authService = new AuthService(memDb);
+      const guest1 = authService.createGuestSession("198.51.100.1");
+      const guest2 = authService.createGuestSession("198.51.100.2");
+
+      expect(guest1.tenant.id).toMatch(/^tenant_guest_/);
+      expect(guest2.tenant.id).toMatch(/^tenant_guest_/);
+      expect(guest1.tenant.id).not.toBe(guest2.tenant.id);
+      expect(guest1.user.id).not.toBe(guest2.user.id);
+      expect(guest1.token).not.toBe(guest2.token);
+
+      memDb.close();
     });
   });
 });

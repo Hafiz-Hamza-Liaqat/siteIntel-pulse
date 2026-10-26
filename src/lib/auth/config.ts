@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 const KNOWN_INSECURE_SECRETS = new Set([
+  "<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>",
   "siteintel_staging_session_secret_change_in_production_32bytes_min",
   "staging_session_secret_min_32_chars_random_string_here",
   "secret",
@@ -19,14 +20,20 @@ export function getSessionSecret(): string {
   const isProd = process.env.NODE_ENV === "production";
 
   if (isProd) {
-    if (!secret || secret.trim().length < 32 || KNOWN_INSECURE_SECRETS.has(secret.trim())) {
+    const trimmed = secret?.trim() || "";
+    if (
+      !trimmed ||
+      trimmed.length < 32 ||
+      KNOWN_INSECURE_SECRETS.has(trimmed) ||
+      (trimmed.startsWith("<") && trimmed.endsWith(">"))
+    ) {
       throw new Error(
         "FATAL CONFIGURATION ERROR: In production mode, SESSION_SECRET environment variable " +
           "must be set with at least 32 characters of high-entropy randomness and must not use " +
           "a default placeholder. Application startup aborted for security."
       );
     }
-    return secret.trim();
+    return trimmed;
   }
 
   return secret?.trim() || "siteintel_dev_test_session_secret_0123456789abcdef";

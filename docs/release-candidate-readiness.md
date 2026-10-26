@@ -2,8 +2,9 @@
 
 **Project:** SiteIntel Pulse — Website Intelligence & Growth Audit Platform
 **Repository:** `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse`
-**Current Baseline Commit:** `1eeea94c4a4c6c9b4fb69e44b595665c4e1dc0f8`
-**Latest Published CI Run:** [GitHub Actions Run 40254925772](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40254925772) (`conclusion: success`)
+**Preflight Starting Baseline:** `1eeea94c4a4c6c9b4fb69e44b595665c4e1dc0f8` (GitHub Actions Run [40254925772](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40254925772), `conclusion: success`)
+**Published Staging-Hardening Commit:** `d82d755cadea25adcfbd829c2783349feacadb99` (GitHub Actions Run [40256871873](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40256871873), `conclusion: success`)
+**Release Preflight Follow-Up:** Current Working Tree / HEAD (see Section 1 for lineage)
 **Static Showcase URL:** `https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`
 **Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — STAGING PREFLIGHT COMPLETE`
 **Launch Status:** **`NOT PUBLICLY LAUNCHED — STAGING DEPLOYMENT PENDING`**
@@ -15,6 +16,15 @@
 This canonical readiness document consolidates all preceding milestone audits and verification reports (`docs/final-release-readiness-audit.md`, `docs/milestone-4-staging-release.md`, `docs/milestone-4.1-container-acceptance.md`, `docs/staging-acceptance-report.md`, and `docs/public-audit-acceptance.md`).
 
 The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All core engine capabilities, catalogue rules, persistence mechanics, multi-tenant isolation barriers, pinned egress network safety, and bounded truncation truthfulness have been fully implemented and verified locally and in GitHub Actions CI.
+
+### 1.1 Release Candidate Commit Lineage & CI Records
+- **Preflight Starting Baseline:** `1eeea94c4a4c6c9b4fb69e44b595665c4e1dc0f8`
+  GitHub Actions CI Run [40254925772](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40254925772) (`conclusion: success`, all 7 quality gates passed).
+- **Published Staging-Hardening RC Commit:** `d82d755cadea25adcfbd829c2783349feacadb99`
+  Hardened Docker Compose security (`127.0.0.1:3000` loopback port binding, mandatory `SESSION_SECRET` interpolation), updated runbooks, and introduced focused staging security tests.
+  GitHub Actions CI Run [40256871873](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40256871873) (`conclusion: success`, all 7 quality gates passed).
+- **Final Staging Preflight Reconciliation Commit:** Working Tree / Current HEAD
+  Reconciled runbook placeholders, eliminated literal fake secrets, documented the production-mode account provisioning blocker, and converted document cross-references to repository-relative links. Follow-up CI will verify this state upon publication.
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
@@ -132,25 +142,27 @@ SiteIntel Pulse is designed for a **Single-Node Linux VPS** (Ubuntu 22.04/24.04 
 
 ---
 
-## 5. Explicitly Unverified Items (Honest Reality Boundary)
+## 5. Explicitly Unverified Items & Deployment Blockers
 
-To preserve evidence integrity, the following operational requirements are explicitly recorded as **UNVERIFIED**:
+To preserve evidence integrity, the following operational requirements are explicitly recorded as **UNVERIFIED** or **DEPLOYMENT BLOCKERS**:
 
-1. **Docker Container Runtime Acceptance:**
-   Docker is not installed on the local developer machine. Compose file syntax and configuration interpolation have been verified programmatically, but live container startup, container healthchecks, and internal container PDF rendering have **NOT RUN**.
-2. **External Staging Hosting:**
+1. **Docker Container Runtime Acceptance (Unverified):**
+   Docker is not installed on the local developer machine. Compose file syntax and configuration interpolation have been verified programmatically and via automated Vitest regression suites, but live container startup, container healthchecks, and internal container PDF rendering have **NOT RUN**.
+2. **External Staging Hosting (Unverified):**
    No remote staging virtual machine has been provisioned or credentialed from this workspace.
-3. **Production TLS / SSL Termination:**
+3. **Production TLS / SSL Termination (Unverified):**
    Let's Encrypt / TLS certificates have not been provisioned on an external domain.
-4. **Persistent Storage Across Physical Reboots:**
+4. **Persistent Storage Across Physical Reboots (Unverified):**
    Verified via automated simulation (`npm run db:verify`), but unverified across a physical host reboot or cloud volume detachment.
-5. **Live Staging Host Acceptance:**
+5. **Live Staging Host Acceptance (Unverified):**
    Acceptance tests must be run against the live staging URL once deployed.
+6. **Deployment Blocker — Named Password Account Provisioning in Production Mode:**
+   In `NODE_ENV=production`, staging demonstration accounts are unconditionally blocked from seeding by the production security guard (`seedInitialAccounts()` in `src/lib/auth/seed.ts` and `scripts/seed-staging.mjs`). The only supported account creation flow in production is the **Public Guest Session** (`POST /api/scan`), which dynamically provisions isolated guest tenants. There is currently no administrative CLI tool or API endpoint for provisioning named multi-tenant password accounts under `NODE_ENV=production`. If named accounts are required on the live staging server for password login (`/login`), a dedicated administrative account bootstrap CLI must be implemented as a deployment prerequisite.
 
 ---
 
 ## 6. Staging Acceptance Runbook Reference
 
 For detailed staging deployment steps, Nginx configuration templates, automated backup cron jobs, and post-deployment acceptance checklists, see:
-- [`docs/staging-deployment-runbook.md`](file:///d:/Projects/SiteIntel-Pulse/docs/staging-deployment-runbook.md)
-- [`docs/native-node-deployment.md`](file:///d:/Projects/SiteIntel-Pulse/docs/native-node-deployment.md)
+- [`docs/staging-deployment-runbook.md`](staging-deployment-runbook.md)
+- [`docs/native-node-deployment.md`](native-node-deployment.md)

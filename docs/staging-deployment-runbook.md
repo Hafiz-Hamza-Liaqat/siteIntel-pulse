@@ -38,8 +38,10 @@ NODE_ENV=production
 DATABASE_PATH=/app/data/siteintel.db
 
 # Authentication & Session Security (MANDATORY: Generate unique secret via `openssl rand -hex 32`)
-# Do NOT use a placeholder or commit this secret. Must be >= 32 characters of high-entropy randomness.
-SESSION_SECRET=<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>
+# Generate on your server using: openssl rand -hex 32
+# Set the generated 64-character hex string below. Keep this file private and OUT of Git.
+# Application startup will abort if this variable is missing, shorter than 32 chars, or uses a placeholder.
+SESSION_SECRET=
 
 # Staging Demonstration Seed Guard
 # Keep false in production. Set to true only in temporary non-production demo environments.
@@ -209,20 +211,30 @@ server {
 
 ---
 
-## 4. Staging Data Seeding
+## 4. Production-Mode Account Provisioning & Isolation Acceptance
 
-In staging, initial demonstration accounts can be seeded for team verification:
+### 4.1 Strict Production Demonstration Seed Guard
+In `NODE_ENV=production`, staging demonstration accounts are unconditionally blocked from seeding by the production security guard (`seedInitialAccounts()` in `src/lib/auth/seed.ts` and `scripts/seed-staging.mjs`). Even if `ALLOW_STAGING_SEEDS=true` is set, the application refuses to seed demo accounts.
 
-```bash
-# Execute within container or environment:
-docker exec -it siteintel-pulse-staging npm run seed:staging
-# or on native VPS:
-npm run seed:staging
-```
+> [!CAUTION]
+> **Do not run `npm run seed:staging` or `docker exec ... npm run seed:staging` against a staging or production deployment.** The script exits immediately with a fatal security error in production mode (`NODE_ENV=production`).
 
-This provisions two isolated tenants:
-- **Tenant 1 (Company A - Website Owner):** `owner@company-a.com` / `StagingSecurePassword2026!`
-- **Tenant 2 (Company B - Agency Specialist):** `specialist@company-b.com` / `StagingSecurePassword2026!`
+### 4.2 Supported Account Creation: Public Guest Session Flow
+SiteIntel Pulse provides automated, on-demand tenant provisioning for public scan intake:
+- Submitting an audit request via `POST /api/scan` without an active session automatically invokes `createGuestSession()`.
+- The engine generates an unpredictable, isolated tenant identifier (`tenant_guest_<timestamp>_<entropy>`) and viewer user (`user_guest_<timestamp>_<entropy>`).
+- The client receives an HMAC-signed HttpOnly session cookie (`siteintel_session`).
+- Complete multi-tenant data isolation is enforced at the database level (`WHERE tenant_id = ?`).
+
+### 4.3 Multi-Tenant Isolation Verification Protocol
+To verify multi-tenant isolation on the live staging host without demo accounts:
+1. **Tenant A (Client Session 1):** In Browser 1, initiate a scan for a test domain. This creates Tenant A. Copy the resulting scan job ID and report ID.
+2. **Tenant B (Client Session 2):** In Browser 2 (or a private/incognito window), initiate a scan for a test domain. This creates Tenant B with a separate session cookie.
+3. **Cross-Tenant Authorization Check:** Using Client Session 2, attempt to query Tenant A's scan status, Owner Report (`/api/scan/report`), Expert Report (`/api/scan/expert-report`), PDF downloads (`/api/scan/pdf`, `/api/scan/expert-pdf`), or CSV exports (`/api/scan/expert-export`).
+4. **Expected Outcome:** Every cross-tenant request is rejected with HTTP 403 Forbidden.
+
+### 4.4 Deployment Blocker: Named Password Account Provisioning
+There is currently no administrative CLI tool or API endpoint for provisioning named multi-tenant password accounts (such as Company A/B tenant accounts for `/login`) while `NODE_ENV=production`. If password-authenticated multi-tenant administration is required beyond guest session intake, a dedicated administrative account bootstrap CLI must be implemented before launch.
 
 ---
 
@@ -272,13 +284,13 @@ curl -i http://localhost:3000/api/health
 | Step | Operation | Expected Outcome | Live Staging Status |
 | :--- | :--- | :--- | :--- |
 | **1** | `GET /api/health` | Returns HTTP 200, `"status":"healthy"`, `"database":"connected"` | [ ] Pending live deployment |
-| **2** | Login as Tenant A | Authenticates via PBKDF2 (220k iter), sets secure HttpOnly session cookie | [ ] Pending live deployment |
-| **3** | Submit Target URL | Discovers pages within budgets, respects robots and SSRF guardrails | [ ] Pending live deployment |
-| **4** | Generate Owner Report | Computes 56 rules, displays honest provenance scores, renders 13 cards | [ ] Pending live deployment |
-| **5** | Download Owner PDF | Headless Playwright Chromium streams verified binary PDF (`application/pdf`) | [ ] Pending live deployment |
-| **6** | Login as Tenant B | Navigates to `/expert-audit`, opens Company B Diagnostic Workbench | [ ] Pending live deployment |
-| **7** | Manage Remediation | Updates task status to `in_progress` and persists to SQLite database | [ ] Pending live deployment |
-| **8** | Export Expert CSV | Downloads 56-finding remediation plan spreadsheet | [ ] Pending live deployment |
-| **9** | Download Expert PDF | Streams 8-page diagnostic PDF with executive triage and audit ledger | [ ] Pending live deployment |
-| **10** | Multi-Tenant Isolation | Tenant B request to Tenant A report returns HTTP 403 Forbidden | [ ] Pending live deployment |
+| **2** | Submit Target URL (Client Session 1) | Initiates scan, provisions Tenant A guest session, sets secure session cookie | [ ] Pending live deployment |
+| **3** | Execute Owner Audit (Tenant A) | Discovers pages within budgets, respects robots and SSRF guardrails | [ ] Pending live deployment |
+| **4** | Generate Owner Report (Tenant A) | Computes 56 rules, displays honest provenance scores, renders 13 cards | [ ] Pending live deployment |
+| **5** | Download Owner PDF (Tenant A) | Headless Playwright Chromium streams verified binary PDF (`application/pdf`) | [ ] Pending live deployment |
+| **6** | Submit Target URL (Client Session 2) | Initiates scan in incognito/separate browser, provisions isolated Tenant B | [ ] Pending live deployment |
+| **7** | Generate Expert Report (Tenant B) | Navigates to `/expert-audit`, opens Diagnostic Workbench with 19 sections | [ ] Pending live deployment |
+| **8** | Export Expert CSV (Tenant B) | Downloads 56-finding remediation plan spreadsheet | [ ] Pending live deployment |
+| **9** | Download Expert PDF (Tenant B) | Streams 8-page diagnostic PDF with executive triage and audit ledger | [ ] Pending live deployment |
+| **10** | Multi-Tenant Isolation | Client Session 2 request to Tenant A scan/report/PDF returns HTTP 403 Forbidden | [ ] Pending live deployment |
 | **11** | Backup & Restore Run | Executes `npm run db:verify`, confirming 100% data fidelity on recovery | [ ] Pending live deployment |
