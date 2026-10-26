@@ -55,8 +55,10 @@ The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All
   GitHub Actions CI Pipeline Run [40308508104](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40308508104) (`conclusion: success`, all 8 quality gates passed).
   GitHub Actions Docker Acceptance Run [40308508151](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40308508151) (`conclusion: success`, all 15 container acceptance steps passed).
   GitHub Actions Real Target Audits Run [40308643902](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40308643902) (`conclusion: success`, all 3 live audits completed and artifacts uploaded).
-- **Catalogue Expansion & Report Reliability Milestone (Current):**
+- **Catalogue Expansion & Report Reliability Milestone (`401c540a60abb44ebc6a0eefc1778166b9db7307`):**
   Delivered content-type-aware crawling (isolating XML sitemaps, robots.txt, images, and non-HTML assets from HTML title/canonical/heading rules and orphan candidates), explicit scoring semantics (100 total allocated points, evaluated points, earned points, catalogue coverage %, and normalized score), unconfigured PageSpeed provider honest `NOT_TESTED` state (preventing false passes and decoupling evaluated score from category coverage), 9 non-additive diagnostic dimension scorecards, Cost of Inaction Calculator v1 with multi-model opportunity simulations, and heuristic AI-content pattern-risk evaluation.
+  GitHub Actions CI Pipeline Run [40347586222](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40347586222) (`conclusion: success`, all 8 quality gates passed, 33 test files and 317/317 unit tests passed, 33/33 Playwright tests passed, `pdf-review-artifacts` uploaded).
+  GitHub Actions Docker Acceptance Run [40347586018](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40347586018) (`conclusion: success`, all 15 container acceptance steps passed).
 
 
 > [!IMPORTANT]
