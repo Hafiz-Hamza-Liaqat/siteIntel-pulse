@@ -19,6 +19,7 @@
     "test:e2e": "playwright test",
     "test:pdf": "node scripts/verify-pdf.mjs && node scripts/verify-expert-pdf.mjs",
     "seed:staging": "node scripts/seed-staging.mjs",
+    "admin:provision-tenant": "node scripts/provision-tenant-owner.mjs",
     "db:backup": "node scripts/backup-database.mjs",
     "db:restore": "node scripts/restore-database.mjs",
     "db:verify": "node scripts/verify-backup-recovery.mjs"

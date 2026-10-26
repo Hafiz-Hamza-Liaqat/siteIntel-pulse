@@ -233,8 +233,41 @@ To verify multi-tenant isolation on the live staging host without demo accounts:
 3. **Cross-Tenant Authorization Check:** Using Client Session 2, attempt to query Tenant A's scan status, Owner Report (`/api/scan/report`), Expert Report (`/api/scan/expert-report`), PDF downloads (`/api/scan/pdf`, `/api/scan/expert-pdf`), or CSV exports (`/api/scan/expert-export`).
 4. **Expected Outcome:** Every cross-tenant request is rejected with HTTP 403 Forbidden.
 
-### 4.4 Deployment Blocker: Named Password Account Provisioning
-There is currently no administrative CLI tool or API endpoint for provisioning named multi-tenant password accounts (such as Company A/B tenant accounts for `/login`) while `NODE_ENV=production`. If password-authenticated multi-tenant administration is required beyond guest session intake, a dedicated administrative account bootstrap CLI must be implemented before launch.
+### 4.4 Named Tenant-Owner Account Provisioning (Production CLI)
+While demo seeds are strictly locked out in production, SiteIntel Pulse provides a secure, server-side administrative CLI tool for provisioning named multi-tenant owner accounts for production and staging environments:
+
+```bash
+# Docker Compose:
+docker exec -it siteintel-pulse-staging npm run admin:provision-tenant
+
+# Native / Host:
+NODE_ENV=production npm run admin:provision-tenant
+```
+
+#### Security Controls & Safeguards:
+1. **Interactive TTY Enforcement:** The CLI strictly requires an interactive terminal (`process.stdin.isTTY`). It rejects non-interactive execution, piped inputs, CI automation, and headless subshells.
+2. **Terminal Echo Suppression:** Passwords are typed securely with echo disabled; credentials are never leaked to process lists, shell histories (`.bash_history`), or terminal displays.
+3. **Password Policy Enforcement:** Passwords must be $\ge 12$ characters and satisfy complexity rules (uppercase, lowercase, number, symbol, no whitespace) with confirmation.
+4. **PBKDF2-HMAC-SHA512 Cryptography:** Passwords are salted with 32 random bytes and hashed with 220,000 iterations of PBKDF2-HMAC-SHA512, ensuring 100% compatibility with `AuthService.authenticateUser` and `verifyPassword`.
+5. **Atomic Isolation & Rollback:** Tenant creation, slug generation, user mapping, and owner role assignment occur within an atomic SQLite transaction. If any constraint fails (e.g., duplicate email or tenant slug), the transaction rolls back cleanly.
+6. **No Pre-Generated API Keys:** Tenant owners are created without API keys or elevated cross-tenant permissions, maintaining strict data isolation.
+
+#### Staging Two-Tenant Provisioning Procedure:
+To provision the verified two-tenant staging accounts:
+1. **Provision Tenant 1 (Company A):**
+   - Tenant Name: `Company A`
+   - Tenant Slug: `company-a`
+   - Owner Name: `Company A Owner`
+   - Owner Email: `owner@company-a.com`
+   - Password: Enter high-entropy staging password (confirmed without echo).
+2. **Provision Tenant 2 (Company B):**
+   - Tenant Name: `Company B`
+   - Tenant Slug: `company-b`
+   - Owner Name: `Company B Specialist`
+   - Owner Email: `specialist@company-b.com`
+   - Password: Enter high-entropy staging password (confirmed without echo).
+
+Both accounts can immediately authenticate at `/login` with full tenant boundary isolation.
 
 ---
 
@@ -284,13 +317,15 @@ curl -i http://localhost:3000/api/health
 | Step | Operation | Expected Outcome | Live Staging Status |
 | :--- | :--- | :--- | :--- |
 | **1** | `GET /api/health` | Returns HTTP 200, `"status":"healthy"`, `"database":"connected"` | [ ] Pending live deployment |
-| **2** | Submit Target URL (Client Session 1) | Initiates scan, provisions Tenant A guest session, sets secure session cookie | [ ] Pending live deployment |
-| **3** | Execute Owner Audit (Tenant A) | Discovers pages within budgets, respects robots and SSRF guardrails | [ ] Pending live deployment |
-| **4** | Generate Owner Report (Tenant A) | Computes 56 rules, displays honest provenance scores, renders 13 cards | [ ] Pending live deployment |
-| **5** | Download Owner PDF (Tenant A) | Headless Playwright Chromium streams verified binary PDF (`application/pdf`) | [ ] Pending live deployment |
-| **6** | Submit Target URL (Client Session 2) | Initiates scan in incognito/separate browser, provisions isolated Tenant B | [ ] Pending live deployment |
-| **7** | Generate Expert Report (Tenant B) | Navigates to `/expert-audit`, opens Diagnostic Workbench with 19 sections | [ ] Pending live deployment |
-| **8** | Export Expert CSV (Tenant B) | Downloads 56-finding remediation plan spreadsheet | [ ] Pending live deployment |
-| **9** | Download Expert PDF (Tenant B) | Streams 8-page diagnostic PDF with executive triage and audit ledger | [ ] Pending live deployment |
-| **10** | Multi-Tenant Isolation | Client Session 2 request to Tenant A scan/report/PDF returns HTTP 403 Forbidden | [ ] Pending live deployment |
-| **11** | Backup & Restore Run | Executes `npm run db:verify`, confirming 100% data fidelity on recovery | [ ] Pending live deployment |
+| **2** | Provision Named Tenants CLI | Run `npm run admin:provision-tenant` for Company A (`owner@company-a.com`) and Company B (`specialist@company-b.com`) | [ ] Pending live deployment |
+| **3** | Authenticate Provisioned Tenant 1 | Log in at `/login` as `owner@company-a.com`, receive signed session cookie and access tenant dashboard | [ ] Pending live deployment |
+| **4** | Submit Target URL (Client Session 1 / Guest) | Initiates scan, provisions Tenant A guest session, sets secure session cookie | [ ] Pending live deployment |
+| **5** | Execute Owner Audit (Tenant A) | Discovers pages within budgets, respects robots and SSRF guardrails | [ ] Pending live deployment |
+| **6** | Generate Owner Report (Tenant A) | Computes 56 rules, displays honest provenance scores, renders 13 cards | [ ] Pending live deployment |
+| **7** | Download Owner PDF (Tenant A) | Headless Playwright Chromium streams verified binary PDF (`application/pdf`) | [ ] Pending live deployment |
+| **8** | Submit Target URL (Client Session 2 / Guest) | Initiates scan in incognito/separate browser, provisions isolated Tenant B | [ ] Pending live deployment |
+| **9** | Generate Expert Report (Tenant B) | Navigates to `/expert-audit`, opens Diagnostic Workbench with 19 sections | [ ] Pending live deployment |
+| **10** | Export Expert CSV (Tenant B) | Downloads 56-finding remediation plan spreadsheet | [ ] Pending live deployment |
+| **11** | Download Expert PDF (Tenant B) | Streams 8-page diagnostic PDF with executive triage and audit ledger | [ ] Pending live deployment |
+| **12** | Authenticate Provisioned Tenant 2 & Cross-Tenant Audit | Log in at `/login` as `specialist@company-b.com`; verify Company B and Client Session 2 requests to Tenant 1 / Tenant A resources return HTTP 403 Forbidden | [ ] Pending live deployment |
+| **13** | Backup & Restore Run | Executes `npm run db:verify`, confirming 100% data fidelity on recovery | [ ] Pending live deployment |

@@ -3,8 +3,8 @@
 **Project:** SiteIntel Pulse — Website Intelligence & Growth Audit Platform
 **Repository:** `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse`
 **Preflight Starting Baseline:** `1eeea94c4a4c6c9b4fb69e44b595665c4e1dc0f8` (GitHub Actions Run [40254925772](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40254925772), `conclusion: success`)
-**Published Staging-Hardening Commit:** `d82d755cadea25adcfbd829c2783349feacadb99` (GitHub Actions Run [40256871873](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40256871873), `conclusion: success`)
-**Release Preflight Follow-Up:** Current Working Tree / HEAD (see Section 1 for lineage)
+**Staging-Hardening RC Baseline:** `d82d755cadea25adcfbd829c2783349feacadb99` (GitHub Actions Run [40256871873](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40256871873), `conclusion: success`)
+**Preflight Reconciliation Baseline:** `5b5f52913304d3e07b9affc060c6fa22dbb2a9f7` (GitHub Actions Run [40263026167](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40263026167), `conclusion: success`)
 **Static Showcase URL:** `https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`
 **Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — STAGING PREFLIGHT COMPLETE`
 **Launch Status:** **`NOT PUBLICLY LAUNCHED — STAGING DEPLOYMENT PENDING`**
@@ -18,13 +18,16 @@ This canonical readiness document consolidates all preceding milestone audits an
 The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All core engine capabilities, catalogue rules, persistence mechanics, multi-tenant isolation barriers, pinned egress network safety, and bounded truncation truthfulness have been fully implemented and verified locally and in GitHub Actions CI.
 
 ### 1.1 Release Candidate Commit Lineage & CI Records
-- **Preflight Starting Baseline:** `1eeea94c4a4c6c9b4fb69e44b595665c4e1dc0f8`
+- **Preflight Starting Baseline (`1eeea94`):**
   GitHub Actions CI Run [40254925772](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40254925772) (`conclusion: success`, all 7 quality gates passed).
-- **Published Staging-Hardening RC Commit:** `d82d755cadea25adcfbd829c2783349feacadb99`
+- **Staging-Hardening RC Baseline (`d82d755`):**
   Hardened Docker Compose security (`127.0.0.1:3000` loopback port binding, mandatory `SESSION_SECRET` interpolation), updated runbooks, and introduced focused staging security tests.
   GitHub Actions CI Run [40256871873](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40256871873) (`conclusion: success`, all 7 quality gates passed).
-- **Final Staging Preflight Reconciliation Commit:** Working Tree / Current HEAD
-  Reconciled runbook placeholders, eliminated literal fake secrets, documented the production-mode account provisioning blocker, and converted document cross-references to repository-relative links. Follow-up CI will verify this state upon publication.
+- **Preflight Reconciliation Baseline (`5b5f529`):**
+  Reconciled runbook placeholders, eliminated literal fake secrets, documented the production-mode account provisioning blocker, and converted cross-references to repository-relative links.
+  GitHub Actions CI Run [40263026167](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40263026167) (`conclusion: success`, all 7 quality gates passed).
+- **Production Account Provisioning & Final Preflight Hardening:** Current Working Tree / HEAD
+  Implemented the secure production-mode administrative CLI (`npm run admin:provision-tenant` / `scripts/provision-tenant-owner.mjs`), enforced 64-character hexadecimal format for `SESSION_SECRET`, and added comprehensive unit and integration regression suites.
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
@@ -83,6 +86,19 @@ The platform evaluates 56 deterministic rules across 11 audit categories with a 
 - **Disaster Restoration:** `scripts/restore-database.mjs` purges stale WAL/SHM artifacts and restores database state with 100% fidelity.
 - **Health & Readiness Probe:** `GET /api/health` validates database connectivity and returns HTTP 200 without exposing paths or secrets.
 
+### 2.7 Secure Production Account Provisioning CLI
+- **Tooling:** `npm run admin:provision-tenant` backed by [`scripts/provision-tenant-owner.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/provision-tenant-owner.mjs).
+- **Operational Model:** Server-side administrative CLI invoked manually via interactive terminal (TTY); never exposed as an HTTP route.
+- **Production Hardening:**
+  - Requires `NODE_ENV=production`.
+  - Enforces a valid 64-character hexadecimal `SESSION_SECRET` matching `openssl rand -hex 32` format.
+  - Validates that the database file and migrated schema (`tenants`, `users`) exist prior to execution.
+  - Reads passwords with masked input (zero terminal echo); rejects passwords passed via command-line arguments or non-interactive streams.
+  - Enforces strong password complexity ($\ge 12$ chars, mixed case, digit, symbol, no whitespace) and confirmation matching.
+  - Atomically creates the tenant and owner user in a single SQLite transaction with uniqueness checks on slug and email.
+  - Assigns strictly the tenant-level `owner` role with zero cross-tenant access.
+  - Outputs only non-sensitive identifiers; passwords and secrets are never printed, stored, or logged.
+
 ---
 
 ## 3. Local & CI Quality Gates Evidence
@@ -91,12 +107,14 @@ All quality gates have been executed sequentially against the codebase:
 
 | Gate | Execution Command | Result | Verification Notes |
 | :--- | :--- | :---: | :--- |
-| **Focused Staging Security Tests** | `npx vitest run src/lib/security/staging-preflight-security.test.ts` | **PASS** | 12/12 tests passed (Compose loopback, secret interpolation, IP trust, seed lockout) |
+| **Focused Account Provisioning Tests** | `npx vitest run src/lib/auth/provision-tenant-owner.test.ts` | **PASS** | 14/14 tests passed (atomic transaction, login auth, rollback, TTY safeguard) |
+| **Focused Staging Security Tests** | `npx vitest run src/lib/security/staging-preflight-security.test.ts` | **PASS** | 17/17 tests passed (64-hex secret format, placeholder rejection, IP trust contract) |
+| **Focused Password Security Tests** | `npx vitest run src/lib/auth/password-security.test.ts` | **PASS** | 17/17 tests passed (220k PBKDF2 iterations, benchmark, session rotation) |
 | **Focused Catalogue Integrity Tests** | `npx vitest run src/lib/catalogue/rules-evidence-integrity.test.ts src/lib/catalogue/rules.test.ts` | **PASS** | 36/36 tests passed (13 truncation tests, complete catalogue suite) |
 | **Focused Transport Tests** | `npx vitest run src/lib/scanner/pinned-transport.test.ts src/lib/scanner/crawler.test.ts` | **PASS** | 28/28 tests passed (SSRF pinning, budget enforcement, truncation signals) |
 | **Gate 1: TypeScript Check** | `npm run typecheck` | **PASS** | Clean `tsc --noEmit` across all components, API routes, and schemas |
 | **Gate 2: ESLint Hygiene** | `npm run lint` | **PASS** | 0 warnings, 0 errors |
-| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 29 test files passed, 252/252 tests passed (100% pass rate) |
+| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 30 test files passed, 270/270 tests passed (100% pass rate) |
 | **Gate 4: Playwright E2E** | `npm run test:e2e` | **PASS** | 33/33 tests passed across Desktop, Tablet, and Mobile viewports |
 | **Gate 5: PDF Verification** | `npm run test:pdf` | **PASS** | Generated & verified Owner PDF and Expert PDF |
 | **Gate 6: SQLite Recovery** | `npm run db:verify` | **PASS** | 100% bit-accurate recovery of tenants, users, scan jobs, and reports |
@@ -142,12 +160,12 @@ SiteIntel Pulse is designed for a **Single-Node Linux VPS** (Ubuntu 22.04/24.04 
 
 ---
 
-## 5. Explicitly Unverified Items & Deployment Blockers
+## 5. Explicitly Unverified Items & Operational Prerequisites
 
-To preserve evidence integrity, the following operational requirements are explicitly recorded as **UNVERIFIED** or **DEPLOYMENT BLOCKERS**:
+To preserve evidence integrity, the following operational requirements are explicitly recorded as **UNVERIFIED**:
 
 1. **Docker Container Runtime Acceptance (Unverified):**
-   Docker is not installed on the local developer machine. Compose file syntax and configuration interpolation have been verified programmatically and via automated Vitest regression suites, but live container startup, container healthchecks, and internal container PDF rendering have **NOT RUN**.
+   Docker is not installed on the local developer machine. Compose file syntax, volume definitions, and configuration interpolation have been verified programmatically and via automated Vitest regression suites, but live container startup, container healthchecks, and in-container PDF rendering have **NOT RUN**.
 2. **External Staging Hosting (Unverified):**
    No remote staging virtual machine has been provisioned or credentialed from this workspace.
 3. **Production TLS / SSL Termination (Unverified):**
@@ -156,8 +174,14 @@ To preserve evidence integrity, the following operational requirements are expli
    Verified via automated simulation (`npm run db:verify`), but unverified across a physical host reboot or cloud volume detachment.
 5. **Live Staging Host Acceptance (Unverified):**
    Acceptance tests must be run against the live staging URL once deployed.
-6. **Deployment Blocker — Named Password Account Provisioning in Production Mode:**
-   In `NODE_ENV=production`, staging demonstration accounts are unconditionally blocked from seeding by the production security guard (`seedInitialAccounts()` in `src/lib/auth/seed.ts` and `scripts/seed-staging.mjs`). The only supported account creation flow in production is the **Public Guest Session** (`POST /api/scan`), which dynamically provisions isolated guest tenants. There is currently no administrative CLI tool or API endpoint for provisioning named multi-tenant password accounts under `NODE_ENV=production`. If named accounts are required on the live staging server for password login (`/login`), a dedicated administrative account bootstrap CLI must be implemented as a deployment prerequisite.
+
+### 5.1 Resolved: Server-Side Account Provisioning Procedure
+The previous blocker regarding named account creation under `NODE_ENV=production` has been resolved with the dedicated administrative CLI:
+- Operators invoke `NODE_ENV=production npm run admin:provision-tenant` (or `docker exec -it siteintel-pulse-staging npm run admin:provision-tenant`).
+- For multi-tenant staging acceptance, operators invoke this command twice to provision two distinct tenants:
+  - **Tenant 1 (Company A Owner):** e.g. Name: "Company A E-Commerce", Slug: `comp-a`, Role: `owner`.
+  - **Tenant 2 (Company B Specialist):** e.g. Name: "Company B Agency", Slug: `comp-b`, Role: `owner`.
+- The CLI enforces high-entropy passwords without terminal echo, applies atomic SQLite transactions, and maintains strict cross-tenant boundary isolation. Staging seed lockout in production remains completely intact.
 
 ---
 

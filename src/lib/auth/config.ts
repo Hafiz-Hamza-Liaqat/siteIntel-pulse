@@ -13,7 +13,14 @@ const KNOWN_INSECURE_SECRETS = new Set([
 
 /**
  * Validates and retrieves SESSION_SECRET.
- * In production mode, enforces high entropy (>= 32 chars) and forbids placeholders.
+ * In production mode, enforces the 64-character hexadecimal format matching
+ * `openssl rand -hex 32` and forbids placeholders.
+ *
+ * NOTE ON ENTROPY & TRUTHFULNESS:
+ * Format validation verifies structural conformity (64 hex characters), but syntax
+ * checking alone cannot mathematically guarantee true randomness or entropy. Securely
+ * generating a unique, high-entropy secret on the target deployment host remains an
+ * essential operational requirement.
  */
 export function getSessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
@@ -29,10 +36,21 @@ export function getSessionSecret(): string {
     ) {
       throw new Error(
         "FATAL CONFIGURATION ERROR: In production mode, SESSION_SECRET environment variable " +
-          "must be set with at least 32 characters of high-entropy randomness and must not use " +
-          "a default placeholder. Application startup aborted for security."
+          "must be set with at least 32 characters of high-entropy randomness (a 64-character hexadecimal " +
+          "string matching 'openssl rand -hex 32') and must not use a default placeholder. " +
+          "Application startup aborted for security."
       );
     }
+
+    if (!/^[0-9a-f]{64}$/i.test(trimmed)) {
+      throw new Error(
+        "FATAL CONFIGURATION ERROR: In production mode, SESSION_SECRET environment variable " +
+          "must be a 64-character hexadecimal string matching 'openssl rand -hex 32'. " +
+          "Note: Format validation cannot guarantee entropy; generating a unique secret remains mandatory. " +
+          "Application startup aborted for security."
+      );
+    }
+
     return trimmed;
   }
 

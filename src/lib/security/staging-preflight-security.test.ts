@@ -96,7 +96,23 @@ describe("Staging Preflight & Production Security Configuration", () => {
       expect(() => getSessionSecret()).toThrowError(/default placeholder/);
     });
 
-    it("accepts a cryptographically strong 32+ character random secret in production", () => {
+    it("aborts in production mode when SESSION_SECRET is not valid 64-character hexadecimal", () => {
+      (process.env as any).NODE_ENV = "production";
+      // 64 characters long but contains non-hexadecimal characters ('z')
+      process.env.SESSION_SECRET = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
+
+      expect(() => getSessionSecret()).toThrowError(/64-character hexadecimal string/);
+    });
+
+    it("aborts in production mode when SESSION_SECRET is hexadecimal but not 64 characters long", () => {
+      (process.env as any).NODE_ENV = "production";
+      // 48 hex characters
+      process.env.SESSION_SECRET = "abcdef0123456789abcdef0123456789abcdef0123456789";
+
+      expect(() => getSessionSecret()).toThrowError(/64-character hexadecimal string/);
+    });
+
+    it("accepts a cryptographically strong 64-character hexadecimal secret in production", () => {
       (process.env as any).NODE_ENV = "production";
       const validSecret = crypto.randomBytes(32).toString("hex");
       process.env.SESSION_SECRET = validSecret;
@@ -141,7 +157,7 @@ describe("Staging Preflight & Production Security Configuration", () => {
 
     it("dynamically provisions separate isolated guest tenants for public intake without pre-seeded accounts", () => {
       (process.env as any).NODE_ENV = "production";
-      (process.env as any).SESSION_SECRET = "production_secret_32_characters_minimum_randomness_here";
+      (process.env as any).SESSION_SECRET = crypto.randomBytes(32).toString("hex");
 
       const memDb = new DatabaseSync(":memory:");
       memDb.exec(`

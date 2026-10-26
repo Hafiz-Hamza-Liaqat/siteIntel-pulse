@@ -201,7 +201,7 @@ describe("Final Guest Security Review & Regression Suite", () => {
       const prevEnv = process.env.NODE_ENV;
       const prevSecret = process.env.SESSION_SECRET;
       (process.env as any).NODE_ENV = "production";
-      process.env.SESSION_SECRET = "production_super_secure_entropy_key_with_sufficient_length_2026";
+      process.env.SESSION_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
       try {
         const legitimateIp = "203.0.113.88";
