@@ -168,7 +168,7 @@ User=siteintel
 Group=siteintel
 WorkingDirectory=/opt/siteintel-pulse
 EnvironmentFile=/etc/siteintel.env
-ExecStart=/usr/bin/npm start
+ExecStart=/usr/bin/node /opt/siteintel-pulse/node_modules/.bin/next start -p 3000 -H 127.0.0.1
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
@@ -296,6 +296,21 @@ sudo systemctl start siteintel
 # 4. Verify health probe
 curl -i http://127.0.0.1:3000/api/health
 ```
+
+### 8.3 Named Tenant-Owner Account Provisioning (Production CLI)
+While demo seeds are strictly locked out in production, SiteIntel Pulse provides an interactive server-side CLI for provisioning named multi-tenant owner accounts:
+
+```bash
+# Execute as the dedicated siteintel service user to preserve SQLite file ownership
+cd /opt/siteintel-pulse
+sudo -u siteintel ENV_FILE=/etc/siteintel.env npm run admin:provision-tenant
+```
+
+> [!IMPORTANT]
+> **Operational Safeguards:**
+> 1. **Preserve Database File Ownership:** Always run as `sudo -u siteintel`. Running as root will alter ownership of `/var/lib/siteintel/data/siteintel.db` and its WAL/SHM companion files to `root:root`, breaking the systemd service.
+> 2. **Environment Loading:** Supplying `ENV_FILE=/etc/siteintel.env` provides the validated 64-hex `SESSION_SECRET` and `DATABASE_PATH` to the raw Node.js script without passing secrets as process arguments.
+> 3. **Interactive TTY Enforcement:** The CLI strictly requires both `stdin` and `stdout` to be interactive terminals; non-interactive execution, piped inputs, and redirected outputs are aborted before asking for any password. Passwords are typed without terminal echo.
 
 ---
 

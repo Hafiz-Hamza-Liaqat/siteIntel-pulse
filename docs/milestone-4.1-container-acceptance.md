@@ -44,7 +44,7 @@ Programmatic inspection of `src/lib/catalogue/registry.ts`, `src/types/schema.ts
 | **Total** | | **56 rules** | **100 pts** |
 
 ### 2.2 Reconciliation of Documentation vs Presentation
-- In the Owner Report visual dashboard ([`src/components/report/`](file:///d:/Projects/SiteIntel-Pulse/src/components/report/)), related categories are paired into visual summary modules (e.g. Technical Health + SEO, Performance + Responsive, Security + Auth, Content + AI, Analytics + Conversion, Competitors) along with executive overview and strategic roadmap cards, creating 13 visual dashboard cards.
+- In the Owner Report visual dashboard ([`src/components/report/`](../src/components/report/)), related categories are paired into visual summary modules (e.g. Technical Health + SEO, Performance + Responsive, Security + Auth, Content + AI, Analytics + Conversion, Competitors) along with executive overview and strategic roadmap cards, creating 13 visual dashboard cards.
 - A descriptive typo referencing "9 categories" in earlier drafts was corrected across all documentation to match the canonical 11-category catalogue.
 - Scoring semantics remain strictly intact:
   - `scorePercentage` = `100 * earnedPoints / testedPoints` (score among evaluated tests).
@@ -57,10 +57,10 @@ Programmatic inspection of `src/lib/catalogue/registry.ts`, `src/types/schema.ts
 ## 3. Production Configuration & Missing Secret Startup Protection
 
 To prevent insecure production launches:
-1. **Startup Validation Guard:** [`SqliteScanDatabaseAdapter`](file:///d:/Projects/SiteIntel-Pulse/src/lib/persistence/db.ts) immediately invokes [`getSessionSecret()`](file:///d:/Projects/SiteIntel-Pulse/src/lib/auth/config.ts) upon initialization when `NODE_ENV === "production"`.
+1. **Startup Validation Guard:** [`SqliteScanDatabaseAdapter`](../src/lib/persistence/db.ts) immediately invokes [`getSessionSecret()`](../src/lib/auth/config.ts) upon initialization when `NODE_ENV === "production"`.
 2. **Failure Criteria:** If `SESSION_SECRET` is undefined, shorter than 32 characters, or matches a default placeholder (e.g., `siteintel_staging_session_secret...`), initialization immediately throws a fatal exception:
    `FATAL CONFIGURATION ERROR: In production mode, SESSION_SECRET environment variable must be set with at least 32 characters of high-entropy randomness... Application startup aborted for security.`
-3. **Automated Unit Verification:** Added and verified in [`src/lib/auth/password-security.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/auth/password-security.test.ts) (16/16 tests passing).
+3. **Automated Unit Verification:** Added and verified in [`src/lib/auth/password-security.test.ts`](../src/lib/auth/password-security.test.ts) (16/16 tests passing).
 4. **Staging Seed Guard:** In production mode (`NODE_ENV=production`), staging demonstration accounts cannot be seeded, even if `ALLOW_STAGING_SEEDS=true` is set.
 
 ---
@@ -69,14 +69,14 @@ To prevent insecure production launches:
 
 1. **Process Durability & WAL Management:**
    - Evaluated under Write-Ahead Logging (`WAL`) mode with `PRAGMA busy_timeout = 5000;`.
-   - Verified that uncheckpointed WAL transactions are cleanly committed and survive adapter restarts without data loss ([`src/lib/persistence/durable-sqlite.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/persistence/durable-sqlite.test.ts)).
+   - Verified that uncheckpointed WAL transactions are cleanly committed and survive adapter restarts without data loss ([`src/lib/persistence/durable-sqlite.test.ts`](../src/lib/persistence/durable-sqlite.test.ts)).
 2. **Safe Backup & Restoration:**
    - `scripts/backup-database.mjs` executes non-blocking `VACUUM INTO` snapshots and verifies integrity via `PRAGMA quick_check;`.
    - `scripts/restore-database.mjs` includes an explicit guard rejecting operations where `backupPath === targetPath`, preventing accidental truncation of the live database. Stale target `-wal` and `-shm` artifacts are cleared before restoring.
-   - Verified through automated end-to-end integration test ([`scripts/verify-backup-recovery.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/verify-backup-recovery.mjs)).
-3. **Health Probe Integrity ([`/api/health`](file:///d:/Projects/SiteIntel-Pulse/src/app/api/health/route.ts)):**
+   - Verified through automated end-to-end integration test ([`scripts/verify-backup-recovery.mjs`](../scripts/verify-backup-recovery.mjs)).
+3. **Health Probe Integrity ([`/api/health`](../src/app/api/health/route.ts)):**
    - Returns HTTP 200 with uptime and database status when operational; HTTP 503 if disconnected.
-   - Evaluated and verified in [`src/lib/persistence/health.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/persistence/health.test.ts): Confirmed zero disclosure of file paths, connection strings, passwords, or tenant reports.
+   - Evaluated and verified in [`src/lib/persistence/health.test.ts`](../src/lib/persistence/health.test.ts): Confirmed zero disclosure of file paths, connection strings, passwords, or tenant reports.
 4. **Hosting Topology & Architecture Limitations:**
    - **Single-Node Persistence:** The default database uses local SQLite WAL. It is strictly designed for single-node deployments with persistent disk storage (`ReadWriteOnce`).
    - **Horizontal Multi-Instance Warning:** Running multiple simultaneous container replicas pointing to the same SQLite file over distributed network shares (NFS, SMB, EFS) is **not supported** due to network lock latency and risk of corruption. For horizontally scaled multi-instance deployments, an external PostgreSQL/Supabase database adapter must be provisioned via `DATABASE_URL`.

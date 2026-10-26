@@ -14,6 +14,11 @@ import {
   validatePasswordStrength,
   validateSlug,
   validateEmail,
+  validateSessionSecret,
+  checkTtyEligibility,
+  promptHidden,
+  loadEnvFile,
+  resolveDatabasePath,
 } from "../../../scripts/provision-tenant-owner.mjs";
 
 describe("Production Tenant & Owner Account Provisioning CLI", () => {
@@ -246,6 +251,132 @@ describe("Production Tenant & Owner Account Provisioning CLI", () => {
       const guest = authService.createGuestSession("198.51.100.99");
       expect(guest.tenant.id).toMatch(/^tenant_guest_/);
       expect(guest.user.role).toBe("viewer");
+    });
+  });
+
+  describe("Interactive TTY & Hidden Password Entry Hardening", () => {
+    it("strictly requires both stdin and stdout to be interactive TTYs", () => {
+      // 1. Missing stdin TTY
+      const noStdinTty = checkTtyEligibility({ isTTY: false } as any, { isTTY: true } as any);
+      expect(noStdinTty.eligible).toBe(false);
+      expect(noStdinTty.error).toContain("stdin isTTY");
+
+      // 2. Missing stdout TTY
+      const noStdoutTty = checkTtyEligibility({ isTTY: true } as any, { isTTY: false } as any);
+      expect(noStdoutTty.eligible).toBe(false);
+      expect(noStdoutTty.error).toContain("stdout isTTY");
+
+      // 3. Neither is TTY
+      const neitherTty = checkTtyEligibility({ isTTY: false } as any, { isTTY: false } as any);
+      expect(neitherTty.eligible).toBe(false);
+
+      // 4. Undefined / null streams
+      expect(checkTtyEligibility(null as any, null as any).eligible).toBe(false);
+
+      // 5. Normal interactive eligibility
+      const bothTty = checkTtyEligibility({ isTTY: true } as any, { isTTY: true } as any);
+      expect(bothTty.eligible).toBe(true);
+      expect(bothTty.error).toBeUndefined();
+    });
+
+    it("ensures promptHidden throws immediately without TTY and never reads password", async () => {
+      await expect(
+        promptHidden("Password: ", { isTTY: false } as any, { isTTY: true } as any)
+      ).rejects.toThrowError(/Interactive terminal input/);
+
+      await expect(
+        promptHidden("Password: ", { isTTY: true } as any, { isTTY: false } as any)
+      ).rejects.toThrowError(/Interactive terminal output/);
+    });
+
+    it("verifies that passwords are never included in error messages, results, or logs", () => {
+      const sensitivePassword = "SensitiveSecretPassword_2026!#";
+
+      // Error on password mismatch must not disclose password
+      try {
+        provisionTenantOwner({
+          db,
+          tenantName: "Safe Tenant",
+          tenantSlug: "safe-tenant",
+          ownerName: "Safe Owner",
+          ownerEmail: "safe@example.com",
+          password: sensitivePassword,
+          confirmPassword: "WrongConfirmationPassword_2026!#",
+        });
+      } catch (err: any) {
+        expect(err.message).not.toContain(sensitivePassword);
+        expect(err.message).not.toContain("WrongConfirmationPassword");
+      }
+
+      // Successful result object must not include password or hash
+      const result = provisionTenantOwner({
+        db,
+        tenantName: "Secure Corp",
+        tenantSlug: "secure-corp",
+        ownerName: "Secure Owner",
+        ownerEmail: "owner@securecorp.com",
+        password: sensitivePassword,
+        confirmPassword: sensitivePassword,
+      });
+
+      expect((result as any).password).toBeUndefined();
+      expect((result as any).hash).toBeUndefined();
+      expect((result as any).salt).toBeUndefined();
+    });
+  });
+
+  describe("Session Secret Validation & Known Test Fixture Rejection", () => {
+    it("rejects the known predictable 64-hex public CI test fixture", () => {
+      const ciFixture = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+      const validation = validateSessionSecret(ciFixture);
+      expect(validation.valid).toBe(false);
+      expect(validation.error).toContain("known insecure placeholder or default test fixture");
+    });
+
+    it("rejects documentation bracketed placeholders and staging defaults", () => {
+      expect(validateSessionSecret("<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>").valid).toBe(false);
+      expect(validateSessionSecret("siteintel_staging_session_secret_change_in_production_32bytes_min").valid).toBe(false);
+      expect(validateSessionSecret("staging_session_secret_min_32_chars_random_string_here").valid).toBe(false);
+    });
+
+    it("rejects invalid lengths and non-hexadecimal characters", () => {
+      expect(validateSessionSecret("").valid).toBe(false);
+      expect(validateSessionSecret("abcdef012345").valid).toBe(false); // too short
+      expect(validateSessionSecret("g".repeat(64)).valid).toBe(false); // non-hex
+    });
+
+    it("accepts a cryptographically strong 64-character hexadecimal random secret", () => {
+      const validSecret = crypto.randomBytes(32).toString("hex");
+      const validation = validateSessionSecret(validSecret);
+      expect(validation.valid).toBe(true);
+      expect(validation.secret).toBe(validSecret);
+    });
+  });
+
+  describe("Safe Environment & Configuration Loading", () => {
+    it("safely loads key=value pairs from env file without overriding existing process.env", () => {
+      const mockEnvPath = path.join(tempDir, "mock.env");
+      fs.writeFileSync(
+        mockEnvPath,
+        `
+# Test configuration
+SESSION_SECRET=abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd
+NEW_CONFIG_VAR=persisted_value
+ALREADY_SET_VAR=from_file_should_be_ignored
+`
+      );
+
+      process.env.ALREADY_SET_VAR = "existing_host_value";
+
+      const loaded = loadEnvFile(mockEnvPath);
+      expect(loaded).toBe(true);
+      expect(process.env.NEW_CONFIG_VAR).toBe("persisted_value");
+      expect(process.env.ALREADY_SET_VAR).toBe("existing_host_value"); // Preserved
+    });
+
+    it("resolves database path from explicit DATABASE_PATH or defaults safely", () => {
+      process.env.DATABASE_PATH = tempDbPath;
+      expect(resolveDatabasePath()).toBe(path.resolve(tempDbPath));
     });
   });
 

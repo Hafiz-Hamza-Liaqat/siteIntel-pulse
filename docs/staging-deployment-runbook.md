@@ -133,8 +133,8 @@ PAGESPEED_API_KEY=
    Type=simple
    User=siteintel
    WorkingDirectory=/opt/siteintel-pulse
-   EnvironmentFile=/opt/siteintel-pulse/.env
-   ExecStart=/usr/bin/node /opt/siteintel-pulse/node_modules/.bin/next start -p 3000 -H 0.0.0.0
+   EnvironmentFile=/etc/siteintel.env
+   ExecStart=/usr/bin/node /opt/siteintel-pulse/node_modules/.bin/next start -p 3000 -H 127.0.0.1
    Restart=always
    RestartSec=5
    LimitNOFILE=65535
@@ -240,17 +240,19 @@ While demo seeds are strictly locked out in production, SiteIntel Pulse provides
 # Docker Compose:
 docker exec -it siteintel-pulse-staging npm run admin:provision-tenant
 
-# Native / Host:
-NODE_ENV=production npm run admin:provision-tenant
+# Native Systemd Linux VPS (run as service user siteintel to preserve SQLite file ownership):
+sudo -u siteintel ENV_FILE=/etc/siteintel.env npm run admin:provision-tenant
 ```
 
 #### Security Controls & Safeguards:
-1. **Interactive TTY Enforcement:** The CLI strictly requires an interactive terminal (`process.stdin.isTTY`). It rejects non-interactive execution, piped inputs, CI automation, and headless subshells.
-2. **Terminal Echo Suppression:** Passwords are typed securely with echo disabled; credentials are never leaked to process lists, shell histories (`.bash_history`), or terminal displays.
+1. **Interactive TTY Enforcement:** The CLI strictly requires both `process.stdin.isTTY` and `process.stdout.isTTY`. It rejects non-interactive execution, piped inputs, CI automation, redirected outputs, and headless subshells before prompting for any password.
+2. **Terminal Echo Suppression:** Passwords are typed securely with echo disabled (`terminal: true`); credentials are never leaked to process lists, shell histories (`.bash_history`), or terminal displays.
 3. **Password Policy Enforcement:** Passwords must be $\ge 12$ characters and satisfy complexity rules (uppercase, lowercase, number, symbol, no whitespace) with confirmation.
-4. **PBKDF2-HMAC-SHA512 Cryptography:** Passwords are salted with 32 random bytes and hashed with 220,000 iterations of PBKDF2-HMAC-SHA512, ensuring 100% compatibility with `AuthService.authenticateUser` and `verifyPassword`.
-5. **Atomic Isolation & Rollback:** Tenant creation, slug generation, user mapping, and owner role assignment occur within an atomic SQLite transaction. If any constraint fails (e.g., duplicate email or tenant slug), the transaction rolls back cleanly.
-6. **No Pre-Generated API Keys:** Tenant owners are created without API keys or elevated cross-tenant permissions, maintaining strict data isolation.
+4. **Secret Validation & Insecure Fixture Rejection:** Rejects missing secrets, default placeholders, and known public test fixtures. Enforces strict 64-hexadecimal format matching `openssl rand -hex 32`.
+5. **Database File Ownership Preservation:** Executing as `sudo -u siteintel` ensures `/var/lib/siteintel/data/siteintel.db` and WAL files maintain `siteintel:siteintel` permissions, preventing service downtime from root-owned file locks.
+6. **PBKDF2-HMAC-SHA512 Cryptography:** Passwords are salted with 32 random bytes and hashed with 220,000 iterations of PBKDF2-HMAC-SHA512, ensuring 100% compatibility with `AuthService.authenticateUser` and `verifyPassword`.
+7. **Atomic Isolation & Rollback:** Tenant creation, slug generation, user mapping, and owner role assignment occur within an atomic SQLite transaction. If any constraint fails (e.g., duplicate email or tenant slug), the transaction rolls back cleanly.
+8. **No Pre-Generated API Keys:** Tenant owners are created without API keys or elevated cross-tenant permissions, maintaining strict data isolation.
 
 #### Staging Two-Tenant Provisioning Procedure:
 To provision the verified two-tenant staging accounts:

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-const KNOWN_INSECURE_SECRETS = new Set([
+export const KNOWN_INSECURE_SECRETS = new Set([
   "<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>",
   "siteintel_staging_session_secret_change_in_production_32bytes_min",
   "staging_session_secret_min_32_chars_random_string_here",
@@ -9,6 +9,8 @@ const KNOWN_INSECURE_SECRETS = new Set([
   "password",
   "12345678901234567890123456789012",
   "session_secret",
+  // Public predictable 64-hex test fixture used in CI workflow (strictly rejected in production mode)
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 ]);
 
 /**
@@ -37,7 +39,7 @@ export function getSessionSecret(): string {
       throw new Error(
         "FATAL CONFIGURATION ERROR: In production mode, SESSION_SECRET environment variable " +
           "must be set with at least 32 characters of high-entropy randomness (a 64-character hexadecimal " +
-          "string matching 'openssl rand -hex 32') and must not use a default placeholder. " +
+          "string matching 'openssl rand -hex 32') and must not use a default placeholder or known test fixture. " +
           "Application startup aborted for security."
       );
     }

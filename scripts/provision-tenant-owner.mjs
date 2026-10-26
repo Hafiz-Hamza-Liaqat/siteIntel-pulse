@@ -29,6 +29,44 @@ export const PBKDF2_ITERATIONS = 220_000;
 export const PBKDF2_KEYLEN = 64;
 export const PBKDF2_DIGEST = "sha512";
 
+export const KNOWN_INSECURE_SECRETS = new Set([
+  "<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>",
+  "siteintel_staging_session_secret_change_in_production_32bytes_min",
+  "staging_session_secret_min_32_chars_random_string_here",
+  "secret",
+  "changeme",
+  "password",
+  "12345678901234567890123456789012",
+  "session_secret",
+  // Public predictable 64-hex test fixture used in CI workflow (strictly rejected in production mode)
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+]);
+
+/**
+ * Validates SESSION_SECRET format and enforces rejection of known default/test fixtures.
+ */
+export function validateSessionSecret(secret) {
+  const trimmed = secret?.trim() || "";
+  if (
+    !trimmed ||
+    trimmed.length < 32 ||
+    KNOWN_INSECURE_SECRETS.has(trimmed) ||
+    (trimmed.startsWith("<") && trimmed.endsWith(">"))
+  ) {
+    return {
+      valid: false,
+      error: "SESSION_SECRET must not use a known insecure placeholder or default test fixture.",
+    };
+  }
+  if (!/^[0-9a-f]{64}$/i.test(trimmed)) {
+    return {
+      valid: false,
+      error: "SESSION_SECRET must be a 64-character hexadecimal string matching 'openssl rand -hex 32'.",
+    };
+  }
+  return { valid: true, secret: trimmed };
+}
+
 /**
  * Validates password complexity against application security policy:
  * - At least 12 characters
@@ -225,13 +263,100 @@ export function provisionTenantOwner({
 }
 
 /**
+ * Safely parses a simple key=value environment file without overriding existing process.env variables.
+ * Does not use shell evaluation or subshells; ignores comments and empty lines.
+ */
+export function loadEnvFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return false;
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      // Preserve existing environment variables (do not overwrite)
+      if (process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Discovers and safely loads production environment settings from explicit ENV_FILE
+ * or standard production paths (/etc/siteintel.env, .env.production, .env).
+ */
+export function configureEnvironment() {
+  if (process.env.ENV_FILE) {
+    loadEnvFile(process.env.ENV_FILE);
+  }
+  const candidateFiles = [
+    "/etc/siteintel.env",
+    path.resolve(process.cwd(), ".env.production"),
+    path.resolve(process.cwd(), ".env"),
+  ];
+  for (const candidate of candidateFiles) {
+    if (!process.env.SESSION_SECRET || !process.env.DATABASE_PATH) {
+      loadEnvFile(candidate);
+    }
+  }
+}
+
+/**
+ * Resolves the SQLite database file path.
+ * Checks explicit DATABASE_PATH, then native Linux VPS path, then local default.
+ */
+export function resolveDatabasePath() {
+  if (process.env.DATABASE_PATH) {
+    return path.resolve(process.env.DATABASE_PATH);
+  }
+  const nativeLinuxPath = "/var/lib/siteintel/data/siteintel.db";
+  if (fs.existsSync(nativeLinuxPath)) {
+    return nativeLinuxPath;
+  }
+  return path.resolve(process.cwd(), "data", "siteintel.db");
+}
+
+/**
+ * Verifies that the current execution environment has an interactive terminal
+ * for both stdin (to read input without piping) and stdout (to display prompts
+ * without output redirection).
+ * @param {any} [stdin]
+ * @param {any} [stdout]
+ */
+export function checkTtyEligibility(stdin = process.stdin, stdout = process.stdout) {
+  if (!stdin || !stdin.isTTY) {
+    return {
+      eligible: false,
+      error: "FATAL ERROR: Interactive terminal input (stdin isTTY) is required for password entry. Passwords cannot be passed via non-interactive streams, pipes, or files.",
+    };
+  }
+  if (!stdout || !stdout.isTTY) {
+    return {
+      eligible: false,
+      error: "FATAL ERROR: Interactive terminal output (stdout isTTY) is required for password entry. Invocation with redirected output is prohibited.",
+    };
+  }
+  return { eligible: true };
+}
+
+/**
  * Prompts user on terminal with visible text input.
  */
-export async function promptVisible(queryText) {
+export async function promptVisible(queryText, stdin = process.stdin, stdout = process.stdout) {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+      input: stdin,
+      output: stdout,
     });
     rl.question(queryText, (answer) => {
       rl.close();
@@ -242,20 +367,27 @@ export async function promptVisible(queryText) {
 
 /**
  * Prompts user on terminal with masked input (no echo).
+ * Strictly requires both stdin and stdout to be interactive TTYs.
  */
-export async function promptHidden(queryText) {
+export async function promptHidden(queryText, stdin = process.stdin, stdout = process.stdout) {
+  const ttyCheck = checkTtyEligibility(stdin, stdout);
+  if (!ttyCheck.eligible) {
+    throw new Error(ttyCheck.error);
+  }
+
   return new Promise((resolve) => {
     const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+      input: stdin,
+      output: stdout,
+      terminal: true,
     });
 
-    process.stdout.write(queryText);
+    stdout.write(queryText);
 
     // Mute keystrokes from echoing back to the console
     rl._writeToOutput = function (stringToWrite) {
       if (stringToWrite.includes("\r") || stringToWrite.includes("\n")) {
-        process.stdout.write("\n");
+        stdout.write("\n");
       }
     };
 
@@ -274,6 +406,15 @@ export async function runCli() {
   console.log(" SiteIntel Pulse — Production Tenant & Owner Account Provisioning");
   console.log("================================================================================\n");
 
+  // Attempt to load environment configuration safely from file if not fully set
+  configureEnvironment();
+
+  // Root privilege check: Warn operators about SQLite database file ownership
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    console.warn("WARNING: Running CLI as root may alter SQLite file permissions.");
+    console.warn("Consider running as the dedicated service user: sudo -u siteintel ENV_FILE=/etc/siteintel.env npm run admin:provision-tenant\n");
+  }
+
   // Safeguard 1: NODE_ENV must be production
   if (process.env.NODE_ENV !== "production") {
     console.error("FATAL CONFIGURATION ERROR: Tenant owner provisioning CLI must be executed with NODE_ENV=production.");
@@ -281,36 +422,25 @@ export async function runCli() {
     process.exit(1);
   }
 
-  // Safeguard 2: SESSION_SECRET must be valid 64-hex string and not a placeholder
-  const sessionSecret = process.env.SESSION_SECRET?.trim() || "";
-  const knownPlaceholders = [
-    "<generate-unique-32-byte-hex-secret-via-openssl-rand-hex-32>",
-    "siteintel_staging_session_secret_change_in_production_32bytes_min",
-    "staging_session_secret_min_32_chars_random_string_here",
-  ];
-  if (
-    !sessionSecret ||
-    sessionSecret.length < 32 ||
-    knownPlaceholders.includes(sessionSecret) ||
-    sessionSecret.startsWith("<") ||
-    !/^[0-9a-f]{64}$/i.test(sessionSecret)
-  ) {
-    console.error("FATAL CONFIGURATION ERROR: A valid 64-character hexadecimal SESSION_SECRET must be set in environment before provisioning accounts.");
+  // Safeguard 2: SESSION_SECRET must be valid 64-hex string and not a placeholder or test fixture
+  const secretValidation = validateSessionSecret(process.env.SESSION_SECRET);
+  if (!secretValidation.valid) {
+    console.error(`FATAL CONFIGURATION ERROR: ${secretValidation.error}`);
     console.error("Generate a strong secret on your host using: openssl rand -hex 32");
     console.error("Command aborted for security.");
     process.exit(1);
   }
 
-  // Safeguard 3: Interactive TTY required for hidden password entry
-  if (!process.stdin.isTTY) {
-    console.error("FATAL ERROR: An interactive terminal (TTY) is required for password entry.");
-    console.error("Passwords cannot be passed via command-line arguments or non-interactive streams.");
+  // Safeguard 3: Require BOTH stdin and stdout to be interactive TTYs before prompting for credentials
+  const ttyCheck = checkTtyEligibility(process.stdin, process.stdout);
+  if (!ttyCheck.eligible) {
+    console.error(ttyCheck.error);
     console.error("Command aborted.");
     process.exit(1);
   }
 
   // Safeguard 4: Database file and schema must exist
-  const dbPath = process.env.DATABASE_PATH || path.resolve(process.cwd(), "data", "siteintel.db");
+  const dbPath = resolveDatabasePath();
   if (!fs.existsSync(dbPath)) {
     console.error(`FATAL ERROR: Target database file does not exist at: ${dbPath}`);
     console.error("The application database must be initialized and migrated before running account provisioning.");
@@ -364,7 +494,7 @@ export async function runCli() {
     console.log(` Owner Email: ${result.ownerEmail}`);
     console.log(` Assigned Role: ${result.role} (strictly tenant-isolated)`);
     console.log(` Created At:  ${result.createdAt}`);
-    console.log("================================================================================\n");
+    console.log("================================================================================");
     console.log("Security Note: The tenant owner can now authenticate at /login.");
     console.log("Passwords and keys are never printed or saved in logs.\n");
   } catch (err) {

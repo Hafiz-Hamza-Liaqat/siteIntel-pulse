@@ -5,6 +5,7 @@
 **Preflight Starting Baseline:** `1eeea94c4a4c6c9b4fb69e44b595665c4e1dc0f8` (GitHub Actions Run [40254925772](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40254925772), `conclusion: success`)
 **Staging-Hardening RC Baseline:** `d82d755cadea25adcfbd829c2783349feacadb99` (GitHub Actions Run [40256871873](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40256871873), `conclusion: success`)
 **Preflight Reconciliation Baseline:** `5b5f52913304d3e07b9affc060c6fa22dbb2a9f7` (GitHub Actions Run [40263026167](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40263026167), `conclusion: success`)
+**Production Provisioning Baseline:** `6b5ab864e4287e92dd298bd7912409be6f1d5bb8` (GitHub Actions Run [40265255675](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40265255675), `conclusion: success`)
 **Static Showcase URL:** `https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`
 **Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — STAGING PREFLIGHT COMPLETE`
 **Launch Status:** **`NOT PUBLICLY LAUNCHED — STAGING DEPLOYMENT PENDING`**
@@ -26,8 +27,11 @@ The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All
 - **Preflight Reconciliation Baseline (`5b5f529`):**
   Reconciled runbook placeholders, eliminated literal fake secrets, documented the production-mode account provisioning blocker, and converted cross-references to repository-relative links.
   GitHub Actions CI Run [40263026167](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40263026167) (`conclusion: success`, all 7 quality gates passed).
-- **Production Account Provisioning & Final Preflight Hardening:** Current Working Tree / HEAD
-  Implemented the secure production-mode administrative CLI (`npm run admin:provision-tenant` / `scripts/provision-tenant-owner.mjs`), enforced 64-character hexadecimal format for `SESSION_SECRET`, and added comprehensive unit and integration regression suites.
+- **Production Provisioning Baseline (`6b5ab86`):**
+  Implemented the server-side administrative CLI (`npm run admin:provision-tenant` / `scripts/provision-tenant-owner.mjs`), enforced 64-hexadecimal `SESSION_SECRET` format, and reconciled readiness and runbook procedures.
+  GitHub Actions CI Run [40265255675](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40265255675) (`conclusion: success`, all 7 quality gates passed, 30 test files and 272/272 tests passed, 33/33 Playwright tests passed).
+- **Provisioning Hardening & Native Deployment Preflight:** Current Working Tree / HEAD
+  Hardened interactive password entry (requiring both `process.stdin.isTTY` and `process.stdout.isTTY`), rejected known public CI test fixtures in production mode, corrected native systemd same-host binding to `127.0.0.1:3000`, resolved native `DATABASE_PATH` to `/var/lib/siteintel/data/siteintel.db`, and implemented non-destructive environment discovery.
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
@@ -87,16 +91,18 @@ The platform evaluates 56 deterministic rules across 11 audit categories with a 
 - **Health & Readiness Probe:** `GET /api/health` validates database connectivity and returns HTTP 200 without exposing paths or secrets.
 
 ### 2.7 Secure Production Account Provisioning CLI
-- **Tooling:** `npm run admin:provision-tenant` backed by [`scripts/provision-tenant-owner.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/provision-tenant-owner.mjs).
+- **Tooling:** `npm run admin:provision-tenant` backed by [`scripts/provision-tenant-owner.mjs`](../scripts/provision-tenant-owner.mjs).
 - **Operational Model:** Server-side administrative CLI invoked manually via interactive terminal (TTY); never exposed as an HTTP route.
 - **Production Hardening:**
   - Requires `NODE_ENV=production`.
-  - Enforces a valid 64-character hexadecimal `SESSION_SECRET` matching `openssl rand -hex 32` format.
+  - Enforces a valid 64-character hexadecimal `SESSION_SECRET` matching `openssl rand -hex 32` format; strictly rejects default placeholders and predictable test fixtures.
   - Validates that the database file and migrated schema (`tenants`, `users`) exist prior to execution.
+  - Requires both `stdin` and `stdout` to be interactive terminals (`isTTY`); strictly aborts non-interactive, piped, or redirected-output executions before prompting for any password.
   - Reads passwords with masked input (zero terminal echo); rejects passwords passed via command-line arguments or non-interactive streams.
   - Enforces strong password complexity ($\ge 12$ chars, mixed case, digit, symbol, no whitespace) and confirmation matching.
   - Atomically creates the tenant and owner user in a single SQLite transaction with uniqueness checks on slug and email.
   - Assigns strictly the tenant-level `owner` role with zero cross-tenant access.
+  - Supports safe environment discovery from `ENV_FILE`, `/etc/siteintel.env`, or `.env.production` without overriding host variables.
   - Outputs only non-sensitive identifiers; passwords and secrets are never printed, stored, or logged.
 
 ---
@@ -107,14 +113,14 @@ All quality gates have been executed sequentially against the codebase:
 
 | Gate | Execution Command | Result | Verification Notes |
 | :--- | :--- | :---: | :--- |
-| **Focused Account Provisioning Tests** | `npx vitest run src/lib/auth/provision-tenant-owner.test.ts` | **PASS** | 14/14 tests passed (atomic transaction, login auth, rollback, TTY safeguard) |
-| **Focused Staging Security Tests** | `npx vitest run src/lib/security/staging-preflight-security.test.ts` | **PASS** | 17/17 tests passed (64-hex secret format, placeholder rejection, IP trust contract) |
+| **Focused Account Provisioning Tests** | `npx vitest run src/lib/auth/provision-tenant-owner.test.ts` | **PASS** | 23/23 tests passed (stdin/stdout TTY check, secret validation, atomic transaction, rollback, password non-exposure) |
+| **Focused Staging Security Tests** | `npx vitest run src/lib/security/staging-preflight-security.test.ts` | **PASS** | 18/18 tests passed (64-hex secret format, CI test fixture rejection, placeholder rejection, IP trust contract) |
 | **Focused Password Security Tests** | `npx vitest run src/lib/auth/password-security.test.ts` | **PASS** | 17/17 tests passed (220k PBKDF2 iterations, benchmark, session rotation) |
 | **Focused Catalogue Integrity Tests** | `npx vitest run src/lib/catalogue/rules-evidence-integrity.test.ts src/lib/catalogue/rules.test.ts` | **PASS** | 36/36 tests passed (13 truncation tests, complete catalogue suite) |
 | **Focused Transport Tests** | `npx vitest run src/lib/scanner/pinned-transport.test.ts src/lib/scanner/crawler.test.ts` | **PASS** | 28/28 tests passed (SSRF pinning, budget enforcement, truncation signals) |
 | **Gate 1: TypeScript Check** | `npm run typecheck` | **PASS** | Clean `tsc --noEmit` across all components, API routes, and schemas |
 | **Gate 2: ESLint Hygiene** | `npm run lint` | **PASS** | 0 warnings, 0 errors |
-| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 30 test files passed, 270/270 tests passed (100% pass rate) |
+| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 30 test files passed, 282/282 tests passed (100% pass rate) |
 | **Gate 4: Playwright E2E** | `npm run test:e2e` | **PASS** | 33/33 tests passed across Desktop, Tablet, and Mobile viewports |
 | **Gate 5: PDF Verification** | `npm run test:pdf` | **PASS** | Generated & verified Owner PDF and Expert PDF |
 | **Gate 6: SQLite Recovery** | `npm run db:verify` | **PASS** | 100% bit-accurate recovery of tenants, users, scan jobs, and reports |

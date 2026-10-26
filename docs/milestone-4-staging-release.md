@@ -13,10 +13,10 @@
 Milestone 4 establishes the release readiness, containerization, operational runbooks, durability verification, and staging deployment package for SiteIntel Pulse.
 
 The platform integrates:
-1. **Milestone 1:** Company A Website Owner Report ([`/owner-report`](file:///d:/Projects/SiteIntel-Pulse/src/app/owner-report/page.tsx)), 56-rule scoring catalogue across 11 categories totaling 100 points, SSRF DNS/IP guardrails, crawler budgets, and executive PDF generation.
-2. **Milestone 2:** Company B Expert Diagnostic Workbench ([`/expert-audit`](file:///d:/Projects/SiteIntel-Pulse/src/app/expert-audit/page.tsx)), 19 diagnostic sections, 11-category remediation plans with interactive role assignments and status persistence, engineering CSV exports, and 8-page diagnostic PDF generation.
+1. **Milestone 1:** Company A Website Owner Report ([`/owner-report`](../src/app/owner-report/page.tsx)), 56-rule scoring catalogue across 11 categories totaling 100 points, SSRF DNS/IP guardrails, crawler budgets, and executive PDF generation.
+2. **Milestone 2:** Company B Expert Diagnostic Workbench ([`/expert-audit`](../src/app/expert-audit/page.tsx)), 19 diagnostic sections, 11-category remediation plans with interactive role assignments and status persistence, engineering CSV exports, and 8-page diagnostic PDF generation.
 3. **Milestone 3:** Durable SQLite persistence (`DatabaseSync` in Node 22), multi-tenant data isolation, OWASP 220,000-iteration PBKDF2 password security, durable login abuse rate limiting, and production demonstration seed lockout.
-4. **Milestone 4:** Health/readiness probe ([`/api/health`](file:///d:/Projects/SiteIntel-Pulse/src/app/api/health/route.ts)), multi-stage production Docker container, atomic hot backup and restore tooling (`scripts/backup-database.mjs`, `scripts/restore-database.mjs`), comprehensive deployment runbook, and rigorous verification test pass.
+4. **Milestone 4:** Health/readiness probe ([`/api/health`](../src/app/api/health/route.ts)), multi-stage production Docker container, atomic hot backup and restore tooling (`scripts/backup-database.mjs`, `scripts/restore-database.mjs`), comprehensive deployment runbook, and rigorous verification test pass.
 
 ---
 

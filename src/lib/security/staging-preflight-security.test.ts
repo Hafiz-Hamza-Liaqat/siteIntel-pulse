@@ -96,6 +96,13 @@ describe("Staging Preflight & Production Security Configuration", () => {
       expect(() => getSessionSecret()).toThrowError(/default placeholder/);
     });
 
+    it("aborts in production mode when SESSION_SECRET matches the public predictable CI test fixture", () => {
+      (process.env as any).NODE_ENV = "production";
+      process.env.SESSION_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+      expect(() => getSessionSecret()).toThrowError(/known test fixture|default placeholder/);
+    });
+
     it("aborts in production mode when SESSION_SECRET is not valid 64-character hexadecimal", () => {
       (process.env as any).NODE_ENV = "production";
       // 64 characters long but contains non-hexadecimal characters ('z')

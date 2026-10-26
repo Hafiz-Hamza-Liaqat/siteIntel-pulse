@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-Milestone 3 establishes a secure, durable, multi-tenant production foundation for SiteIntel Pulse. All foundational capabilities established in Milestone 1 ([`/owner-report`](file:///d:/Projects/SiteIntel-Pulse/src/app/owner-report/page.tsx), 56-rule scoring engine, crawler safeguards) and Milestone 2 ([`/expert-audit`](file:///d:/Projects/SiteIntel-Pulse/src/app/expert-audit/page.tsx), Company B Expert Diagnostics, 11-category remediation plans, engineering exports, PDF generators) remain fully functional with zero regressions.
+Milestone 3 establishes a secure, durable, multi-tenant production foundation for SiteIntel Pulse. All foundational capabilities established in Milestone 1 ([`/owner-report`](../src/app/owner-report/page.tsx), 56-rule scoring engine, crawler safeguards) and Milestone 2 ([`/expert-audit`](../src/app/expert-audit/page.tsx), Company B Expert Diagnostics, 11-category remediation plans, engineering exports, PDF generators) remain fully functional with zero regressions.
 
 ---
 
@@ -24,14 +24,14 @@ Milestone 3 establishes a secure, durable, multi-tenant production foundation fo
 - Host verification benchmark: ~364ms–448ms per verification.
 
 ### 2.2 Login Abuse Protection & DoS Defense
-- Shared durable rate limiting ([`LoginRateLimiter`](file:///d:/Projects/SiteIntel-Pulse/src/lib/security/login-rate-limiter.ts)) integrated into [`/api/auth/login`](file:///d:/Projects/SiteIntel-Pulse/src/app/api/auth/login/route.ts).
+- Shared durable rate limiting ([`LoginRateLimiter`](../src/lib/security/login-rate-limiter.ts)) integrated into [`/api/auth/login`](../src/app/api/auth/login/route.ts).
 - Dual scoped quotas: client IP (10 attempts / 5 min) and `(clientIp, targetEmail)` (5 attempts / 5 min) stored in SQLite `rate_limits` table.
 - Avoids trivial global account lockout, preventing attacker denial-of-service against legitimate users.
 - Standard HTTP 429 `TOO_MANY_REQUESTS` response with `Retry-After` headers.
 
 ### 2.3 Staging Seed Guardrails
 - In production mode (`NODE_ENV=production`), default demonstration accounts are unconditionally blocked from seeding, even if `ALLOW_STAGING_SEED=true` is set.
-- Legitimate staging setup is restricted to non-production environments or explicit out-of-band operational execution via `npm run seed:staging` ([`scripts/seed-staging.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/seed-staging.mjs)).
+- Legitimate staging setup is restricted to non-production environments or explicit out-of-band operational execution via `npm run seed:staging` ([`scripts/seed-staging.mjs`](../scripts/seed-staging.mjs)).
 - Quick-fill credentials and presets are completely omitted from the `/login` DOM in production mode.
 
 ### 2.4 Server-Side Tenant Isolation Across All Endpoints

@@ -55,12 +55,12 @@ All verification suites were executed against the identical codebase revision. E
 
 ## 4. Preservation of Prior Milestone Capabilities
 
-1. **Company A Owner Report ([`/owner-report`](file:///d:/Projects/SiteIntel-Pulse/src/app/owner-report/page.tsx)):**
+1. **Company A Owner Report ([`/owner-report`](../src/app/owner-report/page.tsx)):**
    - 13 comprehensive visual cards: Executive Summary, Performance, SEO, Security, Accessibility, Mobile UX, GEO/AEO/AI Readiness, Conversion, Social Sharing, Technology Stack, Legal & Compliance, Strategic Roadmap, and Evidence Inventory.
    - Distinct score indicators: Points Earned, Evaluated Ratio, Category Coverage %, and Provisional Badges.
    - Executive PDF generation via Playwright Chromium.
 
-2. **Company B Expert Diagnostic Workbench ([`/expert-audit`](file:///d:/Projects/SiteIntel-Pulse/src/app/expert-audit/page.tsx)):**
+2. **Company B Expert Diagnostic Workbench ([`/expert-audit`](../src/app/expert-audit/page.tsx)):**
    - 19 in-depth diagnostic sections, Finding Explorer with multi-field search and triage filtering.
    - URL Inventory table with crawl metadata, response codes, and load times.
    - Interactive 11-category remediation action plan with status updates (`open`, `in_progress`, `resolved`), role assignments, and persistence to SQLite.

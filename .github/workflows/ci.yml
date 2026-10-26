@@ -22,6 +22,7 @@ jobs:
     env:
       NODE_ENV: test
       ADMIN_PASSWORD_HASH: "$pbkdf2-sha512$i=220000$siteintel-pulse-salt$da39a3ee5e6b4b0d3255bfef95601890afd80709"
+      # Public predictable test-only fixture (strictly rejected in production mode)
       SESSION_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       TRUSTED_PROXIES: "loopback,private"
 
