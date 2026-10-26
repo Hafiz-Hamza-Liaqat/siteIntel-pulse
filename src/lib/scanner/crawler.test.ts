@@ -318,5 +318,78 @@ describe("SafeCrawler", () => {
       expect(result.coverage.testedPages).toBe(0);
       expect(result.coverage.truncationReason).toContain("Total scan byte budget reached");
     });
+
+    it("ensures an oversized HTML document is not silently represented as fully observed", async () => {
+      // 5 KB HTML document with footer trust links at the bottom
+      const hugeHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head><title>Large Page</title></head>
+          <body>
+            <h1>Heading 1</h1>
+            <p>${"Long content ".repeat(300)}</p>
+            <footer>
+              <a href="/privacy">Privacy Policy</a>
+              <a href="/terms">Terms of Service</a>
+            </footer>
+          </body>
+        </html>
+      `;
+
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith("/robots.txt")) {
+          return Promise.resolve(new Response("User-agent: *\n", { status: 200 }));
+        }
+        return Promise.resolve(
+          new Response(hugeHtml, {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          })
+        );
+      });
+
+      // Cap maxPageBytes at 1024 bytes (1 KB)
+      const crawler = new SafeCrawler({ maxPages: 1, maxPageBytes: 1024 }, undefined, mockFetch);
+      const result = await crawler.crawlWebsite("https://example.com");
+
+      expect(result.pages.length).toBe(1);
+      const page = result.pages[0];
+      // Explicitly marked as truncated with reason
+      expect(page.isTruncated).toBe(true);
+      expect(page.truncationReason).toContain("Response body truncated at byte limit (1024 bytes)");
+      // Scan coverage reflects incomplete observation
+      expect(result.coverage.isExhaustive).toBe(false);
+      expect(result.coverage.truncationReason).toContain("truncated at byte limits");
+    });
+
+    it("ensures an oversized sitemap is not treated as a complete sitemap", async () => {
+      const mockRobots = "User-agent: *\nSitemap: https://example.com/oversized-sitemap.xml";
+      // Generate genuine 1.5 MB sitemap
+      const urlsXml = Array.from({ length: 30000 }, (_, i) => `<url><loc>https://example.com/subpath-item-${i}</loc></url>`).join("\n");
+      const bigSitemap = `<?xml version="1.0" encoding="UTF-8"?><urlset>${urlsXml}</urlset>`;
+
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith("/robots.txt")) {
+          return Promise.resolve(new Response(mockRobots, { status: 200 }));
+        }
+        if (url.endsWith("/oversized-sitemap.xml")) {
+          return Promise.resolve(
+            new Response(bigSitemap, {
+              status: 200,
+              headers: { "content-type": "application/xml" },
+            })
+          );
+        }
+        return Promise.resolve(new Response("<html><body><h1>Home</h1></body></html>", { status: 200 }));
+      });
+
+      const crawler = new SafeCrawler({ maxPages: 1 }, undefined, mockFetch);
+      const result = await crawler.crawlWebsite("https://example.com");
+
+      // The sitemap was truncated at 1 MB limit
+      expect(result.isSitemapTruncated).toBe(true);
+      expect(result.coverage.isExhaustive).toBe(false);
+      expect(result.coverage.truncationReason).toContain("Sitemap XML truncated at byte limit");
+    });
   });
 });

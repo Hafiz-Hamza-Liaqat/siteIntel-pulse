@@ -270,6 +270,24 @@ export const seoRules: RuleDefinition[] = [
         };
       }
 
+      if (missingH1.length === pages.length && pages.every((p) => p.isTruncated)) {
+        return {
+          testId: "SEO-03",
+          testVersion: "1.0.0",
+          testName: "Heading Structure and Outline",
+          category: "seo",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Heading Structure Inconclusive Due to Truncated Content",
+          summary: "Evaluated page content was truncated at configured byte limits, preventing conclusive verification of primary heading outline.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Response body truncated at byte limit; headings may have been omitted beyond boundary.",
+        };
+      }
+
       return {
         testId: "SEO-03",
         testVersion: "1.0.0",

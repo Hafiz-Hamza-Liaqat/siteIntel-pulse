@@ -321,7 +321,7 @@ export async function pinnedFetch(
               } catch {}
               return;
             }
-            if (chunk.length > remaining) {
+            if (chunk.length >= remaining) {
               controller.enqueue(new Uint8Array(chunk.subarray(0, remaining)));
               bytesStreamed += remaining;
               isTruncated = true;
@@ -364,13 +364,41 @@ export async function pinnedFetch(
 
     Object.defineProperty(response, "url", { value: currentUrl, writable: false });
     (response as any).redirectChain = redirectChain;
-    (response as any).isTruncated = isTruncated;
-    (response as any).bytesStreamed = bytesStreamed;
+    Object.defineProperty(response, "isTruncated", {
+      get: () => isTruncated,
+      set: (val: boolean) => {
+        isTruncated = val;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    Object.defineProperty(response, "bytesStreamed", {
+      get: () => bytesStreamed,
+      set: (val: number) => {
+        bytesStreamed = val;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    (response as any).truncationMetadata = {
+      get isTruncated() {
+        return isTruncated;
+      },
+      get bytesStreamed() {
+        return bytesStreamed;
+      },
+    };
 
     return response;
   }
 
   throw new Error(`Exceeded maximum redirect limit of ${maxRedirects} hops.`);
+}
+
+export interface BoundedReadResult {
+  text: string;
+  bytesRead: number;
+  isTruncated: boolean;
 }
 
 /**
@@ -382,24 +410,31 @@ export async function readBoundedText(
   response: Response,
   maxBytes: number,
   options?: { signal?: AbortSignal; timeoutMs?: number }
-): Promise<{ text: string; bytesRead: number; isTruncated: boolean }> {
+): Promise<BoundedReadResult> {
+  const initialTruncated = Boolean((response as any).isTruncated);
+
   if (!response.body) {
     if (typeof response.text === "function") {
       const fullText = await response.text();
       const bytes = Buffer.byteLength(fullText, "utf8");
-      if (bytes > maxBytes) {
+      if (bytes >= maxBytes) {
         const sliced = fullText.slice(0, maxBytes);
-        return { text: sliced, bytesRead: maxBytes, isTruncated: true };
+        const isTruncated = bytes > maxBytes || initialTruncated || bytes === maxBytes;
+        (response as any).isTruncated = isTruncated;
+        (response as any).bytesStreamed = Math.min(bytes, maxBytes);
+        return { text: sliced, bytesRead: Math.min(bytes, maxBytes), isTruncated };
       }
-      return { text: fullText, bytesRead: bytes, isTruncated: false };
+      (response as any).isTruncated = initialTruncated;
+      (response as any).bytesStreamed = bytes;
+      return { text: fullText, bytesRead: bytes, isTruncated: initialTruncated };
     }
-    return { text: "", bytesRead: 0, isTruncated: false };
+    return { text: "", bytesRead: 0, isTruncated: initialTruncated };
   }
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
-  let isTruncated = false;
+  let isTruncated = initialTruncated;
 
   let timeoutId: NodeJS.Timeout | undefined;
   let abortHandler: (() => void) | undefined;
@@ -434,6 +469,12 @@ export async function readBoundedText(
         totalBytes += remaining;
         isTruncated = true;
         break;
+      } else if (value.byteLength === remaining) {
+        chunks.push(value);
+        totalBytes += remaining;
+        // Reached exact ceiling limit: conservatively treat as truncated as completeness cannot be guaranteed
+        isTruncated = true;
+        break;
       } else {
         chunks.push(value);
         totalBytes += value.byteLength;
@@ -450,6 +491,18 @@ export async function readBoundedText(
       // Ignore cancellation errors if reader was already cancelled
     }
   }
+
+  // Synchronize dynamic response truncation state if transport recorded truncation
+  if ((response as any).isTruncated) {
+    isTruncated = true;
+  } else {
+    try {
+      (response as any).isTruncated = isTruncated;
+    } catch {}
+  }
+  try {
+    (response as any).bytesStreamed = totalBytes;
+  } catch {}
 
   const combined = new Uint8Array(totalBytes);
   let offset = 0;

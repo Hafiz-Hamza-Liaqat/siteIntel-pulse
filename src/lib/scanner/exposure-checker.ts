@@ -209,7 +209,7 @@ export async function checkPublicExposure(
         });
 
         // Read small prefix directly from stream while timeout remains active
-        const { text: textSlice } = await readBoundedText(res, 512, {
+        const { text: textSlice, isTruncated } = await readBoundedText(res, 512, {
           signal: controller.signal,
           timeoutMs,
         });
@@ -256,12 +256,15 @@ export async function checkPublicExposure(
           }
 
           // HTTP 200 without matching exposure indicator and without known safe classification is inconclusive
+          const reason = isTruncated
+            ? "HTTP 200 OK with truncated payload without signature; inconclusive"
+            : "HTTP 200 OK with unrecognized payload; inconclusive";
           probeOutcomes.push({
             path: item.path,
             outcome: "INCONCLUSIVE",
-            reason: "HTTP 200 OK with unrecognized payload; inconclusive",
+            reason,
           });
-          evidence.push(`${item.path}: HTTP 200 OK (Unrecognized payload, inconclusive)`);
+          evidence.push(`${item.path}: HTTP 200 OK (${isTruncated ? "Truncated payload without signature" : "Unrecognized payload"}, inconclusive)`);
           continue;
         }
 

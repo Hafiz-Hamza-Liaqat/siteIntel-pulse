@@ -1,4 +1,5 @@
 import http from "node:http";
+import zlib from "node:zlib";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { pinnedFetch, readBoundedText } from "./pinned-transport";
 import { SafeCrawler } from "./crawler";
@@ -245,6 +246,128 @@ describe("Pinned Transport & Whole-Scanner SSRF Protection", () => {
 
       controller.abort();
       await expect(readPromise).rejects.toThrow("Stream read aborted by signal");
+    });
+
+    it("identifies a response larger than maxBytes as truncated", async () => {
+      const payload = "A".repeat(1500);
+      const response = new Response(payload, { status: 200 });
+      const { text, bytesRead, isTruncated } = await readBoundedText(response, 1000);
+
+      expect(bytesRead).toBe(1000);
+      expect(text.length).toBe(1000);
+      expect(isTruncated).toBe(true);
+      expect((response as any).isTruncated).toBe(true);
+    });
+
+    it("identifies a response below the limit as complete", async () => {
+      const payload = "B".repeat(500);
+      const response = new Response(payload, { status: 200 });
+      const { text, bytesRead, isTruncated } = await readBoundedText(response, 1000);
+
+      expect(bytesRead).toBe(500);
+      expect(text.length).toBe(500);
+      expect(isTruncated).toBe(false);
+      expect((response as any).isTruncated).toBe(false);
+    });
+
+    it("handles a response exactly at the limit conservatively and consistently", async () => {
+      const payload = "C".repeat(1000);
+      const response = new Response(payload, { status: 200 });
+      const { text, bytesRead, isTruncated } = await readBoundedText(response, 1000);
+
+      expect(bytesRead).toBe(1000);
+      expect(text.length).toBe(1000);
+      expect(isTruncated).toBe(true);
+      expect((response as any).isTruncated).toBe(true);
+    });
+
+    it("accurately maintains truncation state through real pinnedFetch streaming wrapper", async () => {
+      // Create local HTTP server serving different endpoints
+      const server = http.createServer((req, res) => {
+        if (req.url === "/oversized") {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("X".repeat(2048));
+          return;
+        }
+        if (req.url === "/undersized") {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("Y".repeat(512));
+          return;
+        }
+        if (req.url === "/exact") {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("Z".repeat(1024));
+          return;
+        }
+        res.writeHead(404).end();
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+      const port = (server.address() as any).port;
+
+      vi.spyOn(dnsSafety, "validateHostSafety").mockResolvedValue({
+        isSafe: true,
+        resolvedIps: ["127.0.0.1"],
+      });
+
+      try {
+        // Test 1: Oversized endpoint through pinnedFetch
+        const resOversized = await pinnedFetch(`http://localhost:${port}/oversized`, { maxBytes: 1024 });
+        const readOversized = await readBoundedText(resOversized, 1024);
+        expect(readOversized.bytesRead).toBe(1024);
+        expect(readOversized.isTruncated).toBe(true);
+        expect((resOversized as any).isTruncated).toBe(true);
+
+        // Test 2: Undersized endpoint through pinnedFetch
+        const resUndersized = await pinnedFetch(`http://localhost:${port}/undersized`, { maxBytes: 1024 });
+        const readUndersized = await readBoundedText(resUndersized, 1024);
+        expect(readUndersized.bytesRead).toBe(512);
+        expect(readUndersized.isTruncated).toBe(false);
+        expect((resUndersized as any).isTruncated).toBe(false);
+
+        // Test 3: Exact limit endpoint through pinnedFetch
+        const resExact = await pinnedFetch(`http://localhost:${port}/exact`, { maxBytes: 1024 });
+        const readExact = await readBoundedText(resExact, 1024);
+        expect(readExact.bytesRead).toBe(1024);
+        expect(readExact.isTruncated).toBe(true);
+        expect((resExact as any).isTruncated).toBe(true);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
+    it("ensures compressed responses cannot bypass byte limits after decompression", async () => {
+      const largeText = "COMPRESSED_DATA_".repeat(2000); // ~32 KB
+      const gzipped = zlib.gzipSync(Buffer.from(largeText, "utf-8"));
+
+      const server = http.createServer((req, res) => {
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "content-encoding": "gzip",
+        });
+        res.end(gzipped);
+      });
+
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+      const port = (server.address() as any).port;
+
+      vi.spyOn(dnsSafety, "validateHostSafety").mockResolvedValue({
+        isSafe: true,
+        resolvedIps: ["127.0.0.1"],
+      });
+
+      try {
+        // Enforce maxBytes of 1024 decompressed bytes
+        const res = await pinnedFetch(`http://localhost:${port}/gzip`, { maxBytes: 1024 });
+        const { text, bytesRead, isTruncated } = await readBoundedText(res, 1024);
+
+        expect(bytesRead).toBe(1024);
+        expect(text.length).toBe(1024);
+        expect(isTruncated).toBe(true);
+        expect((res as any).isTruncated).toBe(true);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
     });
   });
 });

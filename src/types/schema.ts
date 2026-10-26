@@ -214,6 +214,8 @@ export const PageObservationSchema = z.object({
     hasDarkModeClass: z.boolean().default(false),
     colorScheme: z.string().optional(),
   }).optional(),
+  isTruncated: z.boolean().default(false).optional(),
+  truncationReason: z.string().optional(),
 });
 export type PageObservation = z.infer<typeof PageObservationSchema>;
 

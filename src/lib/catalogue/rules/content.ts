@@ -63,6 +63,24 @@ export const contentRules: RuleDefinition[] = [
         };
       }
 
+      if (entry.isTruncated) {
+        return {
+          testId: "CNT-01",
+          testVersion: "1.0.0",
+          testName: "Business Purpose and Service Clarity",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Business Purpose Inconclusive Due to Truncated Content",
+          summary: "Entry page response was truncated at byte limit before business purpose messaging could be conclusively verified.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Response body truncated at byte limit",
+        };
+      }
+
       return {
         testId: "CNT-01",
         testVersion: "1.0.0",
@@ -215,6 +233,24 @@ export const contentRules: RuleDefinition[] = [
           summary: `Only ${trustSignalsCount} of 4 essential trust pages detected. Missing ${!hasPrivacy ? "Privacy Policy, " : ""}${!hasTerms ? "Terms of Service" : ""} hurts business credibility.`,
           timestamp: now,
           confidence: "HIGH",
+        };
+      }
+
+      if (ctx.pages.every((p) => p.isTruncated)) {
+        return {
+          testId: "CNT-03",
+          testVersion: "1.0.0",
+          testName: "Trust and Ownership Signals",
+          category: "content_quality",
+          status: "UNKNOWN",
+          severity: "MEDIUM",
+          maxPoints: 2,
+          earnedPoints: 0,
+          title: "Trust Signals Inconclusive Due to Truncated Content",
+          summary: "Evaluated pages were truncated at byte limits, preventing footer trust signals from being conclusively verified.",
+          timestamp: now,
+          confidence: "LOW",
+          limitations: "Response body truncated at byte limit; footer links could not be observed",
         };
       }
 

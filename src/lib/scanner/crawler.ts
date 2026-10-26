@@ -13,7 +13,9 @@ export interface CrawlResult {
   pages: PageObservation[];
   coverage: ScanCoverage;
   robotsTxt?: string;
+  isRobotsTruncated?: boolean;
   sitemapUrls: string[];
+  isSitemapTruncated?: boolean;
   externalLinksTested: LinkObservation[];
   discoveredPageUrls: string[];
 }
@@ -24,7 +26,9 @@ export class SafeCrawler {
   private queue: Array<{ url: string; depth: number; source: "entry" | "sitemap" | "internal_link" }> = [];
   private abortSignal?: AbortSignal;
   private sitemapUrls: string[] = [];
+  private isSitemapTruncated = false;
   private robotsTxtContent?: string;
+  private isRobotsTruncated = false;
   private fetchFn: (url: string, options?: PinnedFetchOptions) => Promise<Response>;
 
   constructor(
@@ -127,6 +131,14 @@ export class SafeCrawler {
     const testedExternalLinks = await this.testExternalLinksSample(externalLinksToTest);
 
     const stats = this.tracker.getStats();
+    const hasTruncatedPages = pages.some((p) => p.isTruncated);
+    const truncationReason =
+      stats.truncationReason ||
+      (hasTruncatedPages
+        ? `One or more HTML pages were truncated at byte limits (${this.tracker.budgets.maxPageBytes} bytes).`
+        : this.isSitemapTruncated
+        ? "Sitemap XML was truncated at byte limit (1 MB)."
+        : undefined);
 
     // 5. Build ScanCoverage
     const coverage: ScanCoverage = {
@@ -141,7 +153,7 @@ export class SafeCrawler {
       externalLinksTested: testedExternalLinks.length,
       resourcesTested: pages.reduce((acc, p) => acc + p.resources.length, 0),
       isExhaustive: false, // Honest transparency: bounded crawl is not exhaustive
-      truncationReason: stats.truncationReason,
+      truncationReason,
       weightedPointsEvaluated: 0, // Populated after scoring
       totalWeightedPoints: 100,
       coveragePercentage: 0, // Populated after scoring
@@ -151,7 +163,9 @@ export class SafeCrawler {
       pages,
       coverage,
       robotsTxt: this.robotsTxtContent,
+      isRobotsTruncated: this.isRobotsTruncated,
       sitemapUrls: this.sitemapUrls,
+      isSitemapTruncated: this.isSitemapTruncated,
       externalLinksTested: testedExternalLinks,
       discoveredPageUrls: Array.from(discoveredUrls),
     };
@@ -188,7 +202,7 @@ export class SafeCrawler {
       });
 
       // Stream bounded read: reads up to maxPageBytes and cancels underlying stream immediately
-      const { text, bytesRead } = await readBoundedText(
+      const { text, bytesRead, isTruncated } = await readBoundedText(
         response,
         this.tracker.budgets.maxPageBytes,
         { signal: this.abortSignal, timeoutMs: this.tracker.budgets.requestTimeoutMs }
@@ -207,6 +221,10 @@ export class SafeCrawler {
       pageObservation.discoveredAtDepth = depth;
       pageObservation.discoverySource = source;
       pageObservation.finalUrl = response.url || targetUrl;
+      pageObservation.isTruncated = isTruncated;
+      if (isTruncated) {
+        pageObservation.truncationReason = `Response body truncated at byte limit (${this.tracker.budgets.maxPageBytes} bytes)`;
+      }
 
       return pageObservation;
     } catch {
@@ -231,11 +249,12 @@ export class SafeCrawler {
       });
 
       if (res.ok) {
-        const { text, bytesRead } = await readBoundedText(res, 128 * 1024, {
+        const { text, bytesRead, isTruncated } = await readBoundedText(res, 128 * 1024, {
           signal: this.abortSignal,
           timeoutMs: 5000,
         });
         this.tracker.recordBytesFetched(bytesRead);
+        this.isRobotsTruncated = isTruncated;
         this.robotsTxtContent = text;
         const lines = text.split("\n");
         for (const line of lines) {
@@ -294,11 +313,15 @@ export class SafeCrawler {
       });
 
       if (res.ok) {
-        const { text, bytesRead } = await readBoundedText(res, 1024 * 1024, {
+        const { text, bytesRead, isTruncated } = await readBoundedText(res, 1024 * 1024, {
           signal: this.abortSignal,
           timeoutMs: 8000,
         });
         this.tracker.recordBytesFetched(bytesRead);
+        if (isTruncated) {
+          this.isSitemapTruncated = true;
+          this.tracker.markTruncated("Sitemap XML truncated at byte limit (1 MB); discovery may be incomplete.");
+        }
         // Regex extract <loc> URLs
         const locMatches = text.match(/<loc>(.*?)<\/loc>/gi);
         if (locMatches) {

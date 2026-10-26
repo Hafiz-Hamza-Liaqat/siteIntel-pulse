@@ -350,6 +350,7 @@ export const technicalHealthRules: RuleDefinition[] = [
       const hasSitemap = ctx.sitemapUrls.length > 0;
 
       if (hasRobots && hasSitemap) {
+        const isSitemapTruncated = Boolean(ctx.isSitemapTruncated);
         return {
           testId: "TCH-05",
           testVersion: "1.0.0",
@@ -359,11 +360,21 @@ export const technicalHealthRules: RuleDefinition[] = [
           severity: "INFORMATIONAL",
           maxPoints: 2,
           earnedPoints: 2,
-          title: "Robots.txt and XML Sitemap Fully Configured",
-          summary: `Found valid robots.txt with ${ctx.sitemapUrls.length} discovered sitemap entries.`,
+          title: isSitemapTruncated
+            ? "Robots.txt and XML Sitemap Active (Sitemap Partially Parsed)"
+            : "Robots.txt and XML Sitemap Fully Configured",
+          summary: isSitemapTruncated
+            ? `Found valid robots.txt with ${ctx.sitemapUrls.length} discovered sitemap entries (sitemap truncated at 1 MB limit; discovery may be partial).`
+            : `Found valid robots.txt with ${ctx.sitemapUrls.length} discovered sitemap entries.`,
           timestamp: now,
-          confidence: "HIGH",
-          sampleEvidence: [`Robots.txt: Active`, `Sitemap URLs found: ${ctx.sitemapUrls.length}`],
+          confidence: isSitemapTruncated ? "MEDIUM" : "HIGH",
+          limitations: isSitemapTruncated
+            ? "Sitemap was truncated at byte limit; additional URLs may exist."
+            : undefined,
+          sampleEvidence: [
+            `Robots.txt: Active`,
+            `Sitemap URLs found: ${ctx.sitemapUrls.length}${isSitemapTruncated ? " (truncated at byte limit)" : ""}`,
+          ],
         };
       }
 

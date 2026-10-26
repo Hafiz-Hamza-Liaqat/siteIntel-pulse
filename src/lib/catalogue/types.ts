@@ -13,7 +13,9 @@ export interface RuleEvaluationContext {
   businessCategory: BusinessCategory;
   pages: PageObservation[];
   robotsTxt?: string;
+  isRobotsTruncated?: boolean;
   sitemapUrls: string[];
+  isSitemapTruncated?: boolean;
   externalLinksTested: LinkObservation[];
   pageSpeedMobile?: PageSpeedResult;
   pageSpeedDesktop?: PageSpeedResult;
