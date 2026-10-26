@@ -7,8 +7,9 @@
 **Preflight Reconciliation Baseline:** `5b5f52913304d3e07b9affc060c6fa22dbb2a9f7` (GitHub Actions Run [40263026167](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40263026167), `conclusion: success`)
 **Production Provisioning Baseline:** `6b5ab864e4287e92dd298bd7912409be6f1d5bb8` (GitHub Actions Run [40265255675](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40265255675), `conclusion: success`)
 **Provisioning Hardening Baseline:** `7423ca35de29a9f8c859e10511eac28f51dfb8f7` (GitHub Actions Run [40267531497](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40267531497), `conclusion: success`)
+**Docker Container Acceptance Baseline:** `88be6ca3c8331a2a22241b3e76fe1bb966578c7c` (Docker Acceptance Run [40270202981](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270202981), CI Pipeline Run [40270203030](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270203030), both `conclusion: success`)
 **Static Showcase URL:** `https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`
-**Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — STAGING PREFLIGHT COMPLETE`
+**Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — CONTAINER ACCEPTANCE & STAGING PREFLIGHT COMPLETE`
 **Launch Status:** **`NOT PUBLICLY LAUNCHED — STAGING DEPLOYMENT PENDING`**
 
 ---
@@ -34,8 +35,10 @@ The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All
 - **Provisioning Hardening Baseline (`7423ca3`):**
   Hardened interactive password entry (requiring both `process.stdin.isTTY` and `process.stdout.isTTY`), rejected known public CI test fixtures in production mode, corrected native systemd same-host binding to `127.0.0.1:3000`, resolved native `DATABASE_PATH` to `/var/lib/siteintel/data/siteintel.db`, and implemented non-destructive environment discovery.
   GitHub Actions CI Run [40267531497](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40267531497) (`conclusion: success`, all 7 quality gates passed, 30 test files and 282/282 tests passed, 33/33 Playwright tests passed).
-- **Docker Container Packaging & Acceptance Freeze:** Current Working Tree / HEAD
-  Packaged Playwright Chromium into the production Docker runner image with non-root execution permissions, decoupled Next.js build-phase static generation from runtime secrets (`NEXT_PHASE=phase-production-build`), enhanced query parameter handling, and instituted the 15-step GitHub Actions container acceptance pipeline (`.github/workflows/container-acceptance.yml`).
+- **Docker Container Packaging & Acceptance Freeze (`88be6ca`):**
+  Packaged Playwright Chromium into the production Docker runner image with non-root execution permissions, decoupled Next.js build-phase static generation from runtime secrets (`NEXT_PHASE=phase-production-build`), created static public directory, added PDF font libraries (`fonts-liberation`, `libxshmfence1`), and proved real Docker runtime execution on a GitHub-hosted Ubuntu runner via `.github/workflows/container-acceptance.yml`.
+  GitHub Actions Docker Acceptance Run [40270202981](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270202981) (`conclusion: success`, all 15 container acceptance steps passed).
+  GitHub Actions CI Pipeline Run [40270203030](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270203030) (`conclusion: success`, all 7 quality gates passed, 30 test files and 284/284 tests passed, 33/33 Playwright tests passed).
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
@@ -130,7 +133,7 @@ All quality gates have been executed sequentially against the codebase:
 | **Gate 6: SQLite Recovery** | `npm run db:verify` | **PASS** | 100% bit-accurate recovery of tenants, users, scan jobs, and reports |
 | **Gate 7: Production Build** | `npm run build` | **PASS** | Next.js 15 App Router compiled all 19 static and dynamic routes |
 | **Gate 8: Live Scan Validation** | `npx tsx scripts/live-scan-caferemote.mjs` | **PASS** | Live audit of permitted target passed with all catalogue rules intact |
-| **Docker Container Runtime Acceptance** | GitHub Actions Pipeline (`container-acceptance.yml`) | **AUTOMATED** | Automated 15-step container runtime pipeline executing on Ubuntu Docker runner (verifies build, healthcheck, loopback binding, in-container PDF scripts, scan execution, `%PDF-` binary magic bytes, container restart persistence, and single-report mutual exclusivity) |
+| **Docker Container Runtime Acceptance** | GitHub Actions Pipeline (`container-acceptance.yml`) | **PASS** | 15/15 steps passed on GitHub Actions Ubuntu Docker runner ([Run 40270202981](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270202981)): validated compose, built image, verified healthcheck, confirmed exclusive 127.0.0.1 loopback binding, ran in-container PDF scripts, executed public owner scan, downloaded verified binary PDF with `%PDF-` header, verified data persistence across container restart, and confirmed 404 for opposite report type |
 
 ---
 
