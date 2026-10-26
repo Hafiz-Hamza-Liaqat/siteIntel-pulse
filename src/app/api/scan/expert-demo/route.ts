@@ -22,8 +22,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const tenantId = auth ? auth.tenant.id : "tenant_comp_b";
-  const userId = auth ? auth.user.id : "usr_companyb_owner";
+  let tenantId = auth ? auth.tenant.id : "";
+  let userId = auth ? auth.user.id : "";
+  let sessionCookie: { name: string; value: string; options: any } | undefined;
+
+  if (!auth) {
+    const authService = scanDb.getAuthService();
+    const guest = authService.createGuestSession("127.0.0.1");
+    tenantId = guest.tenant.id;
+    userId = guest.user.id;
+    sessionCookie = {
+      name: SESSION_COOKIE_NAME,
+      value: guest.signedToken,
+      options: {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 14 * 24 * 60 * 60,
+      },
+    };
+  }
 
   const now = new Date().toISOString();
 
@@ -271,6 +290,10 @@ export async function POST(req: NextRequest) {
     jobId,
     report: expertReport,
   });
+
+  if (sessionCookie) {
+    response.cookies.set(sessionCookie.name, sessionCookie.value, sessionCookie.options);
+  }
 
   return response;
 }
