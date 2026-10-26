@@ -1,0 +1,280 @@
+name: Docker Container Runtime Acceptance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: container-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-acceptance:
+    name: Staging Docker Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: 1. Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 2. Verify Docker and Docker Compose Availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: 3. Verify Docker Compose Fails When SESSION_SECRET Is Unset
+        run: |
+          echo "Testing Compose configuration without SESSION_SECRET..."
+          unset SESSION_SECRET
+          if docker compose -f docker-compose.staging.yml config > /dev/null 2>&1; then
+            echo "ERROR: docker compose config should have failed when SESSION_SECRET is unset"
+            exit 1
+          fi
+          echo "PASS: Compose correctly rejected unset SESSION_SECRET."
+
+      - name: 4. Generate and Mask High-Entropy Runtime Secret
+        id: secret-gen
+        run: |
+          GENERATED_SECRET=$(openssl rand -hex 32)
+          echo "::add-mask::$GENERATED_SECRET"
+          echo "SESSION_SECRET=$GENERATED_SECRET" >> $GITHUB_ENV
+          echo "Generated 64-hex runtime secret (masked in CI logs)."
+
+      - name: 5. Validate Compose Configuration With Runtime Secret
+        run: |
+          docker compose -f docker-compose.staging.yml config --quiet
+          echo "PASS: Docker Compose configuration validated successfully."
+
+      - name: 6. Build and Start Container
+        run: |
+          echo "Building production image and starting staging stack..."
+          docker compose -f docker-compose.staging.yml up --build -d
+
+      - name: 7. Wait for Container Health and Readiness Probe
+        run: |
+          echo "Polling /api/health until status is healthy..."
+          HEALTHY=0
+          for i in $(seq 1 30); do
+            HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" http://127.0.0.1:3000/api/health || true)
+            if [ "$HTTP_CODE" = "200" ]; then
+              if grep -q '"status":"healthy"' /tmp/health.json && grep -q '"database":"connected"' /tmp/health.json; then
+                echo "Container is healthy on probe $i (HTTP 200)."
+                cat /tmp/health.json
+                HEALTHY=1
+                break
+              fi
+            fi
+            echo "Waiting for healthy probe... (attempt $i/30, HTTP $HTTP_CODE)"
+            sleep 3
+          done
+
+          if [ "$HEALTHY" -ne 1 ]; then
+            echo "ERROR: Container failed to become healthy within timeout."
+            docker compose -f docker-compose.staging.yml logs
+            exit 1
+          fi
+
+      - name: 8. Verify Strict Loopback Network Binding
+        run: |
+          echo "Inspecting container port bindings..."
+          HOST_IPS=$(docker inspect siteintel-pulse-staging --format='{{range $p, $conf := .NetworkSettings.Ports}}{{range $conf}}{{.HostIp}} {{end}}{{end}}')
+          echo "Published Host IPs: $HOST_IPS"
+          for ip in $HOST_IPS; do
+            if [ "$ip" != "127.0.0.1" ]; then
+              echo "ERROR: Container is bound to non-loopback IP ($ip). Must be strictly 127.0.0.1."
+              exit 1
+            fi
+          done
+          echo "PASS: Port 3000 is bound strictly to loopback 127.0.0.1."
+
+      - name: 9. Run In-Container PDF Verification Scripts
+        run: |
+          echo "Executing scripts/verify-pdf.mjs inside container..."
+          docker exec siteintel-pulse-staging node scripts/verify-pdf.mjs
+          echo "Executing scripts/verify-expert-pdf.mjs inside container..."
+          docker exec siteintel-pulse-staging node scripts/verify-expert-pdf.mjs
+          echo "PASS: In-container Playwright PDF generation verified."
+
+      - name: 10. Submit Public Owner Scan and Capture Session
+        run: |
+          echo "Submitting test scan with trusted reverse-proxy header..."
+          RESPONSE=$(curl -s -S -c /tmp/scan-cookies.txt \
+            -X POST http://127.0.0.1:3000/api/scan \
+            -H "Content-Type: application/json" \
+            -H "X-Real-IP: 198.51.100.10" \
+            -d '{"targetUrl":"https://example.com","reportType":"owner","maxPages":1,"maxDepth":1}')
+
+          echo "Response received."
+          JOB_ID=$(echo "$RESPONSE" | node -e '
+            let data = "";
+            process.stdin.on("data", chunk => data += chunk);
+            process.stdin.on("end", () => {
+              try {
+                const parsed = JSON.parse(data);
+                if (!parsed.jobId) {
+                  console.error("Missing jobId in response:", data);
+                  process.exit(1);
+                }
+                process.stdout.write(parsed.jobId);
+              } catch (e) {
+                console.error("JSON parse failure:", e.message, data);
+                process.exit(1);
+              }
+            });
+          ')
+          echo "Scan job submitted successfully with ID: $JOB_ID"
+          echo "SCAN_JOB_ID=$JOB_ID" >> $GITHUB_ENV
+
+      - name: 11. Poll Scan Until Completed
+        run: |
+          echo "Polling scan job $SCAN_JOB_ID until completed..."
+          STATUS="pending"
+          for i in $(seq 1 45); do
+            STATUS_JSON=$(curl -s -S -b /tmp/scan-cookies.txt "http://127.0.0.1:3000/api/scan?jobId=$SCAN_JOB_ID")
+            STATUS=$(echo "$STATUS_JSON" | node -e '
+              let data = "";
+              process.stdin.on("data", chunk => data += chunk);
+              process.stdin.on("end", () => {
+                try {
+                  const parsed = JSON.parse(data);
+                  process.stdout.write(parsed.status || "unknown");
+                } catch {
+                  process.stdout.write("parse_error");
+                }
+              });
+            ')
+            echo "Attempt $i/45: status is $STATUS"
+            if [ "$STATUS" = "completed" ]; then
+              echo "PASS: Scan job completed successfully!"
+              break
+            elif [ "$STATUS" = "failed" ]; then
+              echo "ERROR: Scan job transitioned to failed status."
+              echo "$STATUS_JSON"
+              docker compose -f docker-compose.staging.yml logs
+              exit 1
+            fi
+            sleep 3
+          done
+
+          if [ "$STATUS" != "completed" ]; then
+            echo "ERROR: Scan job timed out without completing."
+            docker compose -f docker-compose.staging.yml logs
+            exit 1
+          fi
+
+      - name: 12. Download and Verify Owner PDF Magic Bytes
+        run: |
+          echo "Downloading Owner PDF for job $SCAN_JOB_ID..."
+          HTTP_STATUS=$(curl -s -S -b /tmp/scan-cookies.txt \
+            -w "%{http_code}" \
+            -D /tmp/pdf-headers.txt \
+            -o /tmp/downloaded-owner-report.pdf \
+            "http://127.0.0.1:3000/api/scan/pdf?jobId=$SCAN_JOB_ID")
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "ERROR: PDF download returned HTTP $HTTP_STATUS"
+            cat /tmp/pdf-headers.txt
+            docker compose -f docker-compose.staging.yml logs
+            exit 1
+          fi
+
+          if ! grep -qi "Content-Type: application/pdf" /tmp/pdf-headers.txt; then
+            echo "ERROR: Content-Type header is not application/pdf"
+            cat /tmp/pdf-headers.txt
+            exit 1
+          fi
+
+          MAGIC_BYTES=$(head -c 4 /tmp/downloaded-owner-report.pdf)
+          if [ "$MAGIC_BYTES" != "%PDF" ]; then
+            echo "ERROR: Magic bytes do not match %PDF (received: $MAGIC_BYTES)"
+            exit 1
+          fi
+
+          PDF_SIZE=$(wc -c < /tmp/downloaded-owner-report.pdf)
+          echo "PASS: Valid PDF successfully downloaded ($PDF_SIZE bytes) with %PDF magic bytes."
+
+      - name: 13. Test Container Durability and Persistence Across Restart
+        run: |
+          echo "Restarting staging container..."
+          docker compose -f docker-compose.staging.yml restart
+
+          echo "Waiting for container to become healthy after restart..."
+          RESTARTED_HEALTHY=0
+          for i in $(seq 1 20); do
+            if curl -s -f http://127.0.0.1:3000/api/health | grep -q '"status":"healthy"'; then
+              echo "Container healthy after restart (probe $i)."
+              RESTARTED_HEALTHY=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$RESTARTED_HEALTHY" -ne 1 ]; then
+            echo "ERROR: Container did not recover after restart."
+            docker compose -f docker-compose.staging.yml logs
+            exit 1
+          fi
+
+          echo "Verifying report retrieval using authenticated session across restart..."
+          REPORT_STATUS=$(curl -s -S -b /tmp/scan-cookies.txt \
+            -w "%{http_code}" \
+            -o /tmp/persisted-report.json \
+            "http://127.0.0.1:3000/api/scan/report?jobId=$SCAN_JOB_ID")
+
+          if [ "$REPORT_STATUS" != "200" ]; then
+            echo "ERROR: Report endpoint returned HTTP $REPORT_STATUS after restart"
+            exit 1
+          fi
+
+          if ! grep -q '"reportId"' /tmp/persisted-report.json; then
+            echo "ERROR: Persisted report payload is invalid"
+            cat /tmp/persisted-report.json
+            exit 1
+          fi
+
+          echo "Verifying PDF download after restart..."
+          PDF_STATUS=$(curl -s -S -b /tmp/scan-cookies.txt \
+            -w "%{http_code}" \
+            -o /tmp/restarted-pdf.pdf \
+            "http://127.0.0.1:3000/api/scan/pdf?jobId=$SCAN_JOB_ID")
+
+          if [ "$PDF_STATUS" != "200" ]; then
+            echo "ERROR: PDF endpoint returned HTTP $PDF_STATUS after restart"
+            exit 1
+          fi
+
+          RESTARTED_MAGIC=$(head -c 4 /tmp/restarted-pdf.pdf)
+          if [ "$RESTARTED_MAGIC" != "%PDF" ]; then
+            echo "ERROR: Restarted PDF does not have %PDF magic bytes"
+            exit 1
+          fi
+          echo "PASS: Report and PDF persistence verified across container restart."
+
+      - name: 14. Verify Single-Report Invariant
+        run: |
+          echo "Verifying opposite expert report endpoint returns 404 for owner-only scan..."
+          EXPERT_STATUS=$(curl -s -S -b /tmp/scan-cookies.txt \
+            -w "%{http_code}" \
+            -o /dev/null \
+            "http://127.0.0.1:3000/api/scan/expert-report?jobId=$SCAN_JOB_ID")
+
+          if [ "$EXPERT_STATUS" != "404" ]; then
+            echo "ERROR: Expected HTTP 404 for expert-report on owner scan, but received HTTP $EXPERT_STATUS"
+            exit 1
+          fi
+          echo "PASS: Single-report invariant verified (HTTP 404 returned for unrequested report type)."
+
+      - name: 15. Container Teardown and Cleanup
+        if: always()
+        run: |
+          echo "Gathering trailing container logs..."
+          docker compose -f docker-compose.staging.yml logs --tail 50 || true
+          echo "Tearing down staging container and named volumes..."
+          docker compose -f docker-compose.staging.yml down -v || true
+          rm -f /tmp/health.json /tmp/scan-cookies.txt /tmp/pdf-headers.txt /tmp/downloaded-owner-report.pdf /tmp/restarted-pdf.pdf /tmp/persisted-report.json

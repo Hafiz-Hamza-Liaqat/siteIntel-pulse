@@ -7,6 +7,7 @@
 FROM node:22-bookworm-slim AS base
 WORKDIR /app
 ENV NODE_ENV=production
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Install system dependencies required for Playwright headless Chromium & health check
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,7 +35,7 @@ FROM base AS deps
 WORKDIR /app
 ENV NODE_ENV=development
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci && npx playwright install chromium
 
 # 3. Next.js production build stage
 FROM deps AS builder
@@ -50,12 +51,17 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 ENV DATABASE_PATH=/app/data/siteintel.db
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Create non-root system user and groups
 RUN groupadd --system --gid 1001 nodejs && \
     useradd --system --uid 1001 nextjs && \
-    mkdir -p /app/data /app/backups && \
-    chown -R nextjs:nodejs /app/data /app/backups
+    mkdir -p /app/data /app/backups /app/test-results /ms-playwright && \
+    chown -R nextjs:nodejs /app/data /app/backups /app/test-results /ms-playwright
+
+# Copy Chromium browser from deps
+COPY --from=deps /ms-playwright /ms-playwright
+RUN chown -R nextjs:nodejs /ms-playwright && chmod -R 755 /ms-playwright
 
 # Copy node_modules and built assets
 COPY --from=deps /app/node_modules ./node_modules
@@ -64,6 +70,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/src ./src
 
 # Ensure non-root ownership
 RUN chown -R nextjs:nodejs /app

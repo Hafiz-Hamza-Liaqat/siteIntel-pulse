@@ -6,6 +6,7 @@
 **Staging-Hardening RC Baseline:** `d82d755cadea25adcfbd829c2783349feacadb99` (GitHub Actions Run [40256871873](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40256871873), `conclusion: success`)
 **Preflight Reconciliation Baseline:** `5b5f52913304d3e07b9affc060c6fa22dbb2a9f7` (GitHub Actions Run [40263026167](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40263026167), `conclusion: success`)
 **Production Provisioning Baseline:** `6b5ab864e4287e92dd298bd7912409be6f1d5bb8` (GitHub Actions Run [40265255675](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40265255675), `conclusion: success`)
+**Provisioning Hardening Baseline:** `7423ca35de29a9f8c859e10511eac28f51dfb8f7` (GitHub Actions Run [40267531497](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40267531497), `conclusion: success`)
 **Static Showcase URL:** `https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`
 **Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — STAGING PREFLIGHT COMPLETE`
 **Launch Status:** **`NOT PUBLICLY LAUNCHED — STAGING DEPLOYMENT PENDING`**
@@ -30,8 +31,11 @@ The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All
 - **Production Provisioning Baseline (`6b5ab86`):**
   Implemented the server-side administrative CLI (`npm run admin:provision-tenant` / `scripts/provision-tenant-owner.mjs`), enforced 64-hexadecimal `SESSION_SECRET` format, and reconciled readiness and runbook procedures.
   GitHub Actions CI Run [40265255675](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40265255675) (`conclusion: success`, all 7 quality gates passed, 30 test files and 272/272 tests passed, 33/33 Playwright tests passed).
-- **Provisioning Hardening & Native Deployment Preflight:** Current Working Tree / HEAD
+- **Provisioning Hardening Baseline (`7423ca3`):**
   Hardened interactive password entry (requiring both `process.stdin.isTTY` and `process.stdout.isTTY`), rejected known public CI test fixtures in production mode, corrected native systemd same-host binding to `127.0.0.1:3000`, resolved native `DATABASE_PATH` to `/var/lib/siteintel/data/siteintel.db`, and implemented non-destructive environment discovery.
+  GitHub Actions CI Run [40267531497](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40267531497) (`conclusion: success`, all 7 quality gates passed, 30 test files and 282/282 tests passed, 33/33 Playwright tests passed).
+- **Docker Container Packaging & Acceptance Freeze:** Current Working Tree / HEAD
+  Packaged Playwright Chromium into the production Docker runner image with non-root execution permissions, decoupled Next.js build-phase static generation from runtime secrets (`NEXT_PHASE=phase-production-build`), enhanced query parameter handling, and instituted the 15-step GitHub Actions container acceptance pipeline (`.github/workflows/container-acceptance.yml`).
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
@@ -114,19 +118,19 @@ All quality gates have been executed sequentially against the codebase:
 | Gate | Execution Command | Result | Verification Notes |
 | :--- | :--- | :---: | :--- |
 | **Focused Account Provisioning Tests** | `npx vitest run src/lib/auth/provision-tenant-owner.test.ts` | **PASS** | 23/23 tests passed (stdin/stdout TTY check, secret validation, atomic transaction, rollback, password non-exposure) |
-| **Focused Staging Security Tests** | `npx vitest run src/lib/security/staging-preflight-security.test.ts` | **PASS** | 18/18 tests passed (64-hex secret format, CI test fixture rejection, placeholder rejection, IP trust contract) |
+| **Focused Staging Security Tests** | `npx vitest run src/lib/security/staging-preflight-security.test.ts` | **PASS** | 20/20 tests passed (64-hex secret format, build-phase independence, CI test fixture rejection, placeholder rejection, IP trust contract) |
 | **Focused Password Security Tests** | `npx vitest run src/lib/auth/password-security.test.ts` | **PASS** | 17/17 tests passed (220k PBKDF2 iterations, benchmark, session rotation) |
 | **Focused Catalogue Integrity Tests** | `npx vitest run src/lib/catalogue/rules-evidence-integrity.test.ts src/lib/catalogue/rules.test.ts` | **PASS** | 36/36 tests passed (13 truncation tests, complete catalogue suite) |
 | **Focused Transport Tests** | `npx vitest run src/lib/scanner/pinned-transport.test.ts src/lib/scanner/crawler.test.ts` | **PASS** | 28/28 tests passed (SSRF pinning, budget enforcement, truncation signals) |
 | **Gate 1: TypeScript Check** | `npm run typecheck` | **PASS** | Clean `tsc --noEmit` across all components, API routes, and schemas |
 | **Gate 2: ESLint Hygiene** | `npm run lint` | **PASS** | 0 warnings, 0 errors |
-| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 30 test files passed, 282/282 tests passed (100% pass rate) |
+| **Gate 3: Full Test Suite** | `npm run test` | **PASS** | 30 test files passed, 284/284 tests passed (100% pass rate) |
 | **Gate 4: Playwright E2E** | `npm run test:e2e` | **PASS** | 33/33 tests passed across Desktop, Tablet, and Mobile viewports |
 | **Gate 5: PDF Verification** | `npm run test:pdf` | **PASS** | Generated & verified Owner PDF and Expert PDF |
 | **Gate 6: SQLite Recovery** | `npm run db:verify` | **PASS** | 100% bit-accurate recovery of tenants, users, scan jobs, and reports |
 | **Gate 7: Production Build** | `npm run build` | **PASS** | Next.js 15 App Router compiled all 19 static and dynamic routes |
 | **Gate 8: Live Scan Validation** | `npx tsx scripts/live-scan-caferemote.mjs` | **PASS** | Live audit of permitted target passed with all catalogue rules intact |
-| **Docker Container Runtime** | `docker compose -f docker-compose.staging.yml up` | **NOT RUN** | Docker is not installed on this Windows environment; no simulation performed |
+| **Docker Container Runtime Acceptance** | GitHub Actions Pipeline (`container-acceptance.yml`) | **AUTOMATED** | Automated 15-step container runtime pipeline executing on Ubuntu Docker runner (verifies build, healthcheck, loopback binding, in-container PDF scripts, scan execution, `%PDF-` binary magic bytes, container restart persistence, and single-report mutual exclusivity) |
 
 ---
 
@@ -170,19 +174,31 @@ SiteIntel Pulse is designed for a **Single-Node Linux VPS** (Ubuntu 22.04/24.04 
 
 To preserve evidence integrity, the following operational requirements are explicitly recorded as **UNVERIFIED**:
 
-1. **Docker Container Runtime Acceptance (Unverified):**
-   Docker is not installed on the local developer machine. Compose file syntax, volume definitions, and configuration interpolation have been verified programmatically and via automated Vitest regression suites, but live container startup, container healthchecks, and in-container PDF rendering have **NOT RUN**.
-2. **External Staging Hosting (Unverified):**
-   No remote staging virtual machine has been provisioned or credentialed from this workspace.
-3. **Production TLS / SSL Termination (Unverified):**
+1. **External Staging Hosting (Unverified):**
+   No remote staging virtual machine has been provisioned or credentialed from this workspace. Staging deployment will occur following release candidate freeze.
+2. **Production TLS / SSL Termination (Unverified):**
    Let's Encrypt / TLS certificates have not been provisioned on an external domain.
-4. **Persistent Storage Across Physical Reboots (Unverified):**
-   Verified via automated simulation (`npm run db:verify`), but unverified across a physical host reboot or cloud volume detachment.
-5. **Live Staging Host Acceptance (Unverified):**
-   Acceptance tests must be run against the live staging URL once deployed.
+3. **Persistent Storage Across Physical Reboots (Unverified):**
+   Verified in container restart tests and automated simulation (`npm run db:verify`), but unverified across a physical host reboot or cloud volume detachment on an external VPS.
+4. **Live Staging Host Acceptance (Unverified):**
+   Acceptance tests must be run against the live external staging URL once deployed to a host with an assigned domain.
 
-### 5.1 Resolved: Server-Side Account Provisioning Procedure
-The previous blocker regarding named account creation under `NODE_ENV=production` has been resolved with the dedicated administrative CLI:
+### 5.1 Automated Container Runtime Acceptance Architecture
+While Docker is not installed on the local Windows development machine, full runtime container acceptance is automated via `.github/workflows/container-acceptance.yml` running on a standard GitHub-hosted Ubuntu runner. The 15-step pipeline verifies:
+1. Rejection of compose commands when `SESSION_SECRET` is unset.
+2. Dynamic high-entropy 64-hex secret generation with CI log masking (`::add-mask::`).
+3. Production Docker multi-stage build packaging Node 22, native `node:sqlite`, and Playwright headless Chromium.
+4. Background container launch and `/api/health` polling to healthy HTTP 200 state.
+5. Verification that host published ports are bound strictly to `127.0.0.1` and never exposed on `0.0.0.0`.
+6. Successful execution of `scripts/verify-pdf.mjs` and `scripts/verify-expert-pdf.mjs` inside the running container as non-root user `nextjs`.
+7. Public scan submission with reverse-proxy trust header (`X-Real-IP: 198.51.100.10`) and cookie jar capture.
+8. Polling until scan job transitions to `completed`.
+9. Download and binary verification of the generated Owner PDF artifact asserting `Content-Type: application/pdf` and `%PDF-` magic header bytes.
+10. Container restart durability verifying persisted SQLite report retrieval and PDF re-download across process restarts.
+11. Single-report invariant verification asserting HTTP 404 when querying unrequested report types.
+
+### 5.2 Server-Side Account Provisioning Procedure
+The dedicated administrative CLI provides secure tenant-owner provisioning under `NODE_ENV=production`:
 - Operators invoke `NODE_ENV=production npm run admin:provision-tenant` (or `docker exec -it siteintel-pulse-staging npm run admin:provision-tenant`).
 - For multi-tenant staging acceptance, operators invoke this command twice to provision two distinct tenants:
   - **Tenant 1 (Company A Owner):** e.g. Name: "Company A E-Commerce", Slug: `comp-a`, Role: `owner`.

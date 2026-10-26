@@ -49,11 +49,28 @@ describe("Staging Preflight & Production Security Configuration", () => {
   });
 
   describe("Session Secret Production Startup Guard", () => {
-    it("aborts in production mode when SESSION_SECRET is missing", () => {
+    it("permits build phase evaluation without SESSION_SECRET when NEXT_PHASE=phase-production-build", () => {
       (process.env as any).NODE_ENV = "production";
+      (process.env as any).NEXT_PHASE = "phase-production-build";
+      delete process.env.SESSION_SECRET;
+
+      expect(getSessionSecret()).toBe("build_phase_placeholder_secret_not_used_at_runtime");
+    });
+
+    it("aborts in production mode when SESSION_SECRET is missing and NEXT_PHASE is not build", () => {
+      (process.env as any).NODE_ENV = "production";
+      delete (process.env as any).NEXT_PHASE;
       delete process.env.SESSION_SECRET;
 
       expect(() => getSessionSecret()).toThrowError(/FATAL CONFIGURATION ERROR/);
+    });
+
+    it("aborts in production mode when SESSION_SECRET is the build-phase placeholder", () => {
+      (process.env as any).NODE_ENV = "production";
+      delete (process.env as any).NEXT_PHASE;
+      process.env.SESSION_SECRET = "build_phase_placeholder_secret_not_used_at_runtime";
+
+      expect(() => getSessionSecret()).toThrowError(/default placeholder/);
     });
 
     it("aborts in production mode when SESSION_SECRET is shorter than 32 characters", () => {

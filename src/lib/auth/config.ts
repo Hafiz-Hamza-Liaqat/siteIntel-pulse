@@ -11,6 +11,7 @@ export const KNOWN_INSECURE_SECRETS = new Set([
   "session_secret",
   // Public predictable 64-hex test fixture used in CI workflow (strictly rejected in production mode)
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "build_phase_placeholder_secret_not_used_at_runtime",
 ]);
 
 /**
@@ -27,6 +28,11 @@ export const KNOWN_INSECURE_SECRETS = new Set([
 export function getSessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
   const isProd = process.env.NODE_ENV === "production";
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+  if (isBuildPhase) {
+    return secret?.trim() || "build_phase_placeholder_secret_not_used_at_runtime";
+  }
 
   if (isProd) {
     const trimmed = secret?.trim() || "";

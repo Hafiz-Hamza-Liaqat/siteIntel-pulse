@@ -179,7 +179,7 @@ export async function GET(req: NextRequest) {
   const { auth } = authCheck;
 
   const { searchParams } = new URL(req.url);
-  const jobId = searchParams.get("id");
+  const jobId = searchParams.get("id") || searchParams.get("jobId");
 
   if (!jobId) {
     return NextResponse.json({ error: "Missing job id parameter" }, { status: 400 });

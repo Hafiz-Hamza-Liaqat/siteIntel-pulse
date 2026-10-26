@@ -54,8 +54,8 @@ export class SqliteScanDatabaseAdapter implements ScanDatabaseAdapter {
 
     this.db = new DatabaseSync(rawPath);
 
-    // Fail immediately if mandatory production secrets are missing or insecure
-    if (process.env.NODE_ENV === "production") {
+    // Fail immediately if mandatory production secrets are missing or insecure at runtime
+    if (process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build") {
       getSessionSecret();
     }
 
