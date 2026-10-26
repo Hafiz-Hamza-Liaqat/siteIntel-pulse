@@ -9,7 +9,7 @@
 **Provisioning Hardening Baseline:** `7423ca35de29a9f8c859e10511eac28f51dfb8f7` (GitHub Actions Run [40267531497](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40267531497), `conclusion: success`)
 **Docker Container Acceptance Baseline:** `88be6ca3c8331a2a22241b3e76fe1bb966578c7c` (Docker Acceptance Run [40270202981](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270202981), CI Pipeline Run [40270203030](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40270203030), both `conclusion: success`)
 **Automatic Category Detection & Layout Freeze Baseline:** `90c9ec7f01fd2414b58bd54174089b75ae429575` (Docker Acceptance Run [40287862940](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862940), CI Pipeline Run [40287862860](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862860), both `conclusion: success`)
-**Final Category Detection & PDF Layout Acceptance Baseline:** `Current HEAD` (Target for publication)
+**Final Category Detection & PDF Layout Acceptance Baseline:** `54101bcae5e1a14a9ec85b41ea9b9ddf5e6194b1` (Docker Acceptance Run [40297667688](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40297667688), CI Pipeline Run [40297667648](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40297667648), both `conclusion: success`)
 **Static Showcase URL:** `https://hafiz-hamza-liaqat.github.io/siteintel-pulse/`
 **Document Status:** `AUTHORITATIVE RELEASE CANDIDATE AUDIT — CONTAINER ACCEPTANCE & STAGING PREFLIGHT COMPLETE`
 **Launch Status:** **`NOT PUBLICLY LAUNCHED — STAGING DEPLOYMENT PENDING`**
@@ -45,8 +45,10 @@ The SiteIntel Pulse codebase has achieved **Release Candidate (RC)** status. All
   Implemented multi-signal business model classification (10 categories, secondary facets, confidence levels, decision source), adaptive conversion rules preserving catalogue integrity, A4 portrait printable boundary containment, fixed table widths, Playwright Chromium native header/footer pagination ("Page X of Y"), and guest session handling for demonstration audits.
   GitHub Actions Docker Acceptance Run [40287862940](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862940) (`conclusion: success`, all 15 container acceptance steps passed).
   GitHub Actions CI Pipeline Run [40287862860](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40287862860) (`conclusion: success`, all 7 quality gates passed, 32 test files and 305/305 unit tests passed, 33/33 Playwright tests passed).
-- **Final Category Detection & PDF Layout Acceptance Freeze (`HEAD`):**
+- **Final Category Detection & PDF Layout Acceptance Freeze (`54101bc`):**
   Resolved Expert PDF KPI card separation between crawl inventory and catalogue coverage, derived canonical provisional notices identically in Owner and Expert reports, expanded detector evidence corpus to include page titles, meta descriptions, and structured data text (enabling deterministic classification for modern client-rendered sites), qualified confidence scores as heuristic confidence, validated live bounded audits against three real websites (`caferemote.com`, `naffeez.com`, and `strideto.com`), and introduced comprehensive multi-fixture visual and structural PDF layout validation (`verify-pdf.mjs` and `verify-expert-pdf.mjs`) rendering all pages to image artifacts and checking A4 bounds.
+  GitHub Actions Docker Acceptance Run [40297667688](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40297667688) (`conclusion: success`, all 15 container acceptance steps passed).
+  GitHub Actions CI Pipeline Run [40297667648](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40297667648) (`conclusion: success`, all 7 quality gates passed, 32 test files and 308/308 unit tests passed, 33/33 Playwright tests passed).
 
 > [!IMPORTANT]
 > **Static Showcase vs. Dynamic Scanning Backend Distinction:**
