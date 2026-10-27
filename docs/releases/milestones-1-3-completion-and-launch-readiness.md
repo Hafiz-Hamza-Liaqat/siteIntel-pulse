@@ -3,6 +3,7 @@
 **Document Version:** `1.2.0`  
 **Date:** `2026-10-27`  
 **Feature Code Commit:** `9750fa15667190e0c659a897944eb59eeb930cf7`  
+**Documentation Commit:** `d5ca09c02904feb4bf8dea546d2f57129e7ab1b5`  
 **Publication Branch:** `feature/milestones-1-3-completion`  
 **Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
 **Remote Repository URL:** `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse.git`  
