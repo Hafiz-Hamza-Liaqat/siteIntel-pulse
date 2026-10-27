@@ -2,6 +2,7 @@
 
 **Document Version:** `1.4.0`  
 **Date:** `2026-10-27`  
+**Feature Code Commit:** `a7b3b0196ac65bfbaae6586ab59f66d14bcfc7df`  
 **Publication Branch:** `feature/milestones-1-3-completion`  
 **Pull Request URL:** [PR #1 (feature/milestones-1-3-completion -> main)](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1)  
 **Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
@@ -16,6 +17,16 @@
 This document certifies the final verification and publication of **Milestone 1 (Evidence & Score Transparency)**, **Milestone 2 (Assessment Depth & Diagnostics)**, and **Milestone 3 (Authorized Business Data Connections & Cost of Inaction v1/v2)** for SiteIntel Pulse.
 
 All code and regression tests were authored directly on branch `feature/milestones-1-3-completion`. A formal Pull Request targeting `main` is active at [PR #1](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1).
+
+### Remote Publication Verification Output:
+```text
+a7b3b0196ac65bfbaae6586ab59f66d14bcfc7df  refs/heads/feature/milestones-1-3-completion
+c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main
+```
+
+### GitHub Actions Quality Gates on Latest Commit `a7b3b01`
+- **CI Pipeline Run [40478633087](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40478633087):** **`SUCCESS`** (TypeScript static typecheck, ESLint, 39 test files / 396 tests, 51-page PDF verification, SQLite ACID backup, Playwright E2E 33/33, Next.js 15 build).
+- **Docker Container Runtime Acceptance Run [40478633104](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40478633104):** **`SUCCESS`** (Strict loopback `127.0.0.1:3000` binding, health probe, in-container PDF rasterization, public scan capture, PDF magic bytes validation, container restart durability).
 
 ---
 
