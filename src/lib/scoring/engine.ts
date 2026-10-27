@@ -80,6 +80,12 @@ export function computeAuditScores(results: AssessmentResult[]): ScoreLedgerOutp
     totalEarnedPoints += earnedPoints;
     totalTestedPoints += testedPoints;
 
+    const isCategoryProvisional = !isEligible || catCoveragePct < 80;
+    const statusLabel = isCategoryProvisional ? "Evaluated-Subset (Provisional)" : "Fully Assessed";
+    const scoreLabel = isCategoryProvisional
+      ? `${scorePercentage}% (Evaluated subset, Coverage ${catCoveragePct}%)`
+      : `${scorePercentage}%`;
+
     categoryScores.push({
       category: cat,
       categoryName: config.name,
@@ -96,6 +102,9 @@ export function computeAuditScores(results: AssessmentResult[]): ScoreLedgerOutp
       pointsEvaluated: testedPoints,
       pointsEarned: earnedPoints,
       normalizedScore: scorePercentage,
+      isProvisional: isCategoryProvisional,
+      statusLabel,
+      scoreLabel,
     });
   }
 

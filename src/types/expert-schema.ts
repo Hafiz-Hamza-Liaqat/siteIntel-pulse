@@ -9,6 +9,7 @@ import {
   OverallScoreSchema,
   CategoryScoreSchema,
   ResourceObservationSchema,
+  CostOfInactionResultSchema,
 } from "./schema";
 
 // 1. EvidenceSource Schema
@@ -102,9 +103,11 @@ export const PageDiagnosticSchema = z.object({
     "BLOCKED_ROBOTS",
     "ERROR",
     "REDIRECT",
+    "NOT_APPLICABLE",
+    "RESOURCE",
   ]),
   canonicalCandidate: z.string().optional(),
-  canonicalStatus: z.enum(["SELF", "CROSS_PAGE", "MISSING", "INVALID"]),
+  canonicalStatus: z.enum(["SELF", "CROSS_PAGE", "MISSING", "INVALID", "NOT_APPLICABLE"]),
   title: z.string().optional(),
   titleLength: z.number().int().default(0),
   metaDescription: z.string().optional(),
@@ -527,6 +530,7 @@ export const ExpertReportSchema = z.object({
   competitorComparisons: z.array(CompetitorComparisonSchema).default([]),
   remediationRegister: z.array(RemediationTaskSchema).default([]),
   findings: z.array(ExpertAssessmentResultSchema).default([]),
+  costOfInaction: CostOfInactionResultSchema.optional(),
   coverage: ReportCoverageSchema,
   exportManifest: ExpertExportManifestSchema,
 });

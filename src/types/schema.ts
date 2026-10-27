@@ -143,10 +143,12 @@ export type ScanRequest = z.infer<typeof ScanRequestSchema>;
 // 2. ScanCoverage Schema
 export const ScanCoverageSchema = z.object({
   discoveredPages: z.number().int().nonnegative(),
+  htmlEligiblePages: z.number().int().nonnegative().optional(),
   testedPages: z.number().int().nonnegative(),
   skippedPages: z.number().int().nonnegative(),
   failedPages: z.number().int().nonnegative(),
   inaccessiblePages: z.number().int().nonnegative(),
+  excludedDocumentTypesCount: z.number().int().nonnegative().default(0).optional(),
   totalBytesFetched: z.number().int().nonnegative(),
   totalPagesBudget: z.number().int().positive(),
   crawlDepthReached: z.number().int().nonnegative(),
@@ -355,6 +357,9 @@ export const CategoryScoreSchema = z.object({
   pointsEvaluated: z.number().default(0).optional(),
   pointsEarned: z.number().default(0).optional(),
   normalizedScore: z.number().default(0).optional(),
+  isProvisional: z.boolean().default(false).optional(),
+  statusLabel: z.string().optional(),
+  scoreLabel: z.string().optional(),
 });
 export type CategoryScore = z.infer<typeof CategoryScoreSchema>;
 

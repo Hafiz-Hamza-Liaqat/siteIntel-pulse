@@ -10,6 +10,7 @@ import { checkPublicExposure, ExposureCheckResult } from "./exposure-checker";
 import { PageSpeedProvider } from "../providers/pagespeed";
 import { PageSpeedResult } from "../providers/types";
 import { detectBusinessCategory } from "../classifier/business-category-detector";
+import { calculateCostOfInaction } from "../reports/cost-of-inaction";
 
 export class ScanOrchestrator {
   /**
@@ -137,6 +138,13 @@ export class ScanOrchestrator {
 
       const assessmentResults = assessmentRegistry.evaluateAll(evalContext);
 
+      // Shared Immutable Cost of Inaction Result (ensures Owner & Expert reports never diverge)
+      const costOfInaction = calculateCostOfInaction({
+        businessCategory: categoryDetection.effectiveCategory,
+        request,
+        results: assessmentResults,
+      });
+
       // Stage 4: Scoring
       await jobManager.updateProgress(jobId, "scoring", "Computing category scores and overall weighted composite baseline", 85, undefined, job.tenantId);
 
@@ -161,6 +169,7 @@ export class ScanOrchestrator {
             browserResponsiveResults: responsiveResult?.viewportResults,
             visualDesign: responsiveResult?.visualDesign,
             businessCategoryDetection: categoryDetection,
+            costOfInaction,
           },
           job.tenantId
         );
@@ -202,6 +211,7 @@ export class ScanOrchestrator {
             pageSpeedData: { mobile: pageSpeedMobile, desktop: pageSpeedDesktop },
             browserResponsiveResults: responsiveResult?.viewportResults,
             businessCategoryDetection: categoryDetection,
+            costOfInaction,
           }
         );
         await scanDb.saveReport(ownerReport, job.tenantId);

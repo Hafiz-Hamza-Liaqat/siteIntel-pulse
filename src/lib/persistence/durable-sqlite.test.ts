@@ -30,7 +30,7 @@ describe("Phase 1: Durable SQLite Persistence & Restart Verification", () => {
   it("applies migrations in strict atomic transactions and tracks versions", () => {
     const rawDb = new DatabaseSync(":memory:");
     const res = runMigrations(rawDb);
-    expect(res.appliedCount).toBe(2);
+    expect(res.appliedCount).toBe(3);
 
     // Second run should apply 0 additional migrations (idempotent)
     const idempotentRes = runMigrations(rawDb);
@@ -48,6 +48,8 @@ describe("Phase 1: Durable SQLite Persistence & Restart Verification", () => {
     expect(tableNames).toContain("remediation_tasks");
     expect(tableNames).toContain("rate_limits");
     expect(tableNames).toContain("schema_migrations");
+    expect(tableNames).toContain("provider_connections");
+    expect(tableNames).toContain("oauth_states");
     rawDb.close();
   });
 

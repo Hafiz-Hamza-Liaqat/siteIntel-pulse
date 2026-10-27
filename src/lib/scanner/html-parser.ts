@@ -57,10 +57,27 @@ export function parsePageHtml(
   const lowerPath = parsedUrl.pathname.toLowerCase();
 
   const isRobotsTxt = lowerPath.endsWith("/robots.txt") || lowerPath === "/robots.txt";
+  const trimmedHtml = html.trim();
+  const lowerHtml = trimmedHtml.toLowerCase();
+
+  // Document body signatures
+  const hasHtmlSignature =
+    /^<!doctype\s+html/i.test(trimmedHtml) ||
+    /^<html[\s>]/i.test(trimmedHtml) ||
+    (lowerHtml.includes("<body") && lowerHtml.includes("</body"));
+  const hasSitemapXmlTag =
+    lowerHtml.includes("<urlset") ||
+    lowerHtml.includes("<sitemapindex>") ||
+    (lowerHtml.includes("<sitemap>") && lowerHtml.includes("<loc>"));
+  const hasXmlProlog = trimmedHtml.startsWith("<?xml");
   const isXmlByHeader = rawContentType.includes("xml");
   const isXmlByExtension = lowerPath.endsWith(".xml");
-  const isXmlByContent = html.trim().startsWith("<?xml") || html.includes("<urlset") || html.includes("<sitemapindex>");
-  const isXmlSitemap = isXmlByExtension || isXmlByContent || (isXmlByHeader && (html.includes("<urlset") || html.includes("<sitemapindex>")));
+
+  // Determine isXmlSitemap reliably:
+  // Must NOT be classified as sitemap if it is actually an HTML document (e.g. HTML served at .xml path)
+  const isXmlSitemap =
+    hasSitemapXmlTag ||
+    (!hasHtmlSignature && (isXmlByExtension || isXmlByHeader || hasXmlProlog) && (lowerHtml.includes("<url") || lowerHtml.includes("<sitemap")));
 
   let documentType: PageObservation["documentType"] = "html";
   if (statusCode >= 400) {
@@ -69,9 +86,13 @@ export function parsePageHtml(
     documentType = "robots_txt";
   } else if (isXmlSitemap) {
     documentType = "xml_sitemap";
-  } else if (isXmlByHeader || isXmlByContent) {
+  } else if (!hasHtmlSignature && (isXmlByHeader || hasXmlProlog || (isXmlByExtension && !hasHtmlSignature))) {
     documentType = "xml";
-  } else if (rawContentType.includes("json") || lowerPath.endsWith(".json")) {
+  } else if (
+    rawContentType.includes("json") ||
+    lowerPath.endsWith(".json") ||
+    (!hasHtmlSignature && ((trimmedHtml.startsWith("{") && trimmedHtml.endsWith("}")) || (trimmedHtml.startsWith("[") && trimmedHtml.endsWith("]"))))
+  ) {
     documentType = "api_json";
   } else if (rawContentType.startsWith("image/") || /\.(png|jpe?g|gif|svg|webp|avif|ico)$/i.test(lowerPath)) {
     documentType = "image";
@@ -79,8 +100,10 @@ export function parsePageHtml(
     documentType = "document";
   } else if (rawContentType.includes("javascript") || lowerPath.endsWith(".js")) {
     documentType = "script";
-  } else if (!rawContentType.includes("html") && rawContentType !== "") {
+  } else if (!rawContentType.includes("html") && rawContentType !== "" && !hasHtmlSignature) {
     documentType = "other";
+  } else {
+    documentType = "html";
   }
 
   const isHtml = documentType === "html";
@@ -329,7 +352,16 @@ export function parsePageHtml(
   let templateConfidence: Confidence = "LOW";
   const path = parsedUrl.pathname.toLowerCase();
 
-  if (path === "/" || path === "") {
+  if (documentType === "xml_sitemap") {
+    pageTemplateGuess = "sitemap";
+    templateConfidence = "HIGH";
+  } else if (documentType === "robots_txt") {
+    pageTemplateGuess = "robots";
+    templateConfidence = "HIGH";
+  } else if (documentType === "api_json" || documentType === "image" || documentType === "document" || documentType === "xml") {
+    pageTemplateGuess = documentType;
+    templateConfidence = "HIGH";
+  } else if (path === "/" || path === "") {
     pageTemplateGuess = "homepage";
     templateConfidence = "HIGH";
   } else if (path.includes("cart") || path.includes("checkout")) {

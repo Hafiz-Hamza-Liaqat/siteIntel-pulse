@@ -20,6 +20,7 @@ export interface OwnerProjectionOptions {
   browserResponsiveResults?: ResponsiveDiagnostic[];
   competitorScans?: CompetitorAssessment[];
   businessCategoryDetection?: import("@/types").BusinessCategoryDetection;
+  costOfInaction?: import("@/types").CostOfInactionResult;
 }
 
 export function projectOwnerReport(
@@ -113,23 +114,42 @@ export function projectOwnerReport(
 
   const isJobBoard = effectiveCategory === "job_board" || effectiveCategory === ("jobs_marketplace" as any);
 
-  // Mobile / Performance Opportunity
-  const perfIssues = failResults.filter((r) => r.category === "performance" || r.category === "responsive_accessibility");
+  // Responsiveness & Mobile UX Opportunity (Separated from Speed)
+  const respIssues = failResults.filter((r) => r.category === "responsive_accessibility");
+  if (respIssues.length > 0) {
+    const isHighUrgency = respIssues.some((r) => r.severity === "CRITICAL" || r.severity === "HIGH");
+    priorityOpportunities.push({
+      id: "opp_resp",
+      rank: rank++,
+      title: "Optimize Mobile Layout Adaptiveness and Responsiveness",
+      businessImpact: isJobBoard
+        ? "Seamless mobile rendering ensures job candidates can read listings, navigate filters, and complete applications without horizontal scrolling or tap friction."
+        : "Seamless mobile layout adaptiveness ensures mobile visitors can navigate products, read content, and click calls-to-action comfortably without viewport overflow.",
+      potentialServiceCategory: "Responsive Experience & Mobile UX",
+      urgency: isHighUrgency ? "HIGH" : "MEDIUM",
+      relatedTestIds: respIssues.map((r) => r.testId),
+      recommendedAction: "Fix viewport overflow constraints, ensure touch targets meet 40x40px minimums, and eliminate overlapping sticky elements.",
+    });
+  }
+
+  // Performance & Speed Opportunity (Separated from Responsive Layout)
+  const perfIssues = failResults.filter((r) => r.category === "performance");
   if (perfIssues.length > 0) {
     const isHighUrgency = perfIssues.some((r) => r.severity === "CRITICAL" || r.severity === "HIGH");
+    const hasLabData = Boolean(resolvedOptions?.pageSpeedData?.mobile?.isAvailable || resolvedOptions?.pageSpeedData?.desktop?.isAvailable);
     priorityOpportunities.push({
       id: "opp_perf",
       rank: rank++,
-      title: "Accelerate Page Speed and Mobile Rendering",
+      title: "Accelerate Page Speed and Asset Delivery",
       businessImpact: isJobBoard
-        ? "Faster loading times directly increase job application conversions, reduce candidate bounce rates, and improve listing engagement."
-        : "Faster loading times directly increase customer conversions and lower visitor bounce rates.",
+        ? "Faster page load times directly increase job application conversions, reduce candidate bounce rates, and improve listing engagement."
+        : "Faster page loading times directly increase customer conversions and lower visitor bounce rates.",
       potentialServiceCategory: "Performance Engineering & Frontend Optimization",
       urgency: isHighUrgency ? "HIGH" : "MEDIUM",
       relatedTestIds: perfIssues.map((r) => r.testId),
-      recommendedAction: isJobBoard
-        ? "Minify JavaScript, compress job listing media with WebP format, and eliminate render-blocking CSS stylesheets."
-        : "Minify JavaScript, compress images with WebP format, and eliminate render-blocking CSS stylesheets.",
+      recommendedAction: hasLabData
+        ? "Minify JavaScript, compress images with WebP/AVIF format, eliminate render-blocking CSS stylesheets, and optimize critical path latency."
+        : "Optimize server response times, compress media assets, and eliminate render-blocking scripts observed in local crawl metrics.",
     });
   }
 
@@ -206,11 +226,13 @@ export function projectOwnerReport(
 
   // Compute Non-Additive Diagnostic Dimension Scorecards & Cost of Inaction
   const dimensionScorecards = computeDimensionScorecards(results, crawl.pages.length);
-  const costOfInaction = calculateCostOfInaction({
-    businessCategory: effectiveCategory,
-    request,
-    results,
-  });
+  const costOfInaction =
+    resolvedOptions?.costOfInaction ||
+    calculateCostOfInaction({
+      businessCategory: effectiveCategory,
+      request,
+      results,
+    });
 
   // 5. Build Owner Report
   const report: OwnerReport = {

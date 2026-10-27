@@ -34,9 +34,54 @@ export interface PageSpeedResult {
   measuredAt: string;
 }
 
+export type ProviderId =
+  | "pagespeed"
+  | "google_analytics_4"
+  | "search_console"
+  | "crm_hubspot"
+  | "commerce_shopify"
+  | "ads_google"
+  | "backlinks_serp";
+
+export type ProviderConnectionStatus =
+  | "NOT_CONFIGURED"
+  | "NOT_CONNECTED"
+  | "AUTH_REQUIRED"
+  | "INSUFFICIENT_SCOPE"
+  | "RATE_LIMITED"
+  | "UNAVAILABLE"
+  | "STALE"
+  | "CONNECTED"
+  | "ERROR";
+
 export interface ProviderConnectionState {
-  provider: "pagespeed" | "google_analytics_4" | "search_console" | "backlinks" | "serp";
+  provider: ProviderId;
+  displayName: string;
+  category: "analytics" | "search_console" | "crm" | "commerce" | "advertising" | "seo_backlinks" | "performance";
+  status: ProviderConnectionStatus;
   isConnected: boolean;
   statusMessage: string;
   hasCredentials: boolean;
+  supportedCapabilities: string[];
+  permissions?: string[];
+  accountId?: string;
+  propertyId?: string;
+  lastSyncAt?: string;
+  healthStatus?: "HEALTHY" | "DEGRADED" | "FAILING";
+  configuredScope?: string[];
+}
+
+export interface ProviderMetricsResult {
+  provider: ProviderId;
+  isAvailable: boolean;
+  dataTimestamp: string;
+  dateRange?: { startDate: string; endDate: string };
+  metrics: Record<string, any>;
+  provenance: {
+    source: string;
+    propertyOrAccount: string;
+    isSimulatedOrMock?: boolean;
+    fetchedAt: string;
+  };
+  limitations?: string;
 }

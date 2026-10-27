@@ -31,6 +31,7 @@ import { CATEGORY_ALLOCATED_WEIGHTS, assessmentRegistry } from "../catalogue/reg
 import { isAuthUrl } from "../catalogue/rules/auth";
 import { PageSpeedResult } from "../providers/types";
 import { computeCanonicalReportDigest } from "./manifest-integrity";
+import { calculateCostOfInaction } from "./cost-of-inaction";
 
 export interface ExpertAuditOptions {
   isAuthorizedForAuthScan?: boolean;
@@ -44,6 +45,7 @@ export interface ExpertAuditOptions {
   visualDesign?: VisualDesignDiagnostic;
   competitorScans?: CompetitorComparison[];
   businessCategoryDetection?: import("@/types").BusinessCategoryDetection;
+  costOfInaction?: import("@/types").CostOfInactionResult;
 }
 
 export function projectExpertReport(
@@ -248,26 +250,55 @@ export function projectExpertReport(
   const urlInventory: PageDiagnostic[] = crawl.pages.map((p, idx) => {
     const pageUrl = p.finalUrl || p.requestedUrl;
     const isSeed = idx === 0 || pageUrl === request.targetUrl;
-    const isSitemap = crawl.sitemapUrls.includes(pageUrl) || (p.contentType && p.contentType.includes("xml")) || pageUrl.endsWith(".xml");
-    const discoverySource = isSeed ? "seed_url" : isSitemap ? "sitemap" : "internal_link";
+    const lowerUrl = pageUrl.toLowerCase();
+    const isSitemap =
+      p.isXmlSitemap ||
+      p.documentType === "xml_sitemap" ||
+      crawl.sitemapUrls.includes(pageUrl) ||
+      (p.contentType && p.contentType.includes("xml")) ||
+      lowerUrl.endsWith(".xml") ||
+      lowerUrl.includes("sitemap");
+    const isRobots =
+      p.documentType === "robots_txt" ||
+      lowerUrl.endsWith("/robots.txt") ||
+      lowerUrl.endsWith("robots.txt");
+    const isNonHtml = Boolean(p.documentType && p.documentType !== "html");
+    const isExcludedFromHtml = isSitemap || isRobots || isNonHtml;
+
+    const discoverySource = isSeed ? "seed_url" : isSitemap ? "sitemap" : isRobots ? "robots_txt" : "internal_link";
 
     const isNoIndex =
       (p.robotsDirectives || []).some((r) => r.toLowerCase().includes("noindex")) ||
       (p.headers["x-robots-tag"] || "").toLowerCase().includes("noindex");
 
-    const indexabilityStatus =
-      p.statusCode >= 400
-        ? "ERROR"
-        : p.statusCode >= 300
-        ? "REDIRECT"
-        : isNoIndex
-        ? "NOINDEX"
-        : "INDEXABLE";
+    let indexabilityStatus: PageDiagnostic["indexabilityStatus"] = "INDEXABLE";
+    if (p.statusCode >= 400) {
+      indexabilityStatus = "ERROR";
+    } else if (p.statusCode >= 300) {
+      indexabilityStatus = "REDIRECT";
+    } else if (isExcludedFromHtml) {
+      indexabilityStatus = "NOT_APPLICABLE";
+    } else if (isNoIndex) {
+      indexabilityStatus = "NOINDEX";
+    } else {
+      indexabilityStatus = "INDEXABLE";
+    }
 
-    const canonicalCandidate = p.canonicalCandidate || (p as any).canonical;
+    const canonicalCandidate = isExcludedFromHtml ? undefined : (p.canonicalCandidate || (p as any).canonical);
     let canonicalStatus: PageDiagnostic["canonicalStatus"] = "MISSING";
-    if (canonicalCandidate) {
+    if (isExcludedFromHtml) {
+      canonicalStatus = "NOT_APPLICABLE";
+    } else if (canonicalCandidate) {
       canonicalStatus = canonicalCandidate === pageUrl ? "SELF" : "CROSS_PAGE";
+    }
+
+    let exclusionReason: string | undefined = undefined;
+    if (isSitemap) {
+      exclusionReason = "XML sitemap resource: excluded from HTML page checks (titles, meta descriptions, headings, canonicals, and indexability).";
+    } else if (isRobots) {
+      exclusionReason = "Robots.txt resource: excluded from HTML page checks.";
+    } else if (isNonHtml) {
+      exclusionReason = `${p.documentType || "Non-HTML"} resource: excluded from HTML page checks.`;
     }
 
     const structuredDataTypes: string[] = [];
@@ -281,9 +312,7 @@ export function projectExpertReport(
       testStatus = "FAILED";
     } else if (p.statusCode >= 300) {
       testStatus = "SKIPPED";
-    } else if (isSitemap || (p.contentType && p.contentType.includes("xml"))) {
-      testStatus = "PARTIALLY_TESTED";
-    } else if (p.contentType && !p.contentType.includes("text/html")) {
+    } else if (isExcludedFromHtml) {
       testStatus = "PARTIALLY_TESTED";
     } else {
       testStatus = "FULLY_TESTED";
@@ -313,18 +342,19 @@ export function projectExpertReport(
       indexabilityStatus,
       canonicalCandidate,
       canonicalStatus,
-      title: isSitemap ? undefined : p.title,
-      titleLength: isSitemap ? 0 : (p.title?.length || 0),
-      metaDescription: isSitemap ? undefined : p.metaDescription,
-      metaDescriptionLength: isSitemap ? 0 : (p.metaDescription?.length || 0),
-      headingsOutline: isSitemap
+      exclusionReason,
+      title: isExcludedFromHtml ? undefined : p.title,
+      titleLength: isExcludedFromHtml ? 0 : (p.title?.length || 0),
+      metaDescription: isExcludedFromHtml ? undefined : p.metaDescription,
+      metaDescriptionLength: isExcludedFromHtml ? 0 : (p.metaDescription?.length || 0),
+      headingsOutline: isExcludedFromHtml
         ? { h1: [], h2: [], h3: [] }
         : {
             h1: p.headings?.h1 || [],
             h2: p.headings?.h2 || [],
             h3: p.headings?.h3 || [],
           },
-      wordCount: isSitemap ? 0 : (p.visibleWordCount || 0),
+      wordCount: isExcludedFromHtml ? 0 : (p.visibleWordCount || 0),
       internalLinksCount: (p.links || []).filter((l) => l.isInternal).length,
       outboundLinksCount: (p.links || []).filter((l) => !l.isInternal).length,
       resourcesCount: (p.resources || []).length,
@@ -371,12 +401,14 @@ export function projectExpertReport(
   const internalTargets = new Set(internalLinks.map((l) => l.targetUrl));
   urlInventory.slice(1).forEach((page) => {
     const lowerUrl = page.url.toLowerCase();
-    const isSitemapOrRobots =
+    const isExcluded =
+      page.indexabilityStatus === "NOT_APPLICABLE" ||
+      page.canonicalStatus === "NOT_APPLICABLE" ||
       lowerUrl.endsWith(".xml") ||
       lowerUrl.includes("sitemap") ||
       lowerUrl.endsWith("robots.txt") ||
       page.contentType.toLowerCase().includes("xml");
-    if (isSitemapOrRobots) return;
+    if (isExcluded) return;
     if (!internalTargets.has(page.url)) {
       orphanCandidates.push(page.url);
     }
@@ -879,6 +911,13 @@ export function projectExpertReport(
     competitorComparisons,
     remediationRegister,
     findings,
+    costOfInaction:
+      options.costOfInaction ||
+      calculateCostOfInaction({
+        businessCategory: effectiveCategory,
+        request,
+        results,
+      }),
     coverage: reportCoverage,
     exportManifest,
   };
