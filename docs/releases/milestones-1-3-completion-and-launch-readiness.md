@@ -1,9 +1,9 @@
 # SiteIntel Pulse — Milestones 1–3 Final Release Verification & Publication Report
 
-**Document Version:** `1.6.0`  
+**Document Version:** `1.6.1`  
 **Date:** `2026-10-27`  
 **Feature Code Commit:** `c14a26aa7f4191343967876a6dad122bcb32a0a7`  
-**PR Head Documentation Commit:** `Pending Push`  
+**PR Head Documentation Commit:** `7d4d95eb50a6cab6cf3956adf3678d9c8587826f`  
 **Publication Branch:** `feature/milestones-1-3-completion`  
 **Pull Request URL:** [PR #1 (feature/milestones-1-3-completion -> main)](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1)  
 **Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
@@ -21,14 +21,18 @@ All code and regression tests were authored directly on branch `feature/mileston
 
 ### Remote Publication Verification Output:
 ```text
+7d4d95eb50a6cab6cf3956adf3678d9c8587826f  refs/heads/feature/milestones-1-3-completion (PR #1 Head)
 c14a26aa7f4191343967876a6dad122bcb32a0a7  (Feature Code Implementation: Fail-Closed Strict Boolean Verification)
-2b92a83ff4fa2b74ec1499a0d9ca5a8403cc68ef  refs/heads/feature/milestones-1-3-completion (Preceding Verified PR Head)
 c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main (Untouched)
 ```
 
+### GitHub Actions Quality Gates on Latest PR Head Commit `7d4d95e`
+- **CI Pipeline Run [40496231379](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40496231379):** **`SUCCESS`** (TypeScript static typecheck, ESLint, 39 test files / 405 tests, 51-page PDF verification, SQLite ACID backup, Playwright E2E 33/33, Next.js 15 build).
+- **Docker Container Runtime Acceptance Run [40496231418](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40496231418):** **`SUCCESS`** (Strict loopback `127.0.0.1:3000` binding, health probe, in-container PDF rasterization, public scan capture, PDF magic bytes validation, container restart durability).
+
 ### GitHub Actions Quality Gates on Preceding PR Head Commit `2b92a83`
-- **CI Pipeline Run [40492658556](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492658556):** **`SUCCESS`** (TypeScript static typecheck, ESLint, 39 test files / 404 tests, 51-page PDF verification, SQLite ACID backup, Playwright E2E 33/33, Next.js 15 build).
-- **Docker Container Runtime Acceptance Run [40492657991](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492657991):** **`SUCCESS`** (Strict loopback `127.0.0.1:3000` binding, health probe, in-container PDF rasterization, public scan capture, PDF magic bytes validation, container restart durability).
+- **CI Pipeline Run [40492658556](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492658556):** **`SUCCESS`**
+- **Docker Container Runtime Acceptance Run [40492657991](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492657991):** **`SUCCESS`**
 
 ### GitHub Actions Quality Gates on Earlier PR Head Commit `a0fc441`
 - **CI Pipeline Run [40492122442](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492122442):** **`SUCCESS`**
