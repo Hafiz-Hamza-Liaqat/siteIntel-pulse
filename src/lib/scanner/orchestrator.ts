@@ -11,6 +11,7 @@ import { PageSpeedProvider } from "../providers/pagespeed";
 import { PageSpeedResult } from "../providers/types";
 import { detectBusinessCategory } from "../classifier/business-category-detector";
 import { calculateCostOfInaction } from "../reports/cost-of-inaction";
+import { integrationsManager } from "../providers/analytics";
 
 export class ScanOrchestrator {
   /**
@@ -138,11 +139,22 @@ export class ScanOrchestrator {
 
       const assessmentResults = assessmentRegistry.evaluateAll(evalContext);
 
+      // Fetch verified connected business metrics when tenantId is present
+      let connectedMetrics: Record<string, any> | undefined;
+      if (job.tenantId) {
+        try {
+          connectedMetrics = await integrationsManager.fetchAllMetrics(job.tenantId, parsedUrl.hostname);
+        } catch {
+          // Non-blocking fallback to intake/heuristics
+        }
+      }
+
       // Shared Immutable Cost of Inaction Result (ensures Owner & Expert reports never diverge)
       const costOfInaction = calculateCostOfInaction({
         businessCategory: categoryDetection.effectiveCategory,
         request,
         results: assessmentResults,
+        connectedMetrics,
       });
 
       // Stage 4: Scoring
@@ -170,6 +182,7 @@ export class ScanOrchestrator {
             visualDesign: responsiveResult?.visualDesign,
             businessCategoryDetection: categoryDetection,
             costOfInaction,
+            connectedMetrics,
           },
           job.tenantId
         );

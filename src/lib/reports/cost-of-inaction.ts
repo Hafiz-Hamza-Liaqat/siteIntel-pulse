@@ -22,11 +22,12 @@ export interface CostOfInactionOptions {
   request?: Partial<ScanRequest>;
   results?: AssessmentResult[];
   remediationCostEstimate?: number;
+  connectedMetrics?: Record<string, any>;
 }
 
 export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfInactionResult {
   const now = new Date().toISOString();
-  const { businessCategory, request, results = [] } = options;
+  const { businessCategory, request, results = [], connectedMetrics } = options;
 
   // 1. Determine Business Model
   let model: BusinessModelType = "other";
@@ -48,13 +49,31 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     model = "lead_gen";
   }
 
-  const currency = request?.currency || "USD";
-  const monthlySessions = request?.monthlySessions;
-  const aov = request?.averageOrderValue;
-  const leadConversionRatePct = request?.leadConversionRatePct;
-  const leadToCustomerRatePct = request?.leadToCustomerRatePct;
-  const customerValue = request?.customerValue;
-  const subscriptionRevenue = request?.subscriptionRevenue;
+  // Extract connected provider metrics
+  const ga4 = connectedMetrics?.google_analytics_4?.isAvailable ? connectedMetrics.google_analytics_4 : undefined;
+  const shopify = connectedMetrics?.commerce_shopify?.isAvailable ? connectedMetrics.commerce_shopify : undefined;
+  const hubspot = connectedMetrics?.crm_hubspot?.isAvailable ? connectedMetrics.crm_hubspot : undefined;
+  const gsc = connectedMetrics?.search_console?.isAvailable ? connectedMetrics.search_console : undefined;
+  const ads = connectedMetrics?.ads_google?.isAvailable ? connectedMetrics.ads_google : undefined;
+  const backlinks = connectedMetrics?.backlinks_serp?.isAvailable ? connectedMetrics.backlinks_serp : undefined;
+
+  // Input Precedence: Explicit Owner Intake > Connected Provider Data > Fallback
+  let monthlySessions: number | undefined = undefined;
+  let sessionSource = "Unprovided";
+  if (request?.monthlySessions && request.monthlySessions > 0) {
+    monthlySessions = request.monthlySessions;
+    sessionSource = "Owner Intake";
+  } else if (ga4?.metrics?.sessionsCount && Number(ga4.metrics.sessionsCount) > 0) {
+    monthlySessions = Number(ga4.metrics.sessionsCount);
+    sessionSource = "Connected GA4";
+  }
+
+  const currency = request?.currency || shopify?.metrics?.currency || "USD";
+  const explicitAov = request?.averageOrderValue;
+  const explicitLeadConv = request?.leadConversionRatePct;
+  const explicitLeadToCust = request?.leadToCustomerRatePct;
+  const explicitCustomerValue = request?.customerValue;
+  const explicitSubscriptionRev = request?.subscriptionRevenue;
 
   // Explicit check for grossMarginPct: 0 is a valid, distinct input from undefined
   const hasExplicitGrossMargin =
@@ -68,17 +87,6 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     ? "Gross Profit Opportunity = Monthly Sessions × Incremental Conversion Lift (% pts) × Transaction / Customer Value [× Close Rate] × Gross Margin %"
     : "Gross Revenue Opportunity = Monthly Sessions × Incremental Conversion Lift (% pts) × Transaction / Customer Value [× Close Rate]";
 
-  const inputsProvided = {
-    monthlySessions: monthlySessions ?? null,
-    averageOrderValue: aov ?? null,
-    leadConversionRatePct: leadConversionRatePct ?? null,
-    leadToCustomerRatePct: leadToCustomerRatePct ?? null,
-    customerValue: customerValue ?? null,
-    subscriptionRevenue: subscriptionRevenue ?? null,
-    grossMarginPct: explicitGrossMarginPct ?? null,
-    currency,
-  };
-
   // 2. Insufficient Inputs Check
   // Financial opportunity modeling requires at minimum verified monthly session traffic.
   // We strictly refuse to fabricate synthetic traffic counts when none are provided.
@@ -86,13 +94,32 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     return {
       status: "INSUFFICIENT_INPUTS",
       businessModel: model,
-      inputsProvided,
+      inputsProvided: {
+        monthlySessions: null,
+        averageOrderValue: explicitAov ?? null,
+        leadConversionRatePct: explicitLeadConv ?? null,
+        leadToCustomerRatePct: explicitLeadToCust ?? null,
+        customerValue: explicitCustomerValue ?? null,
+        subscriptionRevenue: explicitSubscriptionRev ?? null,
+        grossMarginPct: explicitGrossMarginPct ?? null,
+        currency,
+        connectedContext: connectedMetrics
+          ? {
+              ga4: ga4?.metrics,
+              shopify: shopify ? { ...shopify.metrics, customers: undefined } : undefined,
+              hubspot: hubspot?.metrics,
+              searchConsole: gsc?.metrics,
+              googleAds: ads?.metrics,
+              backlinks: backlinks?.metrics,
+            }
+          : undefined,
+      },
       currency,
       formula,
       assumptions: [
         "[Input Required] Financial opportunity modeling requires verified monthly session traffic counts.",
         "[Verification Policy] Synthetic traffic counts are never silently fabricated when unprovided by the business owner.",
-        "[Intake Guidance] Supply monthly visitor sessions and commercial values in scan intake to unlock conservative, base, and upside scenarios.",
+        "[Intake Guidance] Supply monthly visitor sessions in scan intake or connect Google Analytics 4 to unlock conservative, base, and upside scenarios.",
       ],
       disclaimers: [
         "Modeled opportunity represents forward-looking potential financial lift from resolving identified UX, speed, and conversion barriers, NOT verified historical lost revenue.",
@@ -102,7 +129,7 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
       calculatedAt: now,
       confidence: "LOW",
       methodologyNotes:
-        "Inputs insufficient: Please supply monthly session traffic to calculate conservative, base, and upside commercial growth scenarios.",
+        "Inputs insufficient: Please supply monthly session traffic or connect GA4 to calculate conservative, base, and upside commercial growth scenarios.",
     };
   }
 
@@ -121,12 +148,26 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
 
   let baselineConversionRatePct: number;
   let hasOwnerCommercialValues = false;
+  let hasConnectedCommercialValues = false;
 
-  const assumptions: string[] = [
-    `[Owner Provided] Monthly traffic: ${monthlySessions.toLocaleString()} unique visitor sessions.`,
+  let effectiveAovForInputs: number | null = null;
+  let effectiveAcvForInputs: number | null = null;
+  let effectiveCloseRateForInputs: number | null = null;
+
+  const assumptions: string[] = [];
+
+  if (sessionSource === "Owner Intake") {
+    assumptions.push(`[Owner Provided] Monthly traffic: ${monthlySessions.toLocaleString()} unique visitor sessions.`);
+  } else {
+    assumptions.push(
+      `[Verified Provider - GA4] Monthly traffic: ${monthlySessions.toLocaleString()} sessions verified from connected Google Analytics 4 property (${ga4?.provenance?.propertyOrAccount || "Connected Property"}).`
+    );
+  }
+
+  assumptions.push(
     "[Funnel Model] Deduplicated visitor funnel: Speed, mobile touch targets, and form friction are treated as a unified conversion funnel to prevent double-counting the same visitors across diagnostic categories.",
-    "[Illustrative Scenario Assumption] Modeled conversion lift is an illustrative absolute percentage-point increase (+0.20% Conservative, +0.50% Base, +1.00% Upside) from eliminating observable site barriers. The baseline rate provides context and before/after comparison; it does not compound or multiply the incremental lift calculation.",
-  ];
+    "[Illustrative Scenario Assumption] Modeled conversion lift is an illustrative absolute percentage-point increase (+0.20% Conservative, +0.50% Base, +1.00% Upside) from eliminating observable site barriers. The baseline rate provides context and before/after comparison; it does not compound or multiply the incremental lift calculation."
+  );
 
   if (hasExplicitGrossMargin) {
     assumptions.push(
@@ -145,11 +186,17 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
 
   if (model === "ecommerce") {
     let effectiveAov: number;
-    if (aov && aov > 0) {
-      effectiveAov = aov;
+    if (explicitAov && explicitAov > 0) {
+      effectiveAov = explicitAov;
       hasOwnerCommercialValues = true;
       assumptions.push(
         `[Owner Provided] Average Order Value (AOV): ${formatCurrency(effectiveAov, currency)}.`
+      );
+    } else if (shopify?.metrics?.averageOrderValue && Number(shopify.metrics.averageOrderValue) > 0) {
+      effectiveAov = Number(shopify.metrics.averageOrderValue);
+      hasConnectedCommercialValues = true;
+      assumptions.push(
+        `[Verified Provider - Shopify] Average Order Value (AOV): ${formatCurrency(effectiveAov, currency)} verified from connected Shopify store transactions.`
       );
     } else {
       effectiveAov = 85.0;
@@ -157,11 +204,17 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
         `[Default Scenario Assumption - Illustrative] Average Order Value (AOV): ${formatCurrency(effectiveAov, currency)} baseline assumed because owner did not specify AOV.`
       );
     }
+    effectiveAovForInputs = effectiveAov;
 
-    if (leadConversionRatePct != null && leadConversionRatePct > 0) {
-      baselineConversionRatePct = Number(leadConversionRatePct);
+    if (explicitLeadConv != null && explicitLeadConv > 0) {
+      baselineConversionRatePct = Number(explicitLeadConv);
       assumptions.push(
         `[Owner Provided] Current baseline conversion rate: ${baselineConversionRatePct.toFixed(2)}%.`
+      );
+    } else if (ga4?.metrics?.conversionRatePct && Number(ga4.metrics.conversionRatePct) > 0) {
+      baselineConversionRatePct = Number(ga4.metrics.conversionRatePct);
+      assumptions.push(
+        `[Verified Provider - GA4] Current baseline conversion rate: ${baselineConversionRatePct.toFixed(2)}% verified from Google Analytics 4.`
       );
     } else {
       baselineConversionRatePct = 1.80;
@@ -175,12 +228,18 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     monthlyRevUpside = monthlySessions * upsideDelta * effectiveAov;
   } else if (model === "saas_subscription") {
     let effectiveArpu: number;
-    const suppliedArpu = subscriptionRevenue ?? customerValue;
+    const suppliedArpu = explicitSubscriptionRev ?? explicitCustomerValue;
     if (suppliedArpu && suppliedArpu > 0) {
       effectiveArpu = suppliedArpu;
       hasOwnerCommercialValues = true;
       assumptions.push(
         `[Owner Provided] Monthly Average Revenue Per User (ARPU): ${formatCurrency(effectiveArpu, currency)}.`
+      );
+    } else if (hubspot?.metrics?.averageDealValue && Number(hubspot.metrics.averageDealValue) > 0) {
+      effectiveArpu = Number(hubspot.metrics.averageDealValue);
+      hasConnectedCommercialValues = true;
+      assumptions.push(
+        `[Verified Provider - HubSpot] Monthly ARPU: ${formatCurrency(effectiveArpu, currency)} derived from CRM deal sizes.`
       );
     } else {
       effectiveArpu = 65.0;
@@ -188,11 +247,17 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
         `[Default Scenario Assumption - Illustrative] Monthly ARPU: ${formatCurrency(effectiveArpu, currency)} baseline assumed because owner did not specify subscription revenue.`
       );
     }
+    effectiveAcvForInputs = effectiveArpu;
 
-    if (leadConversionRatePct != null && leadConversionRatePct > 0) {
-      baselineConversionRatePct = Number(leadConversionRatePct);
+    if (explicitLeadConv != null && explicitLeadConv > 0) {
+      baselineConversionRatePct = Number(explicitLeadConv);
       assumptions.push(
         `[Owner Provided] Current baseline visitor-to-trial rate: ${baselineConversionRatePct.toFixed(2)}%.`
+      );
+    } else if (ga4?.metrics?.conversionRatePct && Number(ga4.metrics.conversionRatePct) > 0) {
+      baselineConversionRatePct = Number(ga4.metrics.conversionRatePct);
+      assumptions.push(
+        `[Verified Provider - GA4] Current baseline visitor-to-trial rate: ${baselineConversionRatePct.toFixed(2)}% verified from GA4.`
       );
     } else {
       baselineConversionRatePct = 3.00;
@@ -202,16 +267,23 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     }
 
     let effectiveCloseRate = 0.18; // 18% trial-to-paid
-    if (leadToCustomerRatePct != null && leadToCustomerRatePct > 0) {
-      effectiveCloseRate = leadToCustomerRatePct / 100;
+    if (explicitLeadToCust != null && explicitLeadToCust > 0) {
+      effectiveCloseRate = explicitLeadToCust / 100;
       assumptions.push(
-        `[Owner Provided] Trial-to-Paid customer conversion rate: ${leadToCustomerRatePct}%.`
+        `[Owner Provided] Trial-to-Paid customer conversion rate: ${explicitLeadToCust}%.`
+      );
+    } else if (hubspot?.metrics?.leadToCustomerRatePct && Number(hubspot.metrics.leadToCustomerRatePct) > 0) {
+      effectiveCloseRate = Number(hubspot.metrics.leadToCustomerRatePct) / 100;
+      hasConnectedCommercialValues = true;
+      assumptions.push(
+        `[Verified Provider - HubSpot] Trial-to-Paid customer conversion rate: ${hubspot.metrics.leadToCustomerRatePct}% verified from CRM pipeline.`
       );
     } else {
       assumptions.push(
         `[Default Scenario Assumption - Illustrative] Trial-to-Paid close rate: ${(effectiveCloseRate * 100).toFixed(1)}% benchmark assumed.`
       );
     }
+    effectiveCloseRateForInputs = effectiveCloseRate * 100;
 
     // Incremental paid subscribers = sessions × lift × close rate
     monthlyRevConservative = monthlySessions * conservativeDelta * effectiveCloseRate * effectiveArpu;
@@ -220,11 +292,17 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
   } else {
     // Lead generation & service businesses
     let effectiveAcv: number;
-    if (customerValue && customerValue > 0) {
-      effectiveAcv = customerValue;
+    if (explicitCustomerValue && explicitCustomerValue > 0) {
+      effectiveAcv = explicitCustomerValue;
       hasOwnerCommercialValues = true;
       assumptions.push(
         `[Owner Provided] Average Customer Value (ACV): ${formatCurrency(effectiveAcv, currency)}.`
+      );
+    } else if (hubspot?.metrics?.averageDealValue && Number(hubspot.metrics.averageDealValue) > 0) {
+      effectiveAcv = Number(hubspot.metrics.averageDealValue);
+      hasConnectedCommercialValues = true;
+      assumptions.push(
+        `[Verified Provider - HubSpot] Average Deal Value (ACV): ${formatCurrency(effectiveAcv, currency)} verified from HubSpot CRM closed-won deals.`
       );
     } else {
       effectiveAcv = 750.0;
@@ -232,11 +310,17 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
         `[Default Scenario Assumption - Illustrative] Average Customer Value (ACV): ${formatCurrency(effectiveAcv, currency)} baseline assumed because owner did not specify customer value.`
       );
     }
+    effectiveAcvForInputs = effectiveAcv;
 
-    if (leadConversionRatePct != null && leadConversionRatePct > 0) {
-      baselineConversionRatePct = Number(leadConversionRatePct);
+    if (explicitLeadConv != null && explicitLeadConv > 0) {
+      baselineConversionRatePct = Number(explicitLeadConv);
       assumptions.push(
         `[Owner Provided] Current baseline visitor-to-lead conversion rate: ${baselineConversionRatePct.toFixed(2)}%.`
+      );
+    } else if (ga4?.metrics?.conversionRatePct && Number(ga4.metrics.conversionRatePct) > 0) {
+      baselineConversionRatePct = Number(ga4.metrics.conversionRatePct);
+      assumptions.push(
+        `[Verified Provider - GA4] Current baseline visitor-to-lead rate: ${baselineConversionRatePct.toFixed(2)}% verified from GA4.`
       );
     } else {
       baselineConversionRatePct = 2.50;
@@ -246,21 +330,45 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     }
 
     let effectiveCloseRate = 0.15; // 15% lead-to-client close rate
-    if (leadToCustomerRatePct != null && leadToCustomerRatePct > 0) {
-      effectiveCloseRate = leadToCustomerRatePct / 100;
+    if (explicitLeadToCust != null && explicitLeadToCust > 0) {
+      effectiveCloseRate = explicitLeadToCust / 100;
       assumptions.push(
-        `[Owner Provided] Lead-to-Client close rate: ${leadToCustomerRatePct}%.`
+        `[Owner Provided] Lead-to-Client close rate: ${explicitLeadToCust}%.`
+      );
+    } else if (hubspot?.metrics?.leadToCustomerRatePct && Number(hubspot.metrics.leadToCustomerRatePct) > 0) {
+      effectiveCloseRate = Number(hubspot.metrics.leadToCustomerRatePct) / 100;
+      hasConnectedCommercialValues = true;
+      assumptions.push(
+        `[Verified Provider - HubSpot] Lead-to-Client close rate: ${hubspot.metrics.leadToCustomerRatePct}% verified from HubSpot CRM pipeline.`
       );
     } else {
       assumptions.push(
         `[Default Scenario Assumption - Illustrative] Lead-to-Client close rate: ${(effectiveCloseRate * 100).toFixed(1)}% benchmark assumed.`
       );
     }
+    effectiveCloseRateForInputs = effectiveCloseRate * 100;
 
     // Incremental clients = sessions × lift × close rate
     monthlyRevConservative = monthlySessions * conservativeDelta * effectiveCloseRate * effectiveAcv;
     monthlyRevBase = monthlySessions * baseDelta * effectiveCloseRate * effectiveAcv;
     monthlyRevUpside = monthlySessions * upsideDelta * effectiveCloseRate * effectiveAcv;
+  }
+
+  // Acquisition and Traffic Quality Context Disclosures
+  if (gsc) {
+    assumptions.push(
+      `[Verified Acquisition Context - Google Search Console] Verified ${gsc.metrics.impressions?.toLocaleString()} impressions, ${gsc.metrics.clicks?.toLocaleString()} clicks, ${gsc.metrics.averageCtrPct}% CTR, average position ${gsc.metrics.averagePosition}. Note: Organic search clicks and impressions represent acquisition volume and are NOT treated as direct sales.`
+    );
+  }
+  if (ads) {
+    assumptions.push(
+      `[Verified Acquisition Context - Google Ads] Verified ${formatCurrency(ads.metrics.monthlySpend || 0, currency)} monthly ad spend and ${ads.metrics.clicks?.toLocaleString()} paid clicks. Ad spend informs customer acquisition cost and is NOT treated as sales revenue.`
+    );
+  }
+  if (backlinks) {
+    assumptions.push(
+      `[Verified Acquisition Context - SERP / Backlinks] Verified Domain Rating ${backlinks.metrics.domainRating} with ${backlinks.metrics.referringDomainsCount?.toLocaleString()} referring domains and ${backlinks.metrics.totalBacklinks?.toLocaleString()} total backlinks.`
+    );
   }
 
   // Calculate gross profit opportunities
@@ -277,7 +385,7 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
   const annualBase = monthlyBase * 12;
   const annualUpside = monthlyUpside * 12;
 
-  // Calibrated remediation cost estimate (illustrative engineering benchmark):
+  // Friction findings & evidence ledger (CRO-*, RSP-*, PERF-*)
   const frictionIssues = results.filter(
     (r) =>
       (r.category === "conversion_marketing" ||
@@ -285,6 +393,15 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
         r.category === "responsive_accessibility") &&
       (r.status === "FAIL" || r.status === "WARNING")
   );
+
+  const evidenceLedger = frictionIssues.map((issue) => ({
+    ruleId: issue.testId,
+    testName: issue.testName,
+    category: issue.category,
+    severity: issue.severity,
+    impact: issue.summary,
+  }));
+
   const remediationCost =
     options.remediationCostEstimate ?? Math.max(1500, Math.min(8000, 1500 + frictionIssues.length * 350));
 
@@ -300,10 +417,53 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
   const paybackMonthsUpside =
     monthlyUpside > 0 ? Math.round((remediationCost / monthlyUpside) * 10) / 10 : null;
 
-  const confidence: Confidence = hasOwnerCommercialValues ? "HIGH" : "MEDIUM";
-  const inputSource = hasOwnerCommercialValues
-    ? "Owner Provided Commercial Inputs"
-    : "Owner Traffic with Labeled Baseline Assumptions";
+  // Provenance & Confidence Determination
+  const verifiedProviders: string[] = [];
+  if (sessionSource === "Connected GA4") verifiedProviders.push("GA4");
+  if (shopify) verifiedProviders.push("Shopify");
+  if (hubspot) verifiedProviders.push("HubSpot");
+  if (gsc) verifiedProviders.push("Search Console");
+  if (ads) verifiedProviders.push("Google Ads");
+  if (backlinks) verifiedProviders.push("SERP");
+
+  let confidence: Confidence;
+  let inputSource: string;
+
+  if (hasOwnerCommercialValues) {
+    inputSource = "Owner Provided Commercial Inputs";
+    confidence = "HIGH";
+  } else if (hasConnectedCommercialValues || (sessionSource === "Connected GA4" && verifiedProviders.length > 1)) {
+    inputSource = `Verified Connected Data (${verifiedProviders.join(" + ") || "Live Providers"})`;
+    confidence = "HIGH";
+  } else if (sessionSource === "Connected GA4") {
+    inputSource = "Verified GA4 Traffic with Labeled Baseline Assumptions";
+    confidence = "MEDIUM";
+  } else {
+    inputSource = "Owner Traffic with Labeled Baseline Assumptions";
+    confidence = "MEDIUM";
+  }
+
+  const inputsProvided = {
+    monthlySessions: monthlySessions ?? null,
+    averageOrderValue: effectiveAovForInputs,
+    leadConversionRatePct: explicitLeadConv ?? baselineConversionRatePct,
+    leadToCustomerRatePct: effectiveCloseRateForInputs,
+    customerValue: effectiveAcvForInputs,
+    subscriptionRevenue: explicitSubscriptionRev ?? null,
+    grossMarginPct: explicitGrossMarginPct ?? null,
+    currency,
+    evidenceLedger,
+    connectedContext: connectedMetrics
+      ? {
+          ga4: ga4?.metrics,
+          shopify: shopify ? { ...shopify.metrics, customers: undefined } : undefined,
+          hubspot: hubspot?.metrics,
+          searchConsole: gsc?.metrics,
+          googleAds: ads?.metrics,
+          backlinks: backlinks?.metrics,
+        }
+      : undefined,
+  };
 
   return {
     status: "ESTIMATED",
@@ -365,6 +525,6 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     calculatedAt: now,
     confidence,
     methodologyNotes:
-      "Calculated via SiteIntel Cost of Inaction Calculator v1. Models conservative (+0.20%), base (+0.50%), and upside (+1.00%) conversion rate improvements applied across validated monthly sessions without double-counting visitor segments.",
+      "Calculated via SiteIntel Cost of Inaction Calculator v2. Models conservative (+0.20%), base (+0.50%), and upside (+1.00%) conversion rate improvements applied across validated monthly sessions without double-counting visitor segments. Verified commercial metrics follow deterministic precedence: Owner Intake > Connected Provider Data > Calibrated Baseline.",
   };
 }

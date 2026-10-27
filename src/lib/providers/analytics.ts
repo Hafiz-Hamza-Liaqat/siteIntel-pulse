@@ -20,17 +20,36 @@ export class ExternalIntegrationsManager {
   private backlinksInstance?: BacklinksSerpAdapter;
 
   private getStore(): ProviderConnectionStore {
-    if (!this.storeInstance) {
-      this.storeInstance = new ProviderConnectionStore(scanDb.getRawDb());
+    const rawDb = scanDb.getRawDb();
+    if (!this.storeInstance || (this.storeInstance as any).db !== rawDb) {
+      this.storeInstance = new ProviderConnectionStore(rawDb);
+      this.ga4Instance = undefined;
+      this.gscInstance = undefined;
+      this.hubspotInstance = undefined;
+      this.shopifyInstance = undefined;
+      this.adsInstance = undefined;
+      this.backlinksInstance = undefined;
     }
     return this.storeInstance;
   }
 
   getOAuthManager(): OAuthStateManager {
-    if (!this.oauthManagerInstance) {
-      this.oauthManagerInstance = new OAuthStateManager(scanDb.getRawDb());
+    const rawDb = scanDb.getRawDb();
+    if (!this.oauthManagerInstance || (this.oauthManagerInstance as any).db !== rawDb) {
+      this.oauthManagerInstance = new OAuthStateManager(rawDb);
     }
     return this.oauthManagerInstance;
+  }
+
+  reset(): void {
+    this.storeInstance = undefined;
+    this.oauthManagerInstance = undefined;
+    this.ga4Instance = undefined;
+    this.gscInstance = undefined;
+    this.hubspotInstance = undefined;
+    this.shopifyInstance = undefined;
+    this.adsInstance = undefined;
+    this.backlinksInstance = undefined;
   }
 
   getGA4Adapter(): GA4Adapter {
@@ -107,6 +126,33 @@ export class ExternalIntegrationsManager {
     };
 
     return [pagespeed, ga4, gsc, hubspot, shopify, ads, backlinks];
+  }
+
+  /**
+   * Fetches metrics from all connected providers for a tenant.
+   */
+  async fetchAllMetrics(
+    tenantId?: string,
+    domain?: string
+  ): Promise<Record<string, import("./types").ProviderMetricsResult>> {
+    const tid = tenantId || "tenant-default";
+    const [ga4, gsc, hubspot, shopify, ads, backlinks] = await Promise.all([
+      this.getGA4Adapter().fetchMetrics(tid),
+      this.getSearchConsoleAdapter().fetchMetrics(tid),
+      this.getHubSpotAdapter().fetchMetrics(tid),
+      this.getShopifyAdapter().fetchMetrics(tid),
+      this.getGoogleAdsAdapter().fetchMetrics(tid),
+      this.getBacklinksAdapter().fetchMetrics(tid, domain || "target.domain"),
+    ]);
+
+    return {
+      google_analytics_4: ga4,
+      search_console: gsc,
+      crm_hubspot: hubspot,
+      commerce_shopify: shopify,
+      ads_google: ads,
+      backlinks_serp: backlinks,
+    };
   }
 
   /**

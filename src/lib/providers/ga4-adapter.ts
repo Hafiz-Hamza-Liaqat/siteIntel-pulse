@@ -164,6 +164,69 @@ export class GA4Adapter {
     }
   }
 
+  async refreshAccessToken(tenantId: string): Promise<{ success: boolean; accessToken?: string; error?: string }> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn) return { success: false, error: "Connection record not found." };
+
+    const { refreshToken } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (!refreshToken) {
+      this.store.saveConnection({
+        tenantId,
+        provider: this.providerId,
+        status: "AUTH_REQUIRED",
+        scopes: this.requiredScopes,
+      });
+      return { success: false, error: "Refresh token missing. Re-authentication required." };
+    }
+
+    if (!this.clientId || !this.clientSecret) {
+      return { success: false, error: "Client credentials not configured for token refresh." };
+    }
+
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          refresh_token: refreshToken,
+          grant_type: "refresh_token",
+        }),
+      });
+
+      if (!res.ok) {
+        this.store.saveConnection({
+          tenantId,
+          provider: this.providerId,
+          status: "AUTH_REQUIRED",
+          scopes: this.requiredScopes,
+        });
+        return { success: false, error: `Token refresh failed with HTTP ${res.status}. Re-authentication required.` };
+      }
+
+      const tokenData = await res.json();
+      const newAccessToken = tokenData.access_token;
+      const expiresIn = tokenData.expires_in || 3600;
+
+      this.store.saveConnection({
+        tenantId,
+        provider: this.providerId,
+        status: "CONNECTED",
+        scopes: this.requiredScopes,
+        accessToken: newAccessToken,
+        refreshToken,
+        propertyId: conn.property_id || undefined,
+        accountId: conn.account_id || undefined,
+        tokenExpiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+      });
+
+      return { success: true, accessToken: newAccessToken };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Token refresh request failed." };
+    }
+  }
+
   async fetchMetrics(
     tenantId: string,
     options?: { startDate?: string; endDate?: string; mockOverride?: Record<string, any> }
@@ -206,19 +269,26 @@ export class GA4Adapter {
     }
 
     const { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
-    if (!accessToken || isExpired) {
-      return {
-        provider: this.providerId,
-        isAvailable: false,
-        dataTimestamp: now,
-        metrics: {},
-        provenance: {
-          source: "Google Analytics 4",
-          propertyOrAccount: conn.property_id || "UNKNOWN",
-          fetchedAt: now,
-        },
-        limitations: "Access token expired. Automatic refresh requires valid refresh token.",
-      };
+    let activeToken = accessToken;
+
+    if (!activeToken || isExpired) {
+      const refresh = await this.refreshAccessToken(tenantId);
+      if (refresh.success && refresh.accessToken) {
+        activeToken = refresh.accessToken;
+      } else {
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {},
+          provenance: {
+            source: "Google Analytics 4",
+            propertyOrAccount: conn.property_id || "UNKNOWN",
+            fetchedAt: now,
+          },
+          limitations: refresh.error || "Access token expired. Re-authentication required.",
+        };
+      }
     }
 
     // Live API call to Google Analytics Data API v1beta
@@ -227,7 +297,7 @@ export class GA4Adapter {
       const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/${property}:runReport`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${activeToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

@@ -185,6 +185,7 @@ export const MIGRATIONS: Migration[] = [
         provider TEXT NOT NULL,
         code_verifier TEXT,
         redirect_uri TEXT NOT NULL,
+        metadata_json TEXT DEFAULT '{}',
         created_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL,
         FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE

@@ -159,6 +159,59 @@ export class GoogleAdsAdapter {
     }
   }
 
+  async refreshAccessToken(tenantId: string): Promise<boolean> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn) return false;
+    const { refreshToken } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (!refreshToken) {
+      this.store.updateStatus(tenantId, this.providerId, "AUTH_REQUIRED");
+      return false;
+    }
+    if (!this.clientId || !this.clientSecret) {
+      return false;
+    }
+
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          refresh_token: refreshToken,
+          grant_type: "refresh_token",
+        }),
+      });
+
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 401) {
+          this.store.updateStatus(tenantId, this.providerId, "AUTH_REQUIRED");
+        }
+        return false;
+      }
+
+      const tokenData = await res.json();
+      const newAccessToken = tokenData.access_token;
+      const expiresIn = tokenData.expires_in || 3600;
+      const newRefreshToken = tokenData.refresh_token || refreshToken;
+
+      this.store.saveConnection({
+        tenantId,
+        provider: this.providerId,
+        status: "CONNECTED",
+        scopes: JSON.parse(conn.scopes_json || "[]"),
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+        propertyId: conn.property_id || undefined,
+        accountId: conn.account_id || undefined,
+        tokenExpiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async fetchMetrics(
     tenantId: string,
     options?: { mockOverride?: Record<string, any> }

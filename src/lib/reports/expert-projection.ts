@@ -31,7 +31,7 @@ import { CATEGORY_ALLOCATED_WEIGHTS, assessmentRegistry } from "../catalogue/reg
 import { isAuthUrl } from "../catalogue/rules/auth";
 import { PageSpeedResult } from "../providers/types";
 import { computeCanonicalReportDigest } from "./manifest-integrity";
-import { calculateCostOfInaction } from "./cost-of-inaction";
+import { calculateCostOfInaction, formatCurrency } from "./cost-of-inaction";
 
 export interface ExpertAuditOptions {
   isAuthorizedForAuthScan?: boolean;
@@ -46,6 +46,7 @@ export interface ExpertAuditOptions {
   competitorScans?: CompetitorComparison[];
   businessCategoryDetection?: import("@/types").BusinessCategoryDetection;
   costOfInaction?: import("@/types").CostOfInactionResult;
+  connectedMetrics?: Record<string, any>;
 }
 
 export function projectExpertReport(
@@ -615,23 +616,41 @@ export function projectExpertReport(
         isEstimated: false,
       }));
 
-  // 9. External Metrics (Honest Disclosures)
+  // 9. External Metrics (Verified from connected providers or Honest Disclosures)
+  const cm = options?.connectedMetrics;
+  const ga4Metric = cm?.google_analytics_4?.isAvailable ? cm.google_analytics_4 : undefined;
+  const gscMetric = cm?.search_console?.isAvailable ? cm.search_console : undefined;
+  const backlinksMetric = cm?.backlinks_serp?.isAvailable ? cm.backlinks_serp : undefined;
+  const shopifyMetric = cm?.commerce_shopify?.isAvailable ? cm.commerce_shopify : undefined;
+  const hubspotMetric = cm?.crm_hubspot?.isAvailable ? cm.crm_hubspot : undefined;
+  const adsMetric = cm?.ads_google?.isAvailable ? cm.ads_google : undefined;
+
   const analyticsAndMetrics: ExternalMetric[] = [
     {
-      metricName: "Monthly Active Users (MAU)",
-      value: null,
-      formattedValue: "UNAVAILABLE",
+      metricName: "Monthly Active Users / Sessions (30 Days)",
+      value: ga4Metric?.metrics?.sessionsCount ?? null,
+      formattedValue:
+        ga4Metric?.metrics?.sessionsCount != null
+          ? Number(ga4Metric.metrics.sessionsCount).toLocaleString()
+          : "UNAVAILABLE",
       source: "Google Analytics 4 API",
-      status: "NOT_CONNECTED",
-      provenanceNote: "Requires owner-authorized OAuth connection to Google Analytics property.",
+      status: ga4Metric ? "CONNECTED" : "NOT_CONNECTED",
+      provenanceNote: ga4Metric
+        ? `Verified from connected Google Analytics 4 property (${ga4Metric.provenance.propertyOrAccount}). Bounce rate: ${ga4Metric.metrics.bounceRatePct || 0}%.`
+        : "Requires owner-authorized OAuth connection to Google Analytics property.",
     },
     {
       metricName: "Organic Search Clicks (30 Days)",
-      value: null,
-      formattedValue: "UNAVAILABLE",
+      value: gscMetric?.metrics?.clicks ?? null,
+      formattedValue:
+        gscMetric?.metrics?.clicks != null
+          ? Number(gscMetric.metrics.clicks).toLocaleString()
+          : "UNAVAILABLE",
       source: "Google Search Console API",
-      status: "NOT_CONNECTED",
-      provenanceNote: "Requires owner-authorized OAuth connection to verified GSC domain property.",
+      status: gscMetric ? "CONNECTED" : "NOT_CONNECTED",
+      provenanceNote: gscMetric
+        ? `Verified from connected Google Search Console property (${gscMetric.provenance.propertyOrAccount}). Impressions: ${gscMetric.metrics.impressions?.toLocaleString()}, Avg CTR: ${gscMetric.metrics.averageCtrPct}%.`
+        : "Requires owner-authorized OAuth connection to verified GSC domain property.",
     },
     {
       metricName: "Core Web Vitals (Field CrUX)",
@@ -643,27 +662,56 @@ export function projectExpertReport(
     },
     {
       metricName: "Inbound Referring Domains",
-      value: null,
-      formattedValue: "UNAVAILABLE",
+      value: backlinksMetric?.metrics?.referringDomainsCount ?? null,
+      formattedValue:
+        backlinksMetric?.metrics?.referringDomainsCount != null
+          ? Number(backlinksMetric.metrics.referringDomainsCount).toLocaleString()
+          : "UNAVAILABLE",
       source: "External Backlink Provider",
-      status: "NOT_CONNECTED",
-      provenanceNote: "External backlink index unconfigured. Inbound links cannot be scraped from internal crawls.",
+      status: backlinksMetric ? "CONNECTED" : "NOT_CONNECTED",
+      provenanceNote: backlinksMetric
+        ? `Verified from backlink index. Domain Rating: ${backlinksMetric.metrics.domainRating}, Total Backlinks: ${backlinksMetric.metrics.totalBacklinks?.toLocaleString()}.`
+        : "External backlink index unconfigured. Inbound links cannot be scraped from internal crawls.",
     },
     {
       metricName: "Organic Keyword Rankings",
-      value: null,
-      formattedValue: "UNAVAILABLE",
+      value: gscMetric?.metrics?.topQueriesCount ?? null,
+      formattedValue:
+        gscMetric?.metrics?.topQueriesCount != null
+          ? `${gscMetric.metrics.topQueriesCount} queries tracked`
+          : "UNAVAILABLE",
       source: "Search Engine Results Page (SERP) Index",
-      status: "NOT_CONNECTED",
-      provenanceNote: "Requires third-party search ranking index integration.",
+      status: gscMetric ? "CONNECTED" : "NOT_CONNECTED",
+      provenanceNote: gscMetric
+        ? `Average ranking position: ${gscMetric.metrics.averagePosition} across verified queries.`
+        : "Requires third-party search ranking index integration.",
     },
     {
-      metricName: "Company Net Worth / Revenue",
-      value: null,
-      formattedValue: "NOT FABRICATED",
-      source: "Financial Record Standard",
-      status: "UNAVAILABLE",
-      provenanceNote: "Financial guessing and synthetic corporate valuations are strictly prohibited.",
+      metricName: "Company Commercial Signals",
+      value:
+        shopifyMetric?.metrics?.grossMerchandiseValue ??
+        hubspotMetric?.metrics?.closedWonRevenue ??
+        null,
+      formattedValue:
+        shopifyMetric?.metrics?.grossMerchandiseValue != null
+          ? formatCurrency(
+              shopifyMetric.metrics.grossMerchandiseValue,
+              shopifyMetric.metrics.currency || "USD"
+            )
+          : hubspotMetric?.metrics?.closedWonRevenue != null
+          ? formatCurrency(hubspotMetric.metrics.closedWonRevenue, "USD")
+          : "NOT FABRICATED",
+      source: shopifyMetric
+        ? "Shopify Commerce API"
+        : hubspotMetric
+        ? "HubSpot CRM Deals API"
+        : "Financial Record Standard",
+      status: shopifyMetric || hubspotMetric ? "CONNECTED" : "UNAVAILABLE",
+      provenanceNote: shopifyMetric
+        ? `Verified from connected Shopify store transactions. Orders: ${shopifyMetric.metrics.totalOrders}. Zero customer PII accessed.`
+        : hubspotMetric
+        ? `Verified from connected HubSpot CRM deals. Total deals: ${hubspotMetric.metrics.totalDeals}, Close rate: ${hubspotMetric.metrics.leadToCustomerRatePct}%.`
+        : "Financial guessing and synthetic corporate valuations are strictly prohibited.",
     },
   ];
 

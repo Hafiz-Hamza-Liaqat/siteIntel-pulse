@@ -1,12 +1,14 @@
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { ProviderId } from "./types.ts";
 
 export interface StoredOAuthState {
   stateToken: string;
   tenantId: string;
-  provider: string;
+  provider: ProviderId;
   codeVerifier?: string;
   redirectUri: string;
+  metadata?: Record<string, any>;
   createdAt: number;
   expiresAt: number;
 }
@@ -21,8 +23,14 @@ export class OAuthStateManager {
   /**
    * Generates a secure random OAuth state and optional PKCE pair.
    * State expires after 10 minutes (600,000 ms).
+   * Binds tenantId, provider, redirectUri, and optional metadata (e.g. validated shopDomain).
    */
-  createState(tenantId: string, provider: string, redirectUri: string): {
+  createState(
+    tenantId: string,
+    provider: ProviderId | string,
+    redirectUri: string,
+    metadata?: Record<string, any>
+  ): {
     state: string;
     codeVerifier: string;
     codeChallenge: string;
@@ -36,12 +44,13 @@ export class OAuthStateManager {
 
     const now = Date.now();
     const expiresAt = now + 10 * 60 * 1000; // 10 minutes
+    const metadataJson = JSON.stringify(metadata || {});
 
     const stmt = this.db.prepare(`
-      INSERT INTO oauth_states (state_token, tenant_id, provider, code_verifier, redirect_uri, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO oauth_states (state_token, tenant_id, provider, code_verifier, redirect_uri, metadata_json, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(state, tenantId, provider, codeVerifier, redirectUri, now, expiresAt);
+    stmt.run(state, tenantId, provider, codeVerifier, redirectUri, metadataJson, now, expiresAt);
 
     return { state, codeVerifier, codeChallenge };
   }
@@ -49,11 +58,19 @@ export class OAuthStateManager {
   /**
    * Validates and consumes an OAuth state token.
    * State is strictly one-time use and immediately purged upon validation.
+   * Resolves the bound provider from the database record when expectedProvider is omitted,
+   * or validates exact match when expectedProvider is supplied.
    */
-  validateAndConsumeState(stateToken: string, expectedTenantId: string, expectedProvider: string): {
+  validateAndConsumeState(
+    stateToken: string,
+    expectedTenantId: string,
+    expectedProvider?: string
+  ): {
     isValid: boolean;
+    provider?: ProviderId;
     codeVerifier?: string;
     redirectUri?: string;
+    metadata?: Record<string, any>;
     rejectionReason?: string;
   } {
     const now = Date.now();
@@ -64,7 +81,7 @@ export class OAuthStateManager {
     } catch {}
 
     const stmt = this.db.prepare(`
-      SELECT state_token, tenant_id, provider, code_verifier, redirect_uri, expires_at
+      SELECT state_token, tenant_id, provider, code_verifier, redirect_uri, metadata_json, expires_at
       FROM oauth_states
       WHERE state_token = ?
     `);
@@ -74,6 +91,7 @@ export class OAuthStateManager {
       provider: string;
       code_verifier?: string;
       redirect_uri: string;
+      metadata_json?: string;
       expires_at: number;
     } | undefined;
 
@@ -92,14 +110,23 @@ export class OAuthStateManager {
       return { isValid: false, rejectionReason: "OAuth state token tenant mismatch (cross-tenant request prohibited)." };
     }
 
-    if (row.provider !== expectedProvider) {
-      return { isValid: false, rejectionReason: "OAuth state token provider mismatch." };
+    if (expectedProvider && row.provider !== expectedProvider) {
+      return { isValid: false, rejectionReason: `OAuth state token provider mismatch (expected '${expectedProvider}', bound to '${row.provider}').` };
     }
+
+    let parsedMetadata: Record<string, any> = {};
+    try {
+      if (row.metadata_json) {
+        parsedMetadata = JSON.parse(row.metadata_json);
+      }
+    } catch {}
 
     return {
       isValid: true,
+      provider: row.provider as ProviderId,
       codeVerifier: row.code_verifier,
       redirectUri: row.redirect_uri,
+      metadata: parsedMetadata,
     };
   }
 }

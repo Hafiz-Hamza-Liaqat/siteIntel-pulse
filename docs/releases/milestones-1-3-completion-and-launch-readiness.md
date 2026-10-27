@@ -1,8 +1,7 @@
 # SiteIntel Pulse — Milestones 1–3 Final Release Verification & Publication Report
 
-**Document Version:** `1.1.0`  
+**Document Version:** `1.2.0`  
 **Date:** `2026-10-27`  
-**Feature Code Commit:** `cbf9c4c1e4085c546eab52a2b313bbe6ee892f05`  
 **Publication Branch:** `feature/milestones-1-3-completion`  
 **Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
 **Remote Repository URL:** `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse.git`  
@@ -17,14 +16,28 @@ This document certifies the final verification and publication of **Milestone 1 
 
 All code and regression tests were authored directly on branch `feature/milestones-1-3-completion`. The branch was pushed to GitHub and is published at remote reference `refs/heads/feature/milestones-1-3-completion`.
 
-### Publication Discrepancy Resolution
-- **Issue:** The local completion report referenced feature commit `cbf9c4c1e4085c546eab52a2b313bbe6ee892f05` before the branch had been pushed to GitHub.
-- **Resolution:** Executed `git push origin feature/milestones-1-3-completion`. Verified with `git ls-remote origin refs/heads/main refs/heads/feature/milestones-1-3-completion` that the remote repository at `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse.git` contains the branch and commits.
-- **Remote Verification Output:**
-  ```text
-  dbb343a169283c9cc85d5f5bf75d3b07a2635783  refs/heads/feature/milestones-1-3-completion
-  c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main
-  ```
+### Summary of Milestone 3 OAuth Routing & Business Telemetry Enhancements
+1. **Dynamic OAuth Callback Routing:**
+   - Eliminated hardcoded GA4 callback defaulting in `/api/providers/callback`.
+   - OAuth state tokens securely bind provider identifier, canonical redirect URI, and merchant metadata (`metadata_json`) into `oauth_states`.
+   - On authorization callback, the state token is validated and consumed, dynamically resolving the exact provider and redirect URI registered during authorization.
+   - Enforced canonical registered redirect URI pattern (`${origin}/api/providers/callback?provider=${provider}`).
+   - Cross-tenant state tampering, expired states (>10m), replayed states, and provider mismatches are strictly rejected.
+2. **Shopify Integration Security & HMAC Verification:**
+   - Merchant store domain validated against `/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/`, strictly rejecting path traversal (`../`), protocols (`https://`), slashes, and query parameters.
+   - Domain is bound into state metadata upon connect; callback enforces that the returning `shop` parameter matches the bound state domain (thwarting domain substitution attacks).
+   - Full timing-safe HMAC validation (`crypto.timingSafeEqual`) computed across lexicographically sorted query parameters using `SHOPIFY_API_SECRET`.
+   - Zero customer PII captured: orders and gross merchandise value only; customer names, emails, and shipping addresses are completely excluded.
+3. **Safe Token-Refresh Handling:**
+   - Automatic refresh token exchange implemented on Google Analytics 4, Search Console, HubSpot CRM, and Google Ads adapters.
+   - Proactive token refresh when expired; clear, non-throwing transition to `AUTH_REQUIRED` status when refresh tokens are absent, invalid, or revoked.
+4. **Cost of Inaction v2 Business Telemetry Integration:**
+   - **Deterministic Precedence:** Owner explicit intake > Verified connected provider data > Calibrated baseline.
+   - Refuses synthetic traffic: monthly sessions require owner intake or verified GA4 telemetry.
+   - Verified Shopify AOV and HubSpot deal values populate commercial assumptions without fabricating transactions.
+   - **Acquisition Telemetry Disclosures:** Organic impressions/clicks from Search Console, paid clicks/spend from Google Ads, and Backlinks/SERP domain rating are clearly disclosed as acquisition context and explicitly labeled: *NOT treated as direct completed sales*.
+   - **Evidence Ledger:** Findings from `CRO-*`, `RSP-*`, and `PERF-*` rules are bound to commercial opportunity calculations in an auditable evidence ledger.
+   - **Dual-Report Synchronization:** Both Owner Report and Expert Report receive an identical immutable projection snapshot from [`orchestrator.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/scanner/orchestrator.ts), guaranteeing zero divergence between reports.
 
 ---
 
@@ -48,7 +61,7 @@ Every required verification gate was executed against the exact implementation o
 |---|---|---|:---:|:---:|---|
 | 1 | **TypeScript Static Typecheck** | `npm run typecheck` (`tsc --noEmit`) | `0` | **PASS** | 0 compilation errors across all modules. |
 | 2 | **ESLint Code Standards** | `npm run lint` (`next lint`) | `0` | **PASS** | 0 warnings, 0 errors. |
-| 3 | **Unit & Integration Suite** | `npm run test` (`vitest run`) | `0` | **PASS** | **37 test files passed**, **359 tests passed**, 0 failed (100% green). |
+| 3 | **Unit & Integration Suite** | `npm run test` (`vitest run`) | `0` | **PASS** | **38 test files passed**, **373 tests passed**, 0 failed (100% green). |
 | 4 | **PDF Binary & Rasterization Suite** | `npm run test:pdf` | `0` | **PASS** | **10/10 fixtures verified**, **51 total pages rasterized**. 0 horizontal overflow, A4 dimensions, page numbering verified. |
 | 5 | **SQLite Backup & Recovery** | `npm run db:verify` | `0` | **PASS** | WAL mode, atomic `VACUUM INTO`, disaster recovery 100% record restoration fidelity. |
 | 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (50.3s). |
@@ -62,10 +75,10 @@ Every required verification gate was executed against the exact implementation o
 ### Mock-Tested vs. Live-Credential Disclosures
 - **Mock-Tested Operational Functionality:**
   - Token encryption at rest using AES-256-GCM ([`token-crypto.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/security/token-crypto.ts)) with unique 12-byte IV and 16-byte authentication tag per credential.
-  - OAuth state generation with SHA-256 PKCE code challenge and verifier ([`oauth-manager.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-manager.ts)).
-  - Single-use state validation and 10-minute expiry rejection (preventing replay attacks).
+  - OAuth state generation with SHA-256 PKCE code challenge and verifier ([`oauth-manager.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-manager.ts)) and serializable state metadata.
+  - Single-use state validation, metadata binding, and 10-minute expiry rejection (preventing replay attacks).
   - Cross-tenant isolation in provider connection store ([`connection-store.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/connection-store.ts)).
-  - All 6 provider adapters (GA4, Search Console, HubSpot CRM, Shopify Commerce, Google Ads, Backlinks/SERP) verified against mock payloads and offline test contracts in [`oauth-and-adapters.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-and-adapters.test.ts).
+  - All 6 provider adapters (GA4, Search Console, HubSpot CRM, Shopify Commerce, Google Ads, Backlinks/SERP) verified against mock payloads and offline test contracts in [`oauth-and-adapters.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-and-adapters.test.ts) and [`oauth-routes-and-coi.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-routes-and-coi.test.ts).
   - Shopify integration strictly confirmed PII-free (customer names, emails, and shipping addresses are omitted).
 - **Live-Credential Verification State:**
   - In an unconfigured environment, all adapters return explicit, non-throwing `NOT_CONFIGURED` or `NOT_CONNECTED` states with explanatory messages.
@@ -112,7 +125,7 @@ PDF verification suite ([`scripts/verify-pdf.mjs`](file:///d:/Projects/SiteIntel
 
 ### Conclusion Justification
 1. **Local Implementation & Automated Verification Complete:**
-   - 37 test files and 359 tests pass cleanly (100%).
+   - 38 test files and 373 tests pass cleanly (100%).
    - 33 Playwright E2E tests pass across Desktop, Tablet, and Mobile viewports.
    - 51-page multi-fixture PDF validation and rasterization passes with zero layout defects.
    - TypeScript typecheck (0 errors), ESLint (0 errors/warnings), and Next.js 15 production build pass.

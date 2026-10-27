@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { ProviderConnectionState, ProviderMetricsResult } from "./types";
 import { ProviderConnectionStore } from "./connection-store";
 
@@ -25,6 +26,65 @@ export class ShopifyCommerceAdapter {
 
   isConfigured(): boolean {
     return Boolean(this.apiKey && this.apiSecret);
+  }
+
+  /**
+   * Validates merchant shop domain.
+   * Rejects path traversal, protocols, invalid characters, and non-myshopify domains.
+   */
+  validateShopDomain(rawShop: string): { isValid: boolean; normalizedShop?: string; error?: string } {
+    if (!rawShop || typeof rawShop !== "string") {
+      return { isValid: false, error: "Shop domain is required." };
+    }
+
+    const trimmed = rawShop.trim();
+    if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("?") || trimmed.includes("#")) {
+      return { isValid: false, error: "Shop domain must not contain paths, slashes, or query characters." };
+    }
+
+    let cleaned = trimmed.toLowerCase();
+    cleaned = cleaned.replace(/^https?:\/\//, "");
+
+    if (!cleaned.includes(".")) {
+      cleaned = `${cleaned}.myshopify.com`;
+    }
+
+    const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/;
+    if (!shopRegex.test(cleaned)) {
+      return {
+        isValid: false,
+        error: "Invalid Shopify shop domain. Must be in the format 'your-store.myshopify.com'.",
+      };
+    }
+
+    return { isValid: true, normalizedShop: cleaned };
+  }
+
+  /**
+   * Validates Shopify OAuth HMAC signature per Shopify requirements.
+   * Compares the computed SHA-256 HMAC of sorted query params against the provided hmac parameter.
+   */
+  validateHmac(queryParams: Record<string, string>): boolean {
+    if (!this.apiSecret) return false;
+    const { hmac, signature, ...rest } = queryParams;
+    if (!hmac) return false;
+
+    // Sort parameters lexicographically and join with &
+    const message = Object.keys(rest)
+      .sort()
+      .map((k) => `${k}=${rest[k]}`)
+      .join("&");
+
+    const digest = crypto.createHmac("sha256", this.apiSecret).update(message).digest("hex");
+
+    try {
+      const digestBuf = Buffer.from(digest, "utf-8");
+      const hmacBuf = Buffer.from(hmac, "utf-8");
+      if (digestBuf.length !== hmacBuf.length) return false;
+      return crypto.timingSafeEqual(digestBuf, hmacBuf);
+    } catch {
+      return false;
+    }
   }
 
   async getConnectionStatus(tenantId: string): Promise<ProviderConnectionState> {
@@ -83,7 +143,11 @@ export class ShopifyCommerceAdapter {
     if (!this.apiKey) {
       throw new Error("Cannot start authorization: SHOPIFY_API_KEY is not configured.");
     }
-    const cleanShop = params.shopDomain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const validation = this.validateShopDomain(params.shopDomain);
+    if (!validation.isValid || !validation.normalizedShop) {
+      throw new Error(validation.error || "Invalid Shopify shop domain.");
+    }
+    const cleanShop = validation.normalizedShop;
     const url = new URL(`https://${cleanShop}/admin/oauth/authorize`);
     url.searchParams.set("client_id", this.apiKey);
     url.searchParams.set("scope", this.requiredScopes.join(","));
@@ -96,8 +160,23 @@ export class ShopifyCommerceAdapter {
     tenantId: string;
     shopDomain: string;
     code: string;
+    queryParams?: Record<string, string>;
     mockTokens?: { accessToken: string; shopDomain?: string };
   }): Promise<{ success: boolean; shopDomain?: string; error?: string }> {
+    const domainCheck = this.validateShopDomain(params.shopDomain);
+    if (!domainCheck.isValid || !domainCheck.normalizedShop) {
+      return { success: false, error: domainCheck.error || "Invalid shop domain." };
+    }
+    const cleanShop = domainCheck.normalizedShop;
+
+    // Validate HMAC signature if queryParams containing hmac are provided
+    if (params.queryParams && params.queryParams.hmac && !params.mockTokens) {
+      const isHmacValid = this.validateHmac(params.queryParams);
+      if (!isHmacValid) {
+        return { success: false, error: "Shopify OAuth HMAC signature verification failed." };
+      }
+    }
+
     if (params.mockTokens) {
       this.store.saveConnection({
         tenantId: params.tenantId,
@@ -105,10 +184,10 @@ export class ShopifyCommerceAdapter {
         status: "CONNECTED",
         scopes: this.requiredScopes,
         accessToken: params.mockTokens.accessToken,
-        accountId: params.mockTokens.shopDomain || "mock-store.myshopify.com",
-        propertyId: params.mockTokens.shopDomain || "mock-store.myshopify.com",
+        accountId: cleanShop,
+        propertyId: cleanShop,
       });
-      return { success: true, shopDomain: params.mockTokens.shopDomain || "mock-store.myshopify.com" };
+      return { success: true, shopDomain: cleanShop };
     }
 
     if (!this.apiKey || !this.apiSecret) {

@@ -42,13 +42,23 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
   };
 
   const handleConnect = async (provider: string) => {
-    setLoading(true);
     setActionError(null);
+
+    let shopDomain: string | undefined = undefined;
+    if (provider === "commerce_shopify") {
+      const input = window.prompt("Enter your Shopify store domain (e.g. my-store.myshopify.com):");
+      if (!input || !input.trim()) {
+        return;
+      }
+      shopDomain = input.trim();
+    }
+
+    setLoading(true);
     try {
       const res = await fetch("/api/providers/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider }),
+        body: JSON.stringify({ provider, ...(shopDomain ? { shopDomain } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) {

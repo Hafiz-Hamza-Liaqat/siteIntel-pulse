@@ -149,6 +149,59 @@ export class HubSpotCrmAdapter {
     }
   }
 
+  async refreshAccessToken(tenantId: string): Promise<{ success: boolean; accessToken?: string; error?: string }> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn) return { success: false, error: "Connection not found." };
+    const { refreshToken } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (!refreshToken) {
+      this.store.updateStatus(tenantId, this.providerId, "AUTH_REQUIRED");
+      return { success: false, error: "Refresh token missing." };
+    }
+    if (!this.clientId || !this.clientSecret) {
+      return { success: false, error: "HubSpot credentials not configured." };
+    }
+
+    try {
+      const res = await fetch("https://api.hubapi.com/oauth/v1/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          refresh_token: refreshToken,
+        }).toString(),
+      });
+
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 401) {
+          this.store.updateStatus(tenantId, this.providerId, "AUTH_REQUIRED");
+        }
+        return { success: false, error: `HubSpot OAuth refresh failed with HTTP ${res.status}` };
+      }
+
+      const tokenData = await res.json();
+      const newAccessToken = tokenData.access_token;
+      const expiresIn = tokenData.expires_in || 3600;
+      const newRefreshToken = tokenData.refresh_token || refreshToken;
+
+      this.store.saveConnection({
+        tenantId,
+        provider: this.providerId,
+        status: "CONNECTED",
+        scopes: JSON.parse(conn.scopes_json || "[]"),
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+        propertyId: conn.property_id || undefined,
+        accountId: conn.account_id || undefined,
+        tokenExpiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+      });
+      return { success: true, accessToken: newAccessToken };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Token refresh failed." };
+    }
+  }
+
   async fetchMetrics(
     tenantId: string,
     options?: { mockOverride?: Record<string, any> }
@@ -182,7 +235,16 @@ export class HubSpotCrmAdapter {
       };
     }
 
-    const { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    let { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (isExpired || !accessToken) {
+      const refreshed = await this.refreshAccessToken(tenantId);
+      if (refreshed.success) {
+        const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
+        accessToken = tokens.accessToken;
+        isExpired = tokens.isExpired;
+      }
+    }
+
     if (!accessToken || isExpired) {
       return {
         provider: this.providerId,

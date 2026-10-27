@@ -14,8 +14,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const provider = body.provider as ProviderId;
     const origin = req.nextUrl.origin;
-    const defaultRedirectUri = `${origin}/api/providers/callback`;
-    const redirectUri = body.redirectUri || defaultRedirectUri;
+    
+    // Canonical registered callback URI binding: strictly bound to this application's callback
+    const canonicalRedirectUri = `${origin}/api/providers/callback?provider=${provider}`;
+    const redirectUri = canonicalRedirectUri;
 
     // Validate provider
     const validProviders: ProviderId[] = [
@@ -33,8 +35,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Special validation & metadata binding for Shopify merchant store domain
+    let stateMetadata: Record<string, any> = {};
+    if (provider === "commerce_shopify") {
+      const shopAdapter = integrationsManager.getShopifyAdapter();
+      const shopCheck = shopAdapter.validateShopDomain(body.shopDomain);
+      if (!shopCheck.isValid || !shopCheck.normalizedShop) {
+        return NextResponse.json(
+          { error: shopCheck.error || "A valid Shopify store domain (e.g. 'merchant.myshopify.com') is required." },
+          { status: 400 }
+        );
+      }
+      stateMetadata.shopDomain = shopCheck.normalizedShop;
+    }
+
     const oauthManager = integrationsManager.getOAuthManager();
-    const { state, codeChallenge } = oauthManager.createState(tenantId, provider, redirectUri);
+    const { state, codeChallenge } = oauthManager.createState(tenantId, provider, redirectUri, stateMetadata);
 
     let authUrl = "";
     if (provider === "google_analytics_4") {
@@ -72,8 +88,7 @@ export async function POST(req: NextRequest) {
           { status: 503 }
         );
       }
-      const shopDomain = body.shopDomain || "myshop.myshopify.com";
-      authUrl = adapter.startAuthorization({ shopDomain, redirectUri, state });
+      authUrl = adapter.startAuthorization({ shopDomain: stateMetadata.shopDomain, redirectUri, state });
     } else if (provider === "ads_google") {
       const adapter = integrationsManager.getGoogleAdsAdapter();
       if (!adapter.isConfigured()) {

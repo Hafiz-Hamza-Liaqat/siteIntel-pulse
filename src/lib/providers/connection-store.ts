@@ -71,7 +71,7 @@ export class ProviderConnectionStore {
       params.accountId || null,
       params.propertyId || null,
       params.status,
-      JSON.stringify(params.scopes),
+      JSON.stringify(params.scopes || []),
       encryptedAccessToken,
       encryptedRefreshToken,
       params.tokenExpiresAt || null,
@@ -90,6 +90,16 @@ export class ProviderConnectionStore {
     `);
     const row = stmt.get(tenantId, provider) as StoredConnectionRecord | undefined;
     return row || null;
+  }
+
+  updateStatus(tenantId: string, provider: ProviderId, status: ProviderConnectionStatus): void {
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      UPDATE provider_connections
+      SET status = ?, updated_at = ?
+      WHERE tenant_id = ? AND provider = ?
+    `);
+    stmt.run(status, now, tenantId, provider);
   }
 
   getDecryptedTokens(tenantId: string, provider: ProviderId): {

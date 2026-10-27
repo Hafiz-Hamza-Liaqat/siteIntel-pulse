@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { parsePageHtml } from "./html-parser.ts";
 import { assessmentRegistry } from "@/lib/catalogue/registry.ts";
-import { RuleEvaluationContext, PageInventoryItem } from "@/types";
+import { PageObservation } from "@/types";
+import { RuleEvaluationContext } from "@/lib/catalogue/types.ts";
 
 describe("Document Classification & Evidence Truthfulness", () => {
   it("classifies HTML documents correctly even if URL ends with .xml", () => {
@@ -50,54 +51,68 @@ Sitemap: https://example.com/sitemap.xml`;
   });
 
   it("excludes XML sitemaps and robots.txt from HTML meta-tag rules (TCH-03)", () => {
-    const sitemapPage: PageInventoryItem = {
-      url: "https://example.com/sitemap.xml",
-      path: "/sitemap.xml",
+    const sitemapPage: PageObservation = {
+      id: "p_sitemap",
+      requestedUrl: "https://example.com/sitemap.xml",
+      normalizedUrl: "https://example.com/sitemap.xml",
+      finalUrl: "https://example.com/sitemap.xml",
       statusCode: 200,
-      contentType: "application/xml",
-      depth: 1,
-      discoveredAt: new Date().toISOString(),
       responseTimeMs: 80,
-      byteSize: 1200,
-      isInternal: true,
-      indexable: true,
-      inSitemap: false,
+      contentType: "application/xml",
+      isXmlSitemap: true,
+      documentType: "xml_sitemap",
+      redirectHistory: [],
+      robotsDirectives: [],
+      headings: { h1: [], h2: [], h3: [], h4: [], h5: [], h6: [] },
+      visibleWordCount: 0,
+      doctype: "xml",
+      encoding: "UTF-8",
+      links: [],
+      resources: [],
+      structuredData: [],
+      openGraph: {},
+      headers: {},
+      cookieAttributes: [],
+      templateConfidence: "HIGH",
+      discoveredAtDepth: 1,
+      discoverySource: "sitemap",
+      consoleErrors: [],
     };
 
-    const regularHtmlPage: PageInventoryItem = {
-      url: "https://example.com/",
-      path: "/",
+    const regularHtmlPage: PageObservation = {
+      id: "p_root",
+      requestedUrl: "https://example.com/",
+      normalizedUrl: "https://example.com/",
+      finalUrl: "https://example.com/",
       statusCode: 200,
-      contentType: "text/html",
-      depth: 0,
-      discoveredAt: new Date().toISOString(),
       responseTimeMs: 150,
-      byteSize: 12500,
-      isInternal: true,
-      indexable: true,
-      inSitemap: true,
+      contentType: "text/html",
+      documentType: "html",
+      redirectHistory: [],
+      robotsDirectives: ["index", "follow"],
+      headings: { h1: ["Welcome"], h2: [], h3: [], h4: [], h5: [], h6: [] },
+      visibleWordCount: 500,
+      doctype: "html",
+      encoding: "UTF-8",
+      links: [],
+      resources: [],
+      structuredData: [],
+      openGraph: {},
+      headers: {},
+      cookieAttributes: [],
+      templateConfidence: "HIGH",
+      discoveredAtDepth: 0,
+      discoverySource: "entry",
+      consoleErrors: [],
     };
 
     const ctx: RuleEvaluationContext = {
       targetUrl: "https://example.com",
+      domain: "example.com",
       businessCategory: "saas",
-      scannedAt: new Date().toISOString(),
       pages: [regularHtmlPage, sitemapPage],
-      headingsByUrl: {},
-      links: [],
-      assets: [],
-      forms: [],
-      cookies: [],
-      securityHeaders: {},
-      technologies: [],
-      categoryDetection: {
-        detectedCategory: "saas",
-        confidence: "HIGH",
-        heuristicConfidence: "HIGH",
-        primaryConfidence: 0.9,
-        signals: [],
-        secondaryFacets: [],
-      },
+      sitemapUrls: ["https://example.com/sitemap.xml"],
+      externalLinksTested: [],
     };
 
     const tch03 = assessmentRegistry.getRule("TCH-03")!.evaluate(ctx);
