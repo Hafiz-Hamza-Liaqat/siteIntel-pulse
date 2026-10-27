@@ -51,7 +51,8 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
 
   // Extract connected provider metrics
   const ga4 = connectedMetrics?.google_analytics_4?.isAvailable ? connectedMetrics.google_analytics_4 : undefined;
-  const shopify = connectedMetrics?.commerce_shopify?.isAvailable ? connectedMetrics.commerce_shopify : undefined;
+  const rawShopify = connectedMetrics?.commerce_shopify;
+  const shopify = rawShopify?.isAvailable ? rawShopify : undefined;
   const hubspot = connectedMetrics?.crm_hubspot?.isAvailable ? connectedMetrics.crm_hubspot : undefined;
   const gsc = connectedMetrics?.search_console?.isAvailable ? connectedMetrics.search_console : undefined;
   const ads = connectedMetrics?.ads_google?.isAvailable ? connectedMetrics.ads_google : undefined;
@@ -69,7 +70,11 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
     sessionSource = "Connected GA4";
   }
 
-  const rawCurrency = request?.currency || shopify?.metrics?.currency || "USD";
+  const shopifyCurrency =
+    shopify?.isAvailable && shopify.metrics?.currency && !shopify.metrics?.isIncomplete
+      ? shopify.metrics.currency
+      : undefined;
+  const rawCurrency = request?.currency || shopifyCurrency || "USD";
   const currency =
     typeof rawCurrency === "string" && /^[A-Z]{3}$/.test(rawCurrency.trim().toUpperCase())
       ? rawCurrency.trim().toUpperCase()
@@ -197,7 +202,15 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
       assumptions.push(
         `[Owner Provided] Average Order Value (AOV): ${formatCurrency(effectiveAov, currency)}.`
       );
-    } else if (shopify?.metrics?.averageOrderValue && Number(shopify.metrics.averageOrderValue) > 0) {
+    } else if (
+      shopify?.isAvailable &&
+      shopify?.metrics?.averageOrderValue &&
+      Number(shopify.metrics.averageOrderValue) > 0 &&
+      shopify.metrics.paginationComplete !== false &&
+      !shopify.metrics.isIncomplete &&
+      shopify.metrics.currency &&
+      (!request?.currency || request.currency.toUpperCase() === shopify.metrics.currency.toUpperCase())
+    ) {
       effectiveAov = Number(shopify.metrics.averageOrderValue);
       hasConnectedCommercialValues = true;
       assumptions.push(
@@ -205,9 +218,15 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
       );
     } else {
       effectiveAov = 85.0;
-      assumptions.push(
-        `[Default Scenario Assumption - Illustrative] Average Order Value (AOV): ${formatCurrency(effectiveAov, currency)} baseline assumed because owner did not specify AOV.`
-      );
+      if (rawShopify && (!rawShopify.isAvailable || rawShopify.metrics?.paginationComplete === false || rawShopify.metrics?.isIncomplete)) {
+        assumptions.push(
+          `[Default Scenario Assumption - Illustrative] Average Order Value (AOV): ${formatCurrency(effectiveAov, currency)} baseline assumed because connected Shopify data is incomplete or unavailable.`
+        );
+      } else {
+        assumptions.push(
+          `[Default Scenario Assumption - Illustrative] Average Order Value (AOV): ${formatCurrency(effectiveAov, currency)} baseline assumed because owner did not specify AOV.`
+        );
+      }
     }
     effectiveAovForInputs = effectiveAov;
 

@@ -116,6 +116,33 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
     }
   };
 
+  const handleSelectGoogleAdsCustomer = async () => {
+    const customerInput = window.prompt(
+      "Enter Google Ads Customer ID (e.g. customers/123-456-7890 or 123-456-7890):"
+    );
+    if (!customerInput || !customerInput.trim()) return;
+
+    setLoading(true);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/providers/google-ads/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: customerInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setActionError(data.error || "Failed to select Google Ads customer account.");
+      } else {
+        await fetchProviders();
+      }
+    } catch (err: any) {
+      setActionError(err?.message || "Customer selection request failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getStateBadge = (state: string) => {
     switch (state) {
       case "BEHAVIOR_VERIFIED":
@@ -257,6 +284,15 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
                         className="px-2 py-1 text-[10px] font-semibold text-brand-cyan hover:text-white bg-brand-cyan/10 hover:bg-brand-cyan/20 rounded-md border border-brand-cyan/30 transition disabled:opacity-50"
                       >
                         {p.propertyId ? "Change Property" : "Select Property"}
+                      </button>
+                    )}
+                    {p.provider === "ads_google" && (
+                      <button
+                        onClick={handleSelectGoogleAdsCustomer}
+                        disabled={loading}
+                        className="px-2 py-1 text-[10px] font-semibold text-brand-cyan hover:text-white bg-brand-cyan/10 hover:bg-brand-cyan/20 rounded-md border border-brand-cyan/30 transition disabled:opacity-50"
+                      >
+                        {p.accountId ? "Change Customer" : "Select Customer"}
                       </button>
                     )}
                     <button

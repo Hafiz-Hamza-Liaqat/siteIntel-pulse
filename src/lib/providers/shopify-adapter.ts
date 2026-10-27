@@ -28,7 +28,7 @@ export class ShopifyCommerceAdapter {
     this.store = store;
     this.apiKey = apiKey || process.env.SHOPIFY_API_KEY || process.env.SHOPIFY_CLIENT_ID;
     this.apiSecret = apiSecret || process.env.SHOPIFY_API_SECRET || process.env.SHOPIFY_CLIENT_SECRET;
-    this.apiVersion = apiVersion || process.env.SHOPIFY_API_VERSION || "2025-01";
+    this.apiVersion = apiVersion || process.env.SHOPIFY_API_VERSION || "2026-10";
   }
 
   isConfigured(): boolean {
@@ -292,9 +292,16 @@ export class ShopifyCommerceAdapter {
     try {
       // 1. Fetch and validate store currency from shop settings
       let storeCurrency: string | undefined = undefined;
+      let servedApiVersion: string | undefined = undefined;
+
       const shopRes = await fetch(`https://${shop}/admin/api/${this.apiVersion}/shop.json?fields=currency,name,domain`, {
         headers: { "X-Shopify-Access-Token": accessToken },
       });
+
+      const shopVersionHeader = shopRes.headers?.get?.("X-Shopify-API-Version") || shopRes.headers?.get?.("x-shopify-api-version");
+      if (shopVersionHeader) {
+        servedApiVersion = shopVersionHeader;
+      }
 
       if (shopRes.ok) {
         const shopData = await shopRes.json();
@@ -312,7 +319,7 @@ export class ShopifyCommerceAdapter {
       const allOrders: any[] = [];
       let nextUrl: string | null = `https://${shop}/admin/api/${this.apiVersion}/orders.json?status=any&created_at_min=${encodeURIComponent(createdAtMin)}&limit=250&fields=id,total_price,currency,financial_status,created_at`;
       let pageCount = 0;
-      const MAX_PAGES = 10; // safety ceiling: up to 2500 orders
+      const MAX_PAGES = 40; // Safely supports up to 10,000 orders
 
       while (nextUrl && pageCount < MAX_PAGES) {
         pageCount++;
@@ -320,13 +327,22 @@ export class ShopifyCommerceAdapter {
           headers: { "X-Shopify-Access-Token": accessToken },
         });
 
+        const ordersVersionHeader = ordersRes.headers?.get?.("X-Shopify-API-Version") || ordersRes.headers?.get?.("x-shopify-api-version");
+        if (ordersVersionHeader && !servedApiVersion) {
+          servedApiVersion = ordersVersionHeader;
+        }
+
         if (!ordersRes.ok) {
           return {
             provider: this.providerId,
             isAvailable: false,
             dataTimestamp: now,
             metrics: {},
-            provenance: { source: "Shopify Admin Orders API", propertyOrAccount: shop, fetchedAt: now },
+            provenance: {
+              source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+              propertyOrAccount: shop,
+              fetchedAt: now,
+            },
             limitations: `Shopify Orders API returned HTTP ${ordersRes.status} on page ${pageCount}.`,
           };
         }
@@ -336,7 +352,7 @@ export class ShopifyCommerceAdapter {
         allOrders.push(...ordersPage);
 
         // Check RFC 5988 Link header for cursor pagination
-        const linkHeader: string | null = ordersRes.headers.get("Link") || ordersRes.headers.get("link");
+        const linkHeader: string | null = (ordersRes.headers?.get?.("Link") || ordersRes.headers?.get?.("link")) || null;
         if (linkHeader && linkHeader.includes('rel="next"')) {
           const match: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
           nextUrl = match ? match[1] : null;
@@ -345,16 +361,95 @@ export class ShopifyCommerceAdapter {
         }
       }
 
-      // If store currency was not obtained from shop settings, inspect order currencies
-      if (!storeCurrency && allOrders.length > 0) {
-        const orderCurrencies = Array.from(new Set(allOrders.map((o: any) => o.currency).filter(Boolean)));
-        if (orderCurrencies.length === 1 && typeof orderCurrencies[0] === "string" && /^[A-Z]{3}$/.test(orderCurrencies[0])) {
-          storeCurrency = orderCurrencies[0];
-        }
+      // If nextUrl is still non-null, pagination ceiling was reached without completing
+      if (nextUrl !== null) {
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {
+            totalOrders: allOrders.length,
+            paginationComplete: false,
+            isIncomplete: true,
+            pagesRetrieved: pageCount,
+          },
+          provenance: {
+            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            propertyOrAccount: shop,
+            fetchedAt: now,
+          },
+          limitations: `Shopify order volume exceeded maximum pagination limit (${pageCount} pages, ${allOrders.length} orders retrieved; additional pages remain). Incomplete financial figures cannot be certified as verified metrics.`,
+        };
       }
 
+      // 3. Currency Validation
+      const uniqueOrderCurrencies = Array.from(
+        new Set(
+          allOrders
+            .map((o: any) => (typeof o.currency === "string" ? o.currency.trim().toUpperCase() : undefined))
+            .filter((c): c is string => Boolean(c && /^[A-Z]{3}$/.test(c)))
+        )
+      );
+
+      // Multiple conflicting currencies cannot be summed as a single total
+      if (uniqueOrderCurrencies.length > 1) {
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {
+            totalOrders: allOrders.length,
+            orderCurrencies: uniqueOrderCurrencies,
+          },
+          provenance: {
+            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            propertyOrAccount: shop,
+            fetchedAt: now,
+          },
+          limitations: `Multiple conflicting order currencies detected (${uniqueOrderCurrencies.join(", ")}). Multi-currency normalization required.`,
+        };
+      }
+
+      // If store currency was not obtained from shop settings, inspect order currencies
+      if (!storeCurrency && uniqueOrderCurrencies.length === 1) {
+        storeCurrency = uniqueOrderCurrencies[0];
+      }
+
+      // If store currency conflicts with single order currency
+      if (storeCurrency && uniqueOrderCurrencies.length === 1 && uniqueOrderCurrencies[0] !== storeCurrency) {
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {
+            storeCurrency,
+            orderCurrency: uniqueOrderCurrencies[0],
+          },
+          provenance: {
+            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            propertyOrAccount: shop,
+            fetchedAt: now,
+          },
+          limitations: `Store currency (${storeCurrency}) conflicts with order transactions currency (${uniqueOrderCurrencies[0]}).`,
+        };
+      }
+
+      // If currency cannot be established at all, refuse silent USD fallback
       if (!storeCurrency) {
-        storeCurrency = "USD";
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {
+            totalOrders: allOrders.length,
+          },
+          provenance: {
+            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            propertyOrAccount: shop,
+            fetchedAt: now,
+          },
+          limitations: "Shopify store currency could not be established. Valid ISO 4217 currency is required to model financial metrics.",
+        };
       }
 
       const paidOrders = allOrders.filter((o: any) => o.financial_status === "paid");
@@ -376,13 +471,14 @@ export class ShopifyCommerceAdapter {
           averageOrderValue: aov,
           currency: storeCurrency,
           reportingWindowDays: reportingDays,
-          paginationComplete: nextUrl === null,
+          paginationComplete: true,
           pagesRetrieved: pageCount,
         },
         provenance: {
-          source: `Shopify Admin API ${this.apiVersion} (Aggregated)`,
+          source: `Shopify Admin API ${servedApiVersion || this.apiVersion} (Aggregated)`,
           propertyOrAccount: shop,
           fetchedAt: now,
+          ...(servedApiVersion && servedApiVersion !== this.apiVersion ? { servedVersionMismatch: { requested: this.apiVersion, served: servedApiVersion } } : {}),
         },
       };
     } catch (err: any) {

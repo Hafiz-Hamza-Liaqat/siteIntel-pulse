@@ -291,16 +291,28 @@ export class GA4Adapter {
       };
     }
 
-    // Verify tenant access via accessible properties listing if possible
+    // Require listAccessibleProperties to succeed - FAIL CLOSED
     const accessList = await this.listAccessibleProperties(tenantId);
-    if (accessList.success && accessList.properties && accessList.properties.length > 0) {
-      const isAuthorized = accessList.properties.some((p) => p.propertyId === normalized);
-      if (!isAuthorized) {
-        return {
-          success: false,
-          error: `Property "${normalized}" is not accessible by the authenticated Google Analytics account.`,
-        };
-      }
+    if (!accessList.success) {
+      return {
+        success: false,
+        error: `Unable to verify property access: ${accessList.error || "Upstream Google Analytics API error"}. Property cannot be authorized.`,
+      };
+    }
+
+    if (!accessList.properties || accessList.properties.length === 0) {
+      return {
+        success: false,
+        error: "No accessible Google Analytics properties found for this account. Property cannot be authorized.",
+      };
+    }
+
+    const isAuthorized = accessList.properties.some((p) => p.propertyId === normalized);
+    if (!isAuthorized) {
+      return {
+        success: false,
+        error: `Property "${normalized}" is not accessible by the authenticated Google Analytics account.`,
+      };
     }
 
     this.store.updatePropertyId(tenantId, this.providerId, normalized);

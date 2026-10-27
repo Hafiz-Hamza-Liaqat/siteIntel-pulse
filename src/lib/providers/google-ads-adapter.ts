@@ -12,6 +12,7 @@ export class GoogleAdsAdapter {
     "Ad-attributed conversion actions",
   ];
   readonly requiredScopes = ["https://www.googleapis.com/auth/adwords"];
+  readonly apiVersion: string;
 
   private store: ProviderConnectionStore;
   private clientId?: string;
@@ -22,12 +23,18 @@ export class GoogleAdsAdapter {
     store: ProviderConnectionStore,
     clientId?: string,
     clientSecret?: string,
-    developerToken?: string
+    developerToken?: string,
+    apiVersion?: string
   ) {
     this.store = store;
     this.clientId = clientId || process.env.GOOGLE_ADS_CLIENT_ID || process.env.GA4_CLIENT_ID;
     this.clientSecret = clientSecret || process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GA4_CLIENT_SECRET;
     this.developerToken = developerToken || process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    this.apiVersion = apiVersion || process.env.GOOGLE_ADS_API_VERSION || "v26";
+  }
+
+  isValidApiVersion(): boolean {
+    return /^v[0-9]+$/.test(this.apiVersion);
   }
 
   isConfigured(): boolean {
@@ -115,9 +122,9 @@ export class GoogleAdsAdapter {
   }
 
   async listAccessibleCustomersWithToken(accessToken: string): Promise<string[]> {
-    if (!this.developerToken) return [];
+    if (!this.developerToken || !this.isValidApiVersion()) return [];
     try {
-      const res = await fetch("https://googleads.googleapis.com/v16/customers:listAccessibleCustomers", {
+      const res = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/customers:listAccessibleCustomers`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "developer-token": this.developerToken,
@@ -211,6 +218,13 @@ export class GoogleAdsAdapter {
       return { success: false, error: "Google Ads is not connected." };
     }
 
+    if (!this.isValidApiVersion()) {
+      return {
+        success: false,
+        error: `Unsupported Google Ads API version "${this.apiVersion}". Format must be "v<digits>".`,
+      };
+    }
+
     if (!this.developerToken) {
       return {
         success: false,
@@ -225,12 +239,12 @@ export class GoogleAdsAdapter {
         const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
         accessToken = tokens.accessToken;
       } else {
-        return { success: false, error: "Access token expired and refresh failed." };
+        return { success: false, error: "Access token expired and refresh failed. Re-authentication required." };
       }
     }
 
     try {
-      const res = await fetch("https://googleads.googleapis.com/v16/customers:listAccessibleCustomers", {
+      const res = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/customers:listAccessibleCustomers`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "developer-token": this.developerToken,
@@ -272,6 +286,30 @@ export class GoogleAdsAdapter {
       return {
         success: false,
         error: `Invalid customer identifier "${rawCustomerId}". Expected format: customers/123-456-7890 (numeric only).`,
+      };
+    }
+
+    // Require listAccessibleCustomers to succeed - FAIL CLOSED
+    const accessList = await this.listAccessibleCustomers(tenantId);
+    if (!accessList.success) {
+      return {
+        success: false,
+        error: `Unable to verify customer access: ${accessList.error || "Upstream Google Ads API error"}. Customer account cannot be authorized.`,
+      };
+    }
+
+    if (!accessList.customers || accessList.customers.length === 0) {
+      return {
+        success: false,
+        error: "No accessible Google Ads customer accounts found for this authenticated user. Customer account cannot be authorized.",
+      };
+    }
+
+    const isAuthorized = accessList.customers.includes(normalized);
+    if (!isAuthorized) {
+      return {
+        success: false,
+        error: `Customer account "${normalized}" is not accessible by the authenticated Google Ads user.`,
       };
     }
 
@@ -346,7 +384,7 @@ export class GoogleAdsAdapter {
         dataTimestamp: now,
         metrics: options.mockOverride,
         provenance: {
-          source: "Google Ads API v16 (Mock Fixture)",
+          source: `Google Ads API ${this.apiVersion} (Mock Fixture)`,
           propertyOrAccount: conn?.account_id || "customers/123-456-7890",
           isSimulatedOrMock: true,
           fetchedAt: now,
@@ -362,6 +400,17 @@ export class GoogleAdsAdapter {
         metrics: {},
         provenance: { source: "Google Ads", propertyOrAccount: "NOT_CONNECTED", fetchedAt: now },
         limitations: "Google Ads is not connected. Requires authorized tenant connection.",
+      };
+    }
+
+    if (!this.isValidApiVersion()) {
+      return {
+        provider: this.providerId,
+        isAvailable: false,
+        dataTimestamp: now,
+        metrics: {},
+        provenance: { source: "Google Ads API", propertyOrAccount: conn.account_id || "UNCONFIGURED", fetchedAt: now },
+        limitations: `Unsupported Google Ads API version "${this.apiVersion}". Format must be "v<digits>".`,
       };
     }
 
@@ -409,7 +458,7 @@ export class GoogleAdsAdapter {
     const loginCustomerId = cleanCustomer.replace("customers/", "").replace(/-/g, "");
 
     try {
-      const res = await fetch(`https://googleads.googleapis.com/v16/${cleanCustomer}/googleAds:search`, {
+      const res = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/${cleanCustomer}/googleAds:search`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -428,7 +477,7 @@ export class GoogleAdsAdapter {
           isAvailable: false,
           dataTimestamp: now,
           metrics: {},
-          provenance: { source: "Google Ads API v16", propertyOrAccount: cleanCustomer, fetchedAt: now },
+          provenance: { source: `Google Ads API ${this.apiVersion}`, propertyOrAccount: cleanCustomer, fetchedAt: now },
           limitations: `Google Ads API returned HTTP ${res.status}. Verify developer token approval and customer account access.`,
         };
       }
@@ -467,7 +516,7 @@ export class GoogleAdsAdapter {
           isAcquisitionContextOnly: true,
         },
         provenance: {
-          source: "Google Ads API v16 (Live Search)",
+          source: `Google Ads API ${this.apiVersion} (Live Search)`,
           propertyOrAccount: cleanCustomer,
           fetchedAt: now,
         },

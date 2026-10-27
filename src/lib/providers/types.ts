@@ -83,6 +83,8 @@ export interface ProviderMetricsResult {
     isSimulatedOrMock?: boolean;
     fetchedAt: string;
     reportingPeriod?: Record<string, any>;
+    note?: string;
+    servedVersionMismatch?: Record<string, any>;
   };
   limitations?: string;
 }

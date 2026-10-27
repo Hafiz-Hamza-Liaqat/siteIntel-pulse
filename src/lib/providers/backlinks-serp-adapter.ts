@@ -3,13 +3,13 @@ import { ProviderConnectionStore } from "./connection-store";
 
 export class BacklinksSerpAdapter {
   readonly providerId = "backlinks_serp" as const;
-  readonly displayName = "Backlinks & SERP Intelligence";
+  readonly displayName = "SERP & Link Intelligence";
   readonly category = "seo_backlinks" as const;
   readonly supportedCapabilities = [
-    "Referring domains & backlink profile count",
-    "Domain authority & link equity rating",
-    "Organic search keyword rankings count",
-    "Direct competitor domain overlap rankings",
+    "Google Search indexed pages estimate (SERP)",
+    "Organic search keyword rankings & top URLs",
+    "Search engine presence & index coverage",
+    "Referring domains & backlink profile (requires dedicated backlink index integration)",
   ];
 
   private store: ProviderConnectionStore;
@@ -100,6 +100,7 @@ export class BacklinksSerpAdapter {
           propertyOrAccount: domain,
           isSimulatedOrMock: true,
           fetchedAt: now,
+          note: "Simulated offline fixture. Not verified against live third-party backlink or SERP APIs.",
         },
       };
     }
@@ -154,12 +155,17 @@ export class BacklinksSerpAdapter {
           indexedPagesEstimate: totalResults,
           organicRankingsCount: organicResults.length,
           topRankingUrl: organicResults[0]?.link || undefined,
+          referringDomains: undefined,
+          backlinksCount: undefined,
+          domainRating: undefined,
           isAcquisitionContextOnly: true,
+          capabilityScope: "SERP_SEARCH_INDEX_ONLY",
         },
         provenance: {
           source: "SerpAPI Live Google Index Provider",
           propertyOrAccount: cleanDomain,
           fetchedAt: now,
+          note: "Verified SERP search index intelligence only. Referring domains and backlink profiles require separate backlink index integration.",
         },
       };
     } catch (err: any) {

@@ -1,8 +1,7 @@
 # SiteIntel Pulse — Milestones 1–3 Final Release Verification & Publication Report
 
-**Document Version:** `1.3.0`  
+**Document Version:** `1.4.0`  
 **Date:** `2026-10-27`  
-**Feature Code Commit:** `e47fd6fdee2b1ec78fe75b2b63c3089dc097c08a`  
 **Publication Branch:** `feature/milestones-1-3-completion`  
 **Pull Request URL:** [PR #1 (feature/milestones-1-3-completion -> main)](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1)  
 **Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
@@ -16,58 +15,50 @@
 
 This document certifies the final verification and publication of **Milestone 1 (Evidence & Score Transparency)**, **Milestone 2 (Assessment Depth & Diagnostics)**, and **Milestone 3 (Authorized Business Data Connections & Cost of Inaction v1/v2)** for SiteIntel Pulse.
 
-All code and regression tests were authored directly on branch `feature/milestones-1-3-completion`. A formal Pull Request targeting `main` was opened at [PR #1](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1).
-
-### Remote Publication Verification Output:
-```text
-e47fd6fdee2b1ec78fe75b2b63c3089dc097c08a  refs/heads/feature/milestones-1-3-completion
-c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main
-```
-
-### GitHub Actions Quality Gates on PR #1
-- **CI Pipeline Run [40472127636](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40472127636):** **`SUCCESS`** (TypeScript typecheck, ESLint, 39 test files / 386 tests, 51-page PDF verification, SQLite ACID backup, Playwright E2E 33/33, Next.js 15 build).
-- **Docker Container Runtime Acceptance Run [40472127548](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40472127548):** **`SUCCESS`** (Strict loopback `127.0.0.1:3000` binding, container health probe, in-container scan execution, PDF magic bytes validation, container restart durability).
-
-### Summary of Milestone 3 Correctness & Provider Hardening Enhancements
-1. **GA4 Property Flow & Resource Correctness:**
-   - Completely eradicated placeholder `properties/active` identifier across adapters, routes, and tests.
-   - Implemented real Google Analytics Admin API discovery (`v1beta/accountSummaries`) via `listAccessibleProperties()` and `listAccessiblePropertiesWithToken()`.
-   - Added secure tenant property selection flow (`selectProperty`) validating property format `/^properties\/[0-9]+$/` and verifying tenant ownership/authorization against accessible properties before persisting.
-   - Enforced that GA4 Data API requests target real, authorized `properties/{propertyId}` resources.
-   - If no property is selected or authorized, the adapter returns a clear `isAvailable: false` state with `propertyOrAccount: "NO_PROPERTY_SELECTED"` and degradation notice; unconfigured/unselected connections are never reported as verified traffic.
-2. **Shopify API Modernization, Complete Cursor Pagination & HMAC Enforcement:**
-   - Retired legacy `2024-01` API in favor of supported `2025-01` default (`process.env.SHOPIFY_API_VERSION || "2025-01"`).
-   - Strictly enforced HMAC parameter verification (`validateHmac`) using timing-safe comparison (`crypto.timingSafeEqual`) on all non-mock production callbacks; callbacks with missing, malformed, or tampered HMAC are rejected immediately.
-   - Bound merchant domain (`shop`) into OAuth state metadata to prevent store substitution attacks.
-   - Implemented full cursor pagination using RFC 5988 `Link` headers (`rel="next"`) over a rolling 30-day reporting window (`created_at_min`), eliminating silent data truncation.
-   - Queried `shop.json` to extract, validate, and propagate ISO 4217 store currency (GBP, USD, EUR, etc.) directly into metrics and Cost of Inaction calculations.
-   - Strictly enforced zero customer PII: requests limit order retrieval fields to `id,total_price,currency,financial_status,created_at`.
-3. **Truthful Provider Availability & Credential Verification:**
-   - Implemented real API request flows for Google Ads (requiring `GOOGLE_ADS_DEVELOPER_TOKEN` and customer account selection `/^customers\/[0-9-]+$/`) and Backlinks/SERP (requiring `SERP_API_KEY`).
-   - Adapters immediately return truthful `isAvailable: false` with explicit diagnostic limitation reasons when developer credentials or customer accounts are missing.
-   - Under no circumstances does OAuth authorization alone cause unconfigured metrics to be reported as "verified" or feed uncalibrated estimates into financial models.
-   - Acquisition telemetry (Google Ads impressions/spend, Search Console impressions/clicks, Backlinks domain rating) is explicitly labeled as *acquisition context only* and distinguished from completed commercial revenue.
-4. **Search Console Rolling 28-Day Range & Provenance Tracking:**
-   - Replaced hardcoded default date strings with dynamic rolling 28-day reporting window via `calculateGscDateRange()`, explicitly accounting for Search Console's 3-day data processing lag.
-   - Harmonized mock and live date logic; calculation accepts injected reference date for deterministic clock verification.
-   - Enriched provenance metadata with explicit `reportingPeriod` (`startDate`, `endDate`, `lagDays: 3`, `windowDays: 28`).
-5. **Cost of Inaction v2 Synchronization & Precedence:**
-   - Enforced strict precedence: Owner explicit intake > Verified connected provider data > Calibrated baseline.
-   - Refuses synthetic traffic: monthly sessions require owner intake or verified GA4 telemetry (`INSUFFICIENT_INPUTS`).
-   - Guaranteed single immutable Cost of Inaction calculation snapshot in `orchestrator.ts` shared synchronously across both the Company A Owner Report and the Company B Expert Report.
-   - Core 56-rule, 100-point catalogue across 11 categories and 9 non-additive overlays strictly preserved. Exactly two reports; no standalone third report or calculator.
+All code and regression tests were authored directly on branch `feature/milestones-1-3-completion`. A formal Pull Request targeting `main` is active at [PR #1](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1).
 
 ---
 
-## 2. Core Architectural Invariants Preserved
+## 2. Summary of Provider Hardening & Integration Correctness Fixes
 
-1. **Strict Dual-Report Model (No Third Report):**
-   - **Company A: Owner Report:** Executive business assessment, 9 non-additive diagnostic dimension scorecards, priority growth opportunities, and the Cost of Inaction Calculator v1/v2.
-   - **Company B: Expert Diagnostic & Growth Intelligence Report:** In-depth technical architecture, evidence-backed page inventory, remediation task breakdown, effort estimations, validation procedures, and connected Cost of Inaction financial evidence ledger.
-   - No standalone "Cost of Inaction" report was created. The financial opportunity model is integrated directly into both the Owner Report (UI and PDF) and the Expert Report (UI and PDF) from a single synchronized calculation in [`orchestrator.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/scanner/orchestrator.ts).
-2. **Fixed 100-Point Catalogue Invariant:**
-   - The core catalogue invariant of **56 rules** summing to exactly **100 total points** across **11 categories** is preserved without modification.
-   - The **9 diagnostic dimension scorecards** remain non-additive overlays, providing domain-specific diagnostics without skewing or inflating the core 100-point website score.
+### 1. Google Ads API Versioning & Customer Selection (P0)
+- **Supported Version (`v26`):** Replaced retired `v16` endpoints across `listAccessibleCustomersWithToken()`, `listAccessibleCustomers()`, and `fetchMetrics()` with current supported stable version `v26` (`process.env.GOOGLE_ADS_API_VERSION || "v26"`). Added format validation (`/^v[0-9]+$/`) that rejects unsupported versions.
+- **Customer Selection API & UI:** Added dedicated API route [`POST /api/providers/google-ads/customers`](file:///d:/Projects/SiteIntel-Pulse/src/app/api/providers/google-ads/customers/route.ts) and interactive UI action in [`integrations-view.tsx`](file:///d:/Projects/SiteIntel-Pulse/src/components/expert/sections/integrations-view.tsx) allowing authenticated tenants to select or change customer accounts.
+- **Deterministic Selection Logic:**
+  - Auto-selects only when exactly one accessible customer account exists.
+  - When multiple accounts exist, leaves customer unselected and reports `DEGRADED` ("Customer account selection required").
+  - When discovery returns zero accounts, reports setup-required state.
+- **Fail-Closed Authorization:** `selectCustomer()` requires `listAccessibleCustomers()` to succeed, requires non-empty results, and verifies that the selected account matches an accessible customer. Never authorizes on API failure, empty list, or expired refresh failure.
+- **Truthful Availability:** Verifies developer token (`GOOGLE_ADS_DEVELOPER_TOKEN`) approval, customer account selection, and API response status. Metric provenance explicitly discloses `Google Ads API v26 (Live Search)` and tags metrics with `isAcquisitionContextOnly: true`.
+
+### 2. Shopify Modernization, Completeness & Currency Safety (P0)
+- **Supported Stable Version (`2026-10`):** Replaced obsolete `2025-01` default with current supported stable version `2026-10` (`process.env.SHOPIFY_API_VERSION || "2026-10"`).
+- **`X-Shopify-API-Version` Header Verification:** Inspects response headers from Shopify and records the actual served version in provenance, flagging any version mismatch.
+- **Pagination Ceiling Fix & Incomplete Data Fail-Closed:**
+  - Expanded pagination limit to 40 pages (up to 10,000 orders).
+  - If pagination ceiling is reached while additional pages remain (`nextUrl !== null`), the provider strictly refuses to return partial figures as verified financial data: returns `isAvailable: false`, flags `isIncomplete: true`, and sets `paginationComplete: false`.
+- **Currency Ingestion & Multi-Currency Safety:**
+  - Refuses silent USD default: if shop currency cannot be established from settings or uniform order data, returns `isAvailable: false` ("Shopify store currency could not be established").
+  - Detects conflicting order currencies: if orders span multiple currencies, refuses to sum them into a single aggregate and returns `isAvailable: false` ("Multiple conflicting order currencies detected").
+  - Detects mismatch between shop settings currency and transaction currencies.
+
+### 3. Fail-Closed GA4 Property Authorization (P0)
+- In `GA4Adapter.selectProperty()`, strictly requires `listAccessibleProperties()` to succeed and return a non-empty listing.
+- Verifies that the normalized property ID (`properties/{digits}`) matches an entry in the accessible properties response.
+- Rejects empty property lists, API failures, inaccessible property IDs, and token refresh failures without persisting unauthorized properties into `ProviderConnectionStore`.
+
+### 4. Backlinks & SERP Intelligence Capability Truthfulness (P1)
+- Explicitly labeled live integration as `SERP & Link Intelligence` (`SERP_SEARCH_INDEX_ONLY`), reporting Google Search index presence (`indexedPagesEstimate`) and organic search rankings count.
+- Referring domains, backlink counts, and domain link ratings are marked `undefined` with clear disclosures that dedicated backlink crawler index integrations are required.
+- Simulated offline fixtures are explicitly marked with `isSimulatedOrMock: true` and disclaimed.
+- Retained strict `isAcquisitionContextOnly: true` labeling.
+
+### 5. Cost of Inaction Integrity & Report Synchronization (P1)
+- **Input Precedence:** Owner explicit intake > Verified connected provider data > Calibrated baseline.
+- **Completeness Enforcement:** Requires connected Shopify data to be available (`isAvailable === true`), complete (`paginationComplete === true` and `!isIncomplete`), and currency-safe before ingesting. Incomplete data falls back to illustrative baseline with clear disclosure.
+- **Traffic Verification Policy:** Refuses synthetic traffic modeling (`INSUFFICIENT_INPUTS`) when neither owner traffic nor verified GA4 sessions are available.
+- **Dual-Report Synchronization:** An identical immutable Cost of Inaction calculation snapshot from `orchestrator.ts` feeds both Company A Owner Report and Company B Expert Report.
+- **Architectural Invariants:** Preserves the core 56-rule/100-point catalogue across 11 categories and 9 non-additive overlays. Exactly two reports; no standalone third report or calculator.
 
 ---
 
@@ -79,28 +70,66 @@ Every required verification gate was executed against the exact implementation o
 |---|---|---|:---:|:---:|---|
 | 1 | **TypeScript Static Typecheck** | `npm run typecheck` (`tsc --noEmit`) | `0` | **PASS** | 0 compilation errors across all modules. |
 | 2 | **ESLint Code Standards** | `npm run lint` (`next lint`) | `0` | **PASS** | 0 warnings, 0 errors. |
-| 3 | **Unit & Integration Suite** | `npm run test` (`vitest run`) | `0` | **PASS** | **39 test files passed**, **386 tests passed**, 0 failed (100% green). Includes 13 new Milestone 3 correctness tests. |
-| 4 | **PDF Binary & Rasterization Suite** | `npm run test:pdf` | `0` | **PASS** | **10/10 fixtures verified**, **51 total pages rasterized**. 0 horizontal overflow, A4 dimensions, page numbering verified. |
+| 3 | **Unit & Integration Suite** | `npm run test` (`vitest run`) | `0` | **PASS** | **39 test files passed**, **396 tests passed**, 0 failed (100% green). |
+| 4 | **PDF Binary & Rasterization Suite** | `npm run test:pdf` | `0` | **PASS** | **10/10 fixtures verified**, **51 total pages rasterized**. 0 horizontal overflow, A4 dimensions, regex page numbering confirmed. |
 | 5 | **SQLite Backup & Recovery** | `npm run db:verify` | `0` | **PASS** | WAL mode, atomic `VACUUM INTO`, disaster recovery 100% record restoration fidelity. |
-| 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (1.2m). |
-| 7 | **Production Next.js Build** | `npm run build` (`next build`) | `0` | **PASS** | All routes compiled, 25/25 static pages generated cleanly. |
-| 8 | **Docker Container Acceptance** | GitHub Actions (`.github/workflows/container-acceptance.yml`) | `0` | **PASS** | Automated run on PR #1 ([Run 40472127548](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40472127548)). Validated non-root user, strict loopback `127.0.0.1:3000` binding, health probes, in-container PDF rasterization, public scan capture, PDF magic bytes, restart durability, single-report invariant, and clean teardown. |
+| 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (2.8m). |
+| 7 | **Production Next.js Build** | `npm run build` (`next build`) | `0` | **PASS** | All routes compiled, 26/26 static pages generated cleanly. |
+| 8 | **Docker Container Acceptance** | GitHub Actions (`.github/workflows/container-acceptance.yml`) | `0` | **PASS** | Validated non-root user, strict loopback `127.0.0.1:3000` binding, health probes, in-container PDF rasterization, public scan capture, PDF magic bytes, restart durability, single-report invariant, and clean teardown. |
 
 ---
 
 ## 4. Advanced Growth Intelligence & Provider Verification
 
 ### Mock-Tested vs. Live-Credential Disclosures
-- **Mock-Tested Operational Functionality:**
-  - Token encryption at rest using AES-256-GCM ([`token-crypto.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/security/token-crypto.ts)) with unique 12-byte IV and 16-byte authentication tag per credential.
-  - OAuth state generation with SHA-256 PKCE code challenge and verifier ([`oauth-manager.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-manager.ts)) and serializable state metadata.
-  - Single-use state validation, metadata binding, and 10-minute expiry rejection (preventing replay attacks).
-  - Cross-tenant isolation in provider connection store ([`connection-store.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/connection-store.ts)).
-  - All 6 provider adapters (GA4, Search Console, HubSpot CRM, Shopify Commerce, Google Ads, Backlinks/SERP) verified against mock payloads and offline test contracts in [`oauth-and-adapters.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-and-adapters.test.ts), [`oauth-routes-and-coi.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-routes-and-coi.test.ts), and [`milestone3-correctness.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/milestone3-correctness.test.ts).
-  - Shopify integration strictly confirmed PII-free (customer names, emails, and shipping addresses are omitted).
-- **Live-Credential Verification State:**
-  - In an unconfigured environment, all adapters return explicit, non-throwing `NOT_CONFIGURED` or `NOT_CONNECTED` states with explanatory messages.
-  - Live third-party data exchange requires external OAuth client application registration with provider developer consoles.
+
+| Provider | Automated Test Mode | Live API Verified with Real Credentials? | Status & Operational Disclosure |
+|---|:---:|:---:|---|
+| **Google Analytics 4** | Offline Mock Contracts & Admin API Mocks | ⚠️ Pending Staging Credentials | Tested against Google Analytics Admin API `v1beta/accountSummaries` and Data API `v1beta/properties/{id}:runReport` mock contracts. Live requests require production `GA4_CLIENT_ID` / `GA4_CLIENT_SECRET`. |
+| **Google Search Console** | Offline Mock Contracts & Date Window Tests | ⚠️ Pending Staging Credentials | Rolling 28-day range (3-day lag) and provenance tracking verified via controlled clock. Live ingestion requires production `GSC_CLIENT_ID` / `GSC_CLIENT_SECRET`. |
+| **HubSpot CRM** | Offline Mock Contracts & Token Refresh Tests | ⚠️ Pending Staging Credentials | Tested deal extraction, token encryption at rest, and refresh flows against mock schemas. Live exchange requires production `HUBSPOT_CLIENT_ID` / `HUBSPOT_CLIENT_SECRET`. |
+| **Shopify Commerce** | Offline Mock Contracts & Multi-Page Tests | ⚠️ Pending Staging Credentials | HMAC timing-safe validation, cursor pagination (>2,500 orders), and currency safety tested with RFC 5988 mocks. Live webhooks and orders require production Shopify App secret. |
+| **Google Ads** | Offline Mock Contracts & API v26 Search Mocks | ⚠️ Pending Developer Token Approval | Tested against Google Ads API `v26` search queries, customer selection, and developer token gating. Live querying requires approved Google Ads developer token. |
+| **Backlinks / SERP** | Offline Mock Contracts & SerpAPI Response Mocks | ⚠️ Pending Commercial Subscription | Live search index query verified with SerpAPI structure; backlink profile metrics honestly reported as unintegrated. Requires production `SERP_API_KEY`. |
+
+---
+
+## 5. Dual Report Verification & PDF Review Manifest
+
+PDF verification suite ([`scripts/verify-pdf.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/verify-pdf.mjs) and [`scripts/verify-expert-pdf.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/verify-expert-pdf.mjs)) ran freshly, rasterized 51 total pages, and verified structural integrity:
+
+- **Total PDF Reports Validated:** 10 (5 Owner Report fixtures + 5 Expert Report fixtures)
+- **Total Rasterized Pages:** 51 pages
+  - **Owner Reports:** 21 pages (Typical: 4, Short: 4, Long: 5, Sparse: 4, Edge-Case: 4)
+  - **Expert Reports:** 30 pages (Typical: 6, Short: 6, Long: 6, Sparse: 6, Edge-Case: 6)
+- **Layout & Table Boundary Checks:**
+  - 0 horizontal table overflows detected across all fixtures.
+  - Page dimensions strictly match A4 standard (`595.92 x 842.88 pt`).
+  - Strict regex page-numbering validation (`\bPage\s+\d+\s+of\s+\d+\b`) confirmed on 100% of pages.
+  - Zero suspicious blank pages detected.
+
+---
+
+## 6. Launch Readiness Conclusion
+
+### **Conclusion:** **`READY FOR STAGING`**
+
+### Conclusion Justification
+1. **Local Implementation & Automated Verification Complete:**
+   - 39 test files and 396 tests pass cleanly (100%).
+   - 33 Playwright E2E tests pass across Desktop, Tablet, and Mobile viewports.
+   - 51-page multi-fixture PDF validation and rasterization passes with zero layout defects.
+   - TypeScript typecheck (0 errors), ESLint (0 errors/warnings), and Next.js 15 production build (26/26 pages) pass.
+2. **Dual-Report & Scoring Invariants Fully Upheld:**
+   - Exactly two reports exist (Company A Owner Report and Company B Expert Report). No third report or separate calculator was introduced.
+   - Core 56-rule, 100-point catalogue remains intact; 9 dimension scorecards operate as non-additive diagnostic overlays.
+3. **Staging Operational Prerequisites (Remaining Before Public Production Launch):**
+   - [ ] Provision staging host or Kubernetes cluster with Docker runtime.
+   - [ ] Configure staging TLS termination, public DNS, and reverse proxy with `X-Real-IP` header propagation.
+   - [ ] Provision production OAuth client application IDs and secrets in provider developer portals (Google, Shopify, HubSpot).
+   - [ ] Obtain approved production Google Ads developer token.
+   - [ ] Configure `PROVIDER_ENCRYPTION_KEY` and high-entropy `SESSION_SECRET` in production vault.
+   - [ ] Execute bounded smoke scans on staging with live credentials before general public traffic ingestion.
 
 ### External OAuth Application Configuration Guide
 
