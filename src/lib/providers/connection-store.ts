@@ -112,14 +112,38 @@ export class ProviderConnectionStore {
     stmt.run(propertyId, now, tenantId, provider);
   }
 
-  updateAccountId(tenantId: string, provider: ProviderId, accountId: string | null): void {
+  updateAccountId(
+    tenantId: string,
+    provider: ProviderId,
+    accountId: string | null,
+    metadata?: Record<string, any>
+  ): void {
+    const now = new Date().toISOString();
+    if (metadata !== undefined) {
+      const stmt = this.db.prepare(`
+        UPDATE provider_connections
+        SET account_id = ?, metadata_json = ?, updated_at = ?
+        WHERE tenant_id = ? AND provider = ?
+      `);
+      stmt.run(accountId, JSON.stringify(metadata), now, tenantId, provider);
+    } else {
+      const stmt = this.db.prepare(`
+        UPDATE provider_connections
+        SET account_id = ?, updated_at = ?
+        WHERE tenant_id = ? AND provider = ?
+      `);
+      stmt.run(accountId, now, tenantId, provider);
+    }
+  }
+
+  updateMetadata(tenantId: string, provider: ProviderId, metadata: Record<string, any>): void {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
       UPDATE provider_connections
-      SET account_id = ?, updated_at = ?
+      SET metadata_json = ?, updated_at = ?
       WHERE tenant_id = ? AND provider = ?
     `);
-    stmt.run(accountId, now, tenantId, provider);
+    stmt.run(JSON.stringify(metadata), now, tenantId, provider);
   }
 
   getDecryptedTokens(tenantId: string, provider: ProviderId): {

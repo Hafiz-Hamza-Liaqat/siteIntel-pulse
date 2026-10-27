@@ -8,8 +8,19 @@ export async function GET(req: NextRequest) {
 
   const tenantId = authResult.auth.tenant.id;
   const ads = integrationsManager.getGoogleAdsAdapter();
-  const res = await ads.listAccessibleCustomers(tenantId);
 
+  const url = new URL(req.url);
+  const managerCustomerId = url.searchParams.get("managerCustomerId");
+
+  if (managerCustomerId) {
+    const res = await ads.listClientAccounts(tenantId, managerCustomerId);
+    if (!res.success) {
+      return NextResponse.json({ success: false, error: res.error }, { status: 400 });
+    }
+    return NextResponse.json({ success: true, accounts: res.accounts });
+  }
+
+  const res = await ads.listAccessibleCustomers(tenantId);
   if (!res.success) {
     return NextResponse.json({ success: false, error: res.error }, { status: 400 });
   }
@@ -24,7 +35,7 @@ export async function POST(req: NextRequest) {
   const tenantId = authResult.auth.tenant.id;
   try {
     const body = await req.json();
-    const { customerId } = body || {};
+    const { customerId, managerCustomerId } = body || {};
 
     if (!customerId || typeof customerId !== "string") {
       return NextResponse.json(
@@ -34,13 +45,17 @@ export async function POST(req: NextRequest) {
     }
 
     const ads = integrationsManager.getGoogleAdsAdapter();
-    const res = await ads.selectCustomer(tenantId, customerId);
+    const res = await ads.selectCustomer(tenantId, customerId, { managerCustomerId });
 
     if (!res.success) {
       return NextResponse.json({ success: false, error: res.error }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, customerId: res.customerId });
+    return NextResponse.json({
+      success: true,
+      customerId: res.customerId,
+      managerCustomerId: res.managerCustomerId,
+    });
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: err?.message || "Invalid request payload." },

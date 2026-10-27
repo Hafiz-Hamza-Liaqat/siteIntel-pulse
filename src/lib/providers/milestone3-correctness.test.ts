@@ -291,7 +291,7 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       expect(mockRes.success).toBe(true);
     });
 
-    it("paginates order retrieval completely across defined 30-day reporting window", async () => {
+    it("paginates order retrieval completely across defined 30-day reporting window via GraphQL Admin API", async () => {
       const shopify = new ShopifyCommerceAdapter(store, "test_api_key", "test_secret", "2025-01");
 
       store.saveConnection({
@@ -303,43 +303,83 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
         accountId: "test-store.myshopify.com",
       });
 
-      // Mock Shop API and paginated Orders API
-      const page1Orders = [
-        { id: 101, total_price: "100.00", currency: "USD", financial_status: "paid" },
-        { id: 102, total_price: "50.00", currency: "USD", financial_status: "paid" },
+      // Mock Shop GraphQL API and paginated Orders GraphQL API
+      const page1Nodes = [
+        {
+          id: "gid://shopify/Order/101",
+          totalPriceSet: { shopMoney: { amount: "100.00", currencyCode: "USD" } },
+          displayFinancialStatus: "PAID",
+          createdAt: "2025-01-10T12:00:00Z",
+        },
+        {
+          id: "gid://shopify/Order/102",
+          totalPriceSet: { shopMoney: { amount: "50.00", currencyCode: "USD" } },
+          displayFinancialStatus: "PAID",
+          createdAt: "2025-01-11T12:00:00Z",
+        },
       ];
-      const page2Orders = [
-        { id: 103, total_price: "150.00", currency: "USD", financial_status: "paid" },
-        { id: 104, total_price: "75.00", currency: "USD", financial_status: "pending" }, // unpaid
+      const page2Nodes = [
+        {
+          id: "gid://shopify/Order/103",
+          totalPriceSet: { shopMoney: { amount: "150.00", currencyCode: "USD" } },
+          displayFinancialStatus: "PAID",
+          createdAt: "2025-01-12T12:00:00Z",
+        },
+        {
+          id: "gid://shopify/Order/104",
+          totalPriceSet: { shopMoney: { amount: "75.00", currencyCode: "USD" } },
+          displayFinancialStatus: "PENDING", // unpaid
+          createdAt: "2025-01-13T12:00:00Z",
+        },
       ];
 
       let callCount = 0;
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/shop.json")) {
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        expect(url).toContain("/admin/api/2025-01/graphql.json");
+        const body = JSON.parse((init?.body as string) || "{}");
+
+        if (body.query?.includes("GetShopMetadata")) {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ shop: { currency: "USD", name: "Test Store" } }),
+            json: async () => ({
+              data: {
+                shop: { currencyCode: "USD", name: "Test Store", myshopifyDomain: "test-store.myshopify.com" },
+              },
+            }),
           };
         }
+
         callCount++;
         if (callCount === 1) {
-          // Page 1 returns Link header pointing to page 2
+          // Page 1 returns hasNextPage: true
           return {
             ok: true,
             status: 200,
-            headers: new Headers({
-              Link: '<https://test-store.myshopify.com/admin/api/2025-01/orders.json?page_info=cursor_page_2>; rel="next"',
+            headers: new Headers({ "X-Shopify-API-Version": "2025-01" }),
+            json: async () => ({
+              data: {
+                orders: {
+                  pageInfo: { hasNextPage: true, endCursor: "cursor_page_2" },
+                  nodes: page1Nodes,
+                },
+              },
             }),
-            json: async () => ({ orders: page1Orders }),
           };
         } else {
-          // Page 2 has no next Link header
+          // Page 2 has hasNextPage: false
           return {
             ok: true,
             status: 200,
-            headers: new Headers({}),
-            json: async () => ({ orders: page2Orders }),
+            headers: new Headers({ "X-Shopify-API-Version": "2025-01" }),
+            json: async () => ({
+              data: {
+                orders: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: page2Nodes,
+                },
+              },
+            }),
           };
         }
       });
@@ -353,10 +393,10 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       expect(metrics.metrics.currency).toBe("USD");
       expect(metrics.metrics.pagesRetrieved).toBe(2);
       expect(metrics.metrics.paginationComplete).toBe(true);
-      expect(metrics.provenance.source).toContain("2025-01");
+      expect(metrics.provenance.source).toContain("Shopify GraphQL Admin API 2025-01");
     });
 
-    it("validates store currency and enforces zero customer PII", async () => {
+    it("validates store currency and enforces zero customer PII in GraphQL queries", async () => {
       const shopify = new ShopifyCommerceAdapter(store, "test_api_key", "test_secret", "2026-10");
 
       store.saveConnection({
@@ -368,25 +408,43 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
         accountId: "uk-store.myshopify.com",
       });
 
-      let requestedFields = "";
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/shop.json")) {
+      const executedQueries: string[] = [];
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        expect(url).toContain("/admin/api/2026-10/graphql.json");
+        const body = JSON.parse((init?.body as string) || "{}");
+        executedQueries.push(body.query || "");
+
+        if (body.query?.includes("GetShopMetadata")) {
           return {
             ok: true,
             status: 200,
             headers: new Headers({ "X-Shopify-API-Version": "2026-10" }),
-            json: async () => ({ shop: { currency: "GBP", name: "UK Merchant" } }),
+            json: async () => ({
+              data: {
+                shop: { currencyCode: "GBP", name: "UK Merchant", myshopifyDomain: "uk-store.myshopify.com" },
+              },
+            }),
           };
         }
-        requestedFields = url;
+
         return {
           ok: true,
           status: 200,
           headers: new Headers({ "X-Shopify-API-Version": "2026-10" }),
           json: async () => ({
-            orders: [
-              { id: 201, total_price: "45.00", currency: "GBP", financial_status: "paid" },
-            ],
+            data: {
+              orders: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [
+                  {
+                    id: "gid://shopify/Order/201",
+                    totalPriceSet: { shopMoney: { amount: "45.00", currencyCode: "GBP" } },
+                    displayFinancialStatus: "PAID",
+                    createdAt: "2026-10-15T10:00:00Z",
+                  },
+                ],
+              },
+            },
           }),
         };
       });
@@ -394,14 +452,53 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       const metrics = await shopify.fetchMetrics(tenantId);
       expect(metrics.isAvailable).toBe(true);
       expect(metrics.metrics.currency).toBe("GBP");
-      expect(metrics.provenance.source).toContain("2026-10");
+      expect(metrics.provenance.source).toContain("Shopify GraphQL Admin API 2026-10");
 
-      // Verify URL fields query only requests financial aggregates and strictly no customer PII
-      expect(requestedFields).toContain("fields=id,total_price,currency,financial_status,created_at");
-      expect(requestedFields).not.toContain("customer");
-      expect(requestedFields).not.toContain("email");
-      expect(requestedFields).not.toContain("address");
-      expect(requestedFields).not.toContain("phone");
+      // Verify all GraphQL queries strictly omit customer PII
+      for (const query of executedQueries) {
+        expect(query).not.toContain("customer");
+        expect(query).not.toContain("email");
+        expect(query).not.toContain("shippingAddress");
+        expect(query).not.toContain("billingAddress");
+        expect(query).not.toContain("phone");
+      }
+    });
+
+    it("Shopify: records served version mismatch when response header differs from requested", async () => {
+      const shopify = new ShopifyCommerceAdapter(store, "test_api_key", "test_secret", "2026-10");
+
+      store.saveConnection({
+        tenantId,
+        provider: "commerce_shopify",
+        status: "CONNECTED",
+        scopes: ["read_orders", "read_products"],
+        accessToken: "shpat_test_token",
+        accountId: "version-test.myshopify.com",
+      });
+
+      global.fetch = vi.fn().mockImplementation(async () => {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ "X-Shopify-API-Version": "2026-07" }), // Returned older version
+          json: async () => ({
+            data: {
+              shop: { currencyCode: "USD", name: "Version Store" },
+              orders: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [],
+              },
+            },
+          }),
+        };
+      });
+
+      const metrics = await shopify.fetchMetrics(tenantId);
+      expect(metrics.isAvailable).toBe(true);
+      expect(metrics.provenance.servedVersionMismatch).toEqual({
+        requested: "2026-10",
+        served: "2026-07",
+      });
     });
 
     it("Shopify: safely handles large order volume (>2500 orders) and marks incomplete if pagination limit is reached", async () => {
@@ -418,31 +515,32 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
 
       // Simulate infinite pagination that exceeds MAX_PAGES (40 pages = 10,000 orders)
       let pagesServed = 0;
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/shop.json")) {
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        const body = JSON.parse((init?.body as string) || "{}");
+        if (body.query?.includes("GetShopMetadata")) {
           return {
             ok: true,
             status: 200,
             headers: new Headers({ "X-Shopify-API-Version": "2026-10" }),
-            json: async () => ({ shop: { currency: "USD", name: "High Volume" } }),
+            json: async () => ({ data: { shop: { currencyCode: "USD", name: "High Volume" } } }),
           };
         }
         pagesServed++;
         return {
           ok: true,
           status: 200,
-          headers: new Headers({
-            "X-Shopify-API-Version": "2026-10",
-            Link: `<https://high-volume.myshopify.com/admin/api/2026-10/orders.json?page_info=cursor_${pagesServed + 1}>; rel="next"`,
-          }),
+          headers: new Headers({ "X-Shopify-API-Version": "2026-10" }),
           json: async () => ({
-            // 250 orders per page
-            orders: Array.from({ length: 250 }, (_, i) => ({
-              id: pagesServed * 1000 + i,
-              total_price: "20.00",
-              currency: "USD",
-              financial_status: "paid",
-            })),
+            data: {
+              orders: {
+                pageInfo: { hasNextPage: true, endCursor: `cursor_${pagesServed + 1}` },
+                nodes: Array.from({ length: 250 }, (_, i) => ({
+                  id: `gid://shopify/Order/${pagesServed * 1000 + i}`,
+                  totalPriceSet: { shopMoney: { amount: "20.00", currencyCode: "USD" } },
+                  displayFinancialStatus: "PAID",
+                })),
+              },
+            },
           }),
         };
       });
@@ -455,6 +553,41 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       expect(metrics.metrics.pagesRetrieved).toBe(40);
       expect(metrics.metrics.totalOrders).toBe(10000);
       expect(metrics.limitations).toContain("exceeded maximum pagination limit");
+    });
+
+    it("Shopify: handles GraphQL API errors cleanly", async () => {
+      const shopify = new ShopifyCommerceAdapter(store, "test_api_key", "test_secret", "2026-10");
+
+      store.saveConnection({
+        tenantId,
+        provider: "commerce_shopify",
+        status: "CONNECTED",
+        scopes: ["read_orders", "read_products"],
+        accessToken: "shpat_test_token",
+        accountId: "test.myshopify.com",
+      });
+
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        const body = JSON.parse((init?.body as string) || "{}");
+        if (body.query?.includes("GetShopMetadata")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ data: { shop: { currencyCode: "USD" } } }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            errors: [{ message: "Throttled: API rate limit exceeded" }],
+          }),
+        };
+      });
+
+      const res = await shopify.fetchMetrics(tenantId);
+      expect(res.isAvailable).toBe(false);
+      expect(res.limitations).toContain("Throttled: API rate limit exceeded");
     });
 
     it("Shopify: handles mid-pagination network/API errors cleanly", async () => {
@@ -470,12 +603,13 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       });
 
       let page = 0;
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/shop.json")) {
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        const body = JSON.parse((init?.body as string) || "{}");
+        if (body.query?.includes("GetShopMetadata")) {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ shop: { currency: "USD" } }),
+            json: async () => ({ data: { shop: { currencyCode: "USD" } } }),
           };
         }
         page++;
@@ -483,11 +617,19 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
           return {
             ok: true,
             status: 200,
-            headers: new Headers({
-              Link: '<https://test.myshopify.com/admin/api/2026-10/orders.json?page_info=c2>; rel="next"',
-            }),
             json: async () => ({
-              orders: [{ id: 1, total_price: "50.00", currency: "USD", financial_status: "paid" }],
+              data: {
+                orders: {
+                  pageInfo: { hasNextPage: true, endCursor: "c2" },
+                  nodes: [
+                    {
+                      id: "gid://shopify/Order/1",
+                      totalPriceSet: { shopMoney: { amount: "50.00", currencyCode: "USD" } },
+                      displayFinancialStatus: "PAID",
+                    },
+                  ],
+                },
+              },
             }),
           };
         }
@@ -500,7 +642,7 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
 
       const res = await shopify.fetchMetrics(tenantId);
       expect(res.isAvailable).toBe(false);
-      expect(res.limitations).toContain("Shopify Orders API returned HTTP 500 on page 2");
+      expect(res.limitations).toContain("Shopify Orders GraphQL API returned HTTP 500 on page 2");
     });
 
     it("Shopify: refuses silent USD fallback when currency cannot be established", async () => {
@@ -515,22 +657,31 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
         accountId: "unspecified-currency.myshopify.com",
       });
 
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/shop.json")) {
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        const body = JSON.parse((init?.body as string) || "{}");
+        if (body.query?.includes("GetShopMetadata")) {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ shop: { currency: null, name: "No Currency Store" } }),
+            json: async () => ({ data: { shop: { currencyCode: null, name: "No Currency Store" } } }),
           };
         }
         return {
           ok: true,
           status: 200,
-          headers: new Headers({}),
           json: async () => ({
-            orders: [
-              { id: 10, total_price: "30.00", currency: null, financial_status: "paid" },
-            ],
+            data: {
+              orders: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [
+                  {
+                    id: "gid://shopify/Order/10",
+                    totalPriceSet: { shopMoney: { amount: "30.00", currencyCode: null } },
+                    displayFinancialStatus: "PAID",
+                  },
+                ],
+              },
+            },
           }),
         };
       });
@@ -552,23 +703,36 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
         accountId: "multi-currency.myshopify.com",
       });
 
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/shop.json")) {
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        const body = JSON.parse((init?.body as string) || "{}");
+        if (body.query?.includes("GetShopMetadata")) {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ shop: { currency: "USD", name: "Multi Currency" } }),
+            json: async () => ({ data: { shop: { currencyCode: "USD", name: "Multi Currency" } } }),
           };
         }
         return {
           ok: true,
           status: 200,
-          headers: new Headers({}),
           json: async () => ({
-            orders: [
-              { id: 10, total_price: "100.00", currency: "USD", financial_status: "paid" },
-              { id: 11, total_price: "85.00", currency: "EUR", financial_status: "paid" }, // Different currency!
-            ],
+            data: {
+              orders: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [
+                  {
+                    id: "gid://shopify/Order/10",
+                    totalPriceSet: { shopMoney: { amount: "100.00", currencyCode: "USD" } },
+                    displayFinancialStatus: "PAID",
+                  },
+                  {
+                    id: "gid://shopify/Order/11",
+                    totalPriceSet: { shopMoney: { amount: "85.00", currencyCode: "EUR" } }, // Different currency!
+                    displayFinancialStatus: "PAID",
+                  },
+                ],
+              },
+            },
           }),
         };
       });
@@ -770,6 +934,202 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       expect(res.metrics.isAcquisitionContextOnly).toBe(true);
       expect(res.provenance.source).toContain("Google Ads API v26 (Live Search)");
       expect(res.provenance.propertyOrAccount).toBe("customers/123-456-7890");
+    });
+
+    it("Google Ads: direct account access strictly omits login-customer-id header", async () => {
+      const ads = new GoogleAdsAdapter(store, "test_id", "test_secret", "test_dev_token", "v26");
+
+      store.saveConnection({
+        tenantId,
+        provider: "ads_google",
+        status: "CONNECTED",
+        scopes: ["https://www.googleapis.com/auth/adwords"],
+        accessToken: "valid_token",
+        accountId: "customers/123-456-7890",
+        metadata: { isDirect: true },
+        tokenExpiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      });
+
+      let capturedHeaders: HeadersInit | undefined;
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        capturedHeaders = init?.headers;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            results: [{ metrics: { costMicros: "500000000", impressions: "1000", clicks: "100", conversions: "5" } }],
+          }),
+        };
+      });
+
+      const res = await ads.fetchMetrics(tenantId);
+      expect(res.isAvailable).toBe(true);
+      expect((capturedHeaders as Record<string, string>)["login-customer-id"]).toBeUndefined();
+      expect(res.provenance.propertyOrAccount).toBe("customers/123-456-7890");
+    });
+
+    it("Google Ads: manager-to-client access (MCC) sends manager account ID in login-customer-id header", async () => {
+      const ads = new GoogleAdsAdapter(store, "test_id", "test_secret", "test_dev_token", "v26");
+
+      store.saveConnection({
+        tenantId,
+        provider: "ads_google",
+        status: "CONNECTED",
+        scopes: ["https://www.googleapis.com/auth/adwords"],
+        accessToken: "valid_token",
+        accountId: "customers/123-456-7890",
+        metadata: { managerCustomerId: "customers/987-654-3210", isDirect: false },
+        tokenExpiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      });
+
+      let capturedHeaders: HeadersInit | undefined;
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        capturedHeaders = init?.headers;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            results: [{ metrics: { costMicros: "500000000", impressions: "1000", clicks: "100", conversions: "5" } }],
+          }),
+        };
+      });
+
+      const res = await ads.fetchMetrics(tenantId);
+      expect(res.isAvailable).toBe(true);
+      // Assert login-customer-id header contains manager ID digits, NOT client ID
+      expect((capturedHeaders as Record<string, string>)["login-customer-id"]).toBe("9876543210");
+      expect(res.provenance.propertyOrAccount).toContain("via MCC customers/987-654-3210");
+    });
+
+    it("Google Ads: customer selection under manager validates accessibility and child hierarchy", async () => {
+      const ads = new GoogleAdsAdapter(store, "test_id", "test_secret", "test_dev_token", "v26");
+
+      store.saveConnection({
+        tenantId,
+        provider: "ads_google",
+        status: "CONNECTED",
+        scopes: ["https://www.googleapis.com/auth/adwords"],
+        accessToken: "valid_token",
+      });
+
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("/customers:listAccessibleCustomers")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ resourceNames: ["customers/987-654-3210"] }),
+          };
+        }
+        if (url.includes("/customers/9876543210/googleAds:search")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [
+                {
+                  customerClient: {
+                    clientCustomer: "customers/123-456-7890",
+                    id: 1234567890,
+                    descriptiveName: "Client Operating Account",
+                    manager: false,
+                    status: "ENABLED",
+                  },
+                },
+                {
+                  customerClient: {
+                    clientCustomer: "customers/555-555-5555",
+                    id: 5555555555,
+                    descriptiveName: "Sub Manager Account",
+                    manager: true,
+                    status: "ENABLED",
+                  },
+                },
+              ],
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      // 1. Success selecting valid child client account under manager
+      const successRes = await ads.selectCustomer(tenantId, "customers/123-456-7890", {
+        managerCustomerId: "customers/987-654-3210",
+      });
+      expect(successRes.success).toBe(true);
+      expect(successRes.customerId).toBe("customers/123-456-7890");
+      expect(successRes.managerCustomerId).toBe("customers/987-654-3210");
+
+      const status = await ads.getConnectionStatus(tenantId);
+      expect(status.statusMessage).toContain("via Manager (customers/987-654-3210)");
+
+      // 2. Fails when selecting a sub-manager account as advertiser account
+      const managerChildRes = await ads.selectCustomer(tenantId, "customers/555-555-5555", {
+        managerCustomerId: "customers/987-654-3210",
+      });
+      expect(managerChildRes.success).toBe(false);
+      expect(managerChildRes.error).toContain("is a manager account");
+
+      // 3. Fails when selecting non-existent child under manager
+      const nonChildRes = await ads.selectCustomer(tenantId, "customers/000-000-0000", {
+        managerCustomerId: "customers/987-654-3210",
+      });
+      expect(nonChildRes.success).toBe(false);
+      expect(nonChildRes.error).toContain("is not accessible under manager account");
+
+      // 4. Fails when manager account is not in accessible accounts
+      const invalidManagerRes = await ads.selectCustomer(tenantId, "customers/123-456-7890", {
+        managerCustomerId: "customers/111-111-1111",
+      });
+      expect(invalidManagerRes.success).toBe(false);
+      expect(invalidManagerRes.error).toContain("Manager account \"customers/111-111-1111\" is not accessible");
+    });
+
+    it("Google Ads: prevents manager account from being mistaken for advertiser account with clear explanation", async () => {
+      const ads = new GoogleAdsAdapter(store, "test_id", "test_secret", "test_dev_token", "v26");
+
+      store.saveConnection({
+        tenantId,
+        provider: "ads_google",
+        status: "CONNECTED",
+        scopes: ["https://www.googleapis.com/auth/adwords"],
+        accessToken: "valid_token",
+      });
+
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("/customers:listAccessibleCustomers")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ resourceNames: ["customers/987-654-3210"] }),
+          };
+        }
+        if (url.includes("/customers/9876543210/googleAds:search")) {
+          const body = JSON.parse((init?.body as string) || "{}");
+          if (body.query?.includes("customer.manager")) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                results: [
+                  {
+                    customer: {
+                      id: 9876543210,
+                      descriptiveName: "Agency MCC",
+                      manager: true,
+                    },
+                  },
+                ],
+              }),
+            };
+          }
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const res = await ads.selectCustomer(tenantId, "customers/987-654-3210");
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("is a Google Ads Manager (MCC) account");
+      expect(res.error).toContain("Manager accounts do not serve ads or hold campaign spend directly");
     });
 
     it("Backlinks & SERP: returns unavailable when API key is missing and never reports fake metrics", async () => {

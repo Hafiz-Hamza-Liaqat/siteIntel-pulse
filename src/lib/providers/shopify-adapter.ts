@@ -257,7 +257,7 @@ export class ShopifyCommerceAdapter {
           ...options.mockOverride,
         },
         provenance: {
-          source: `Shopify Admin API ${this.apiVersion} (Mock Fixture)`,
+          source: `Shopify GraphQL Admin API ${this.apiVersion} (Mock Fixture)`,
           propertyOrAccount: conn?.account_id || "demo-store.myshopify.com",
           isSimulatedOrMock: true,
           fetchedAt: now,
@@ -290,12 +290,25 @@ export class ShopifyCommerceAdapter {
 
     const shop = conn.account_id || "active-store.myshopify.com";
     try {
-      // 1. Fetch and validate store currency from shop settings
       let storeCurrency: string | undefined = undefined;
       let servedApiVersion: string | undefined = undefined;
 
-      const shopRes = await fetch(`https://${shop}/admin/api/${this.apiVersion}/shop.json?fields=currency,name,domain`, {
-        headers: { "X-Shopify-Access-Token": accessToken },
+      // 1. Fetch store metadata & currency via GraphQL Admin API
+      const shopRes = await fetch(`https://${shop}/admin/api/${this.apiVersion}/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": accessToken,
+        },
+        body: JSON.stringify({
+          query: `query GetShopMetadata {
+            shop {
+              currencyCode
+              name
+              myshopifyDomain
+            }
+          }`,
+        }),
       });
 
       const shopVersionHeader = shopRes.headers?.get?.("X-Shopify-API-Version") || shopRes.headers?.get?.("x-shopify-api-version");
@@ -305,26 +318,58 @@ export class ShopifyCommerceAdapter {
 
       if (shopRes.ok) {
         const shopData = await shopRes.json();
-        if (shopData?.shop?.currency && typeof shopData.shop.currency === "string") {
-          const rawCurr = shopData.shop.currency.trim().toUpperCase();
-          if (/^[A-Z]{3}$/.test(rawCurr)) {
-            storeCurrency = rawCurr;
+        const rawCurr = shopData?.data?.shop?.currencyCode;
+        if (rawCurr && typeof rawCurr === "string") {
+          const trimmed = rawCurr.trim().toUpperCase();
+          if (/^[A-Z]{3}$/.test(trimmed)) {
+            storeCurrency = trimmed;
           }
         }
       }
 
-      // 2. Fetch orders within a defined recent 30-day window with complete pagination
+      // 2. Fetch orders within a defined recent 30-day window via GraphQL cursor pagination
       const reportingDays = 30;
       const createdAtMin = new Date(Date.now() - reportingDays * 24 * 60 * 60 * 1000).toISOString();
       const allOrders: any[] = [];
-      let nextUrl: string | null = `https://${shop}/admin/api/${this.apiVersion}/orders.json?status=any&created_at_min=${encodeURIComponent(createdAtMin)}&limit=250&fields=id,total_price,currency,financial_status,created_at`;
+      let cursor: string | null = null;
+      let hasNextPage = true;
       let pageCount = 0;
       const MAX_PAGES = 40; // Safely supports up to 10,000 orders
 
-      while (nextUrl && pageCount < MAX_PAGES) {
+      while (hasNextPage && pageCount < MAX_PAGES) {
         pageCount++;
-        const ordersRes: Response = await fetch(nextUrl, {
-          headers: { "X-Shopify-Access-Token": accessToken },
+        const ordersRes: Response = await fetch(`https://${shop}/admin/api/${this.apiVersion}/graphql.json`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": accessToken,
+          },
+          body: JSON.stringify({
+            query: `query GetOrders($first: Int!, $after: String, $query: String) {
+              orders(first: $first, after: $after, query: $query) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  id
+                  createdAt
+                  displayFinancialStatus
+                  totalPriceSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                }
+              }
+            }`,
+            variables: {
+              first: 250,
+              after: cursor,
+              query: `created_at:>=${createdAtMin}`,
+            },
+          }),
         });
 
         const ordersVersionHeader = ordersRes.headers?.get?.("X-Shopify-API-Version") || ordersRes.headers?.get?.("x-shopify-api-version");
@@ -339,30 +384,41 @@ export class ShopifyCommerceAdapter {
             dataTimestamp: now,
             metrics: {},
             provenance: {
-              source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+              source: `Shopify GraphQL Admin API ${servedApiVersion || this.apiVersion}`,
               propertyOrAccount: shop,
               fetchedAt: now,
             },
-            limitations: `Shopify Orders API returned HTTP ${ordersRes.status} on page ${pageCount}.`,
+            limitations: `Shopify Orders GraphQL API returned HTTP ${ordersRes.status} on page ${pageCount}.`,
           };
         }
 
         const data = await ordersRes.json();
-        const ordersPage = data?.orders || [];
-        allOrders.push(...ordersPage);
-
-        // Check RFC 5988 Link header for cursor pagination
-        const linkHeader: string | null = (ordersRes.headers?.get?.("Link") || ordersRes.headers?.get?.("link")) || null;
-        if (linkHeader && linkHeader.includes('rel="next"')) {
-          const match: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-          nextUrl = match ? match[1] : null;
-        } else {
-          nextUrl = null;
+        if (data?.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+          const errMsg = data.errors.map((e: any) => e.message || "GraphQL error").join("; ");
+          return {
+            provider: this.providerId,
+            isAvailable: false,
+            dataTimestamp: now,
+            metrics: {},
+            provenance: {
+              source: `Shopify GraphQL Admin API ${servedApiVersion || this.apiVersion}`,
+              propertyOrAccount: shop,
+              fetchedAt: now,
+            },
+            limitations: `Shopify Orders GraphQL API returned error on page ${pageCount}: ${errMsg}`,
+          };
         }
+
+        const ordersConnection = data?.data?.orders;
+        const nodes = ordersConnection?.nodes || [];
+        allOrders.push(...nodes);
+
+        hasNextPage = Boolean(ordersConnection?.pageInfo?.hasNextPage);
+        cursor = ordersConnection?.pageInfo?.endCursor || null;
       }
 
-      // If nextUrl is still non-null, pagination ceiling was reached without completing
-      if (nextUrl !== null) {
+      // If hasNextPage is still true, pagination ceiling was reached without completing
+      if (hasNextPage) {
         return {
           provider: this.providerId,
           isAvailable: false,
@@ -374,7 +430,7 @@ export class ShopifyCommerceAdapter {
             pagesRetrieved: pageCount,
           },
           provenance: {
-            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            source: `Shopify GraphQL Admin API ${servedApiVersion || this.apiVersion}`,
             propertyOrAccount: shop,
             fetchedAt: now,
           },
@@ -386,7 +442,10 @@ export class ShopifyCommerceAdapter {
       const uniqueOrderCurrencies = Array.from(
         new Set(
           allOrders
-            .map((o: any) => (typeof o.currency === "string" ? o.currency.trim().toUpperCase() : undefined))
+            .map((o: any) => {
+              const code = o.totalPriceSet?.shopMoney?.currencyCode || o.currency;
+              return typeof code === "string" ? code.trim().toUpperCase() : undefined;
+            })
             .filter((c): c is string => Boolean(c && /^[A-Z]{3}$/.test(c)))
         )
       );
@@ -402,7 +461,7 @@ export class ShopifyCommerceAdapter {
             orderCurrencies: uniqueOrderCurrencies,
           },
           provenance: {
-            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            source: `Shopify GraphQL Admin API ${servedApiVersion || this.apiVersion}`,
             propertyOrAccount: shop,
             fetchedAt: now,
           },
@@ -426,7 +485,7 @@ export class ShopifyCommerceAdapter {
             orderCurrency: uniqueOrderCurrencies[0],
           },
           provenance: {
-            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            source: `Shopify GraphQL Admin API ${servedApiVersion || this.apiVersion}`,
             propertyOrAccount: shop,
             fetchedAt: now,
           },
@@ -444,7 +503,7 @@ export class ShopifyCommerceAdapter {
             totalOrders: allOrders.length,
           },
           provenance: {
-            source: `Shopify Admin API ${servedApiVersion || this.apiVersion}`,
+            source: `Shopify GraphQL Admin API ${servedApiVersion || this.apiVersion}`,
             propertyOrAccount: shop,
             fetchedAt: now,
           },
@@ -452,8 +511,14 @@ export class ShopifyCommerceAdapter {
         };
       }
 
-      const paidOrders = allOrders.filter((o: any) => o.financial_status === "paid");
-      const totalGmv = paidOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price || "0"), 0);
+      const paidOrders = allOrders.filter((o: any) => {
+        const status = (o.displayFinancialStatus || o.financial_status || "").toUpperCase();
+        return status === "PAID";
+      });
+      const totalGmv = paidOrders.reduce((sum: number, o: any) => {
+        const amountStr = o.totalPriceSet?.shopMoney?.amount ?? o.total_price ?? "0";
+        return sum + parseFloat(amountStr);
+      }, 0);
       const aov = paidOrders.length > 0 ? Math.round((totalGmv / paidOrders.length) * 100) / 100 : 0;
 
       return {
@@ -475,7 +540,7 @@ export class ShopifyCommerceAdapter {
           pagesRetrieved: pageCount,
         },
         provenance: {
-          source: `Shopify Admin API ${servedApiVersion || this.apiVersion} (Aggregated)`,
+          source: `Shopify GraphQL Admin API ${servedApiVersion || this.apiVersion} (Aggregated)`,
           propertyOrAccount: shop,
           fetchedAt: now,
           ...(servedApiVersion && servedApiVersion !== this.apiVersion ? { servedVersionMismatch: { requested: this.apiVersion, served: servedApiVersion } } : {}),

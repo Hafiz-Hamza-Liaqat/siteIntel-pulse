@@ -75,6 +75,14 @@ export class GoogleAdsAdapter {
     const hasValidCustomer = Boolean(conn.account_id && /^customers\/[0-9\-]+$/.test(conn.account_id));
     const hasDevToken = Boolean(this.developerToken);
 
+    let metadata: Record<string, any> = {};
+    if (conn.metadata_json) {
+      try {
+        metadata = JSON.parse(conn.metadata_json) || {};
+      } catch {}
+    }
+    const managerCustomerId = metadata.managerCustomerId;
+
     let statusMsg = `Connected to Google Ads Customer Account (${conn.account_id}).`;
     let health: "HEALTHY" | "DEGRADED" = "HEALTHY";
 
@@ -84,6 +92,10 @@ export class GoogleAdsAdapter {
     } else if (!hasValidCustomer) {
       statusMsg = "Connected to Google Ads account. Customer account selection required before metrics can be retrieved.";
       health = "DEGRADED";
+    } else if (managerCustomerId) {
+      statusMsg = `Connected to Google Ads Customer Account (${conn.account_id}) via Manager (${managerCustomerId}).`;
+    } else {
+      statusMsg = `Connected to Google Ads Customer Account (${conn.account_id}) via Direct Access.`;
     }
 
     return {
@@ -98,6 +110,7 @@ export class GoogleAdsAdapter {
       permissions: JSON.parse(conn.scopes_json || "[]"),
       propertyId: conn.property_id || undefined,
       accountId: hasValidCustomer ? conn.account_id! : undefined,
+      managerCustomerId: hasValidCustomer && managerCustomerId ? managerCustomerId : undefined,
       lastSyncAt: conn.last_sync_at || undefined,
       healthStatus: health,
     };
@@ -264,10 +277,102 @@ export class GoogleAdsAdapter {
     }
   }
 
+  async listClientAccounts(
+    tenantId: string,
+    managerCustomerId: string
+  ): Promise<{
+    success: boolean;
+    accounts?: Array<{
+      resourceName: string;
+      id: string;
+      descriptiveName?: string;
+      isManager: boolean;
+      status: string;
+      managerCustomerId: string;
+    }>;
+    error?: string;
+  }> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn || conn.status !== "CONNECTED") {
+      return { success: false, error: "Google Ads is not connected." };
+    }
+
+    if (!this.isValidApiVersion()) {
+      return {
+        success: false,
+        error: `Unsupported Google Ads API version "${this.apiVersion}". Format must be "v<digits>".`,
+      };
+    }
+
+    if (!this.developerToken) {
+      return {
+        success: false,
+        error: "GOOGLE_ADS_DEVELOPER_TOKEN is not configured. Google Ads API calls require an approved developer token.",
+      };
+    }
+
+    let normalizedManager = managerCustomerId.trim();
+    if (!normalizedManager.startsWith("customers/")) {
+      normalizedManager = `customers/${normalizedManager}`;
+    }
+    const cleanManagerDigits = normalizedManager.replace("customers/", "").replace(/-/g, "");
+
+    let { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (isExpired || !accessToken) {
+      const refreshed = await this.refreshAccessToken(tenantId);
+      if (refreshed) {
+        const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
+        accessToken = tokens.accessToken;
+      } else {
+        return { success: false, error: "Access token expired and refresh failed. Re-authentication required." };
+      }
+    }
+
+    try {
+      const res = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/customers/${cleanManagerDigits}/googleAds:search`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": this.developerToken,
+          "login-customer-id": cleanManagerDigits,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: "SELECT customer_client.client_customer, customer_client.id, customer_client.descriptive_name, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.status = 'ENABLED'",
+        }),
+      });
+
+      if (!res.ok) {
+        return { success: false, error: `Google Ads API returned HTTP ${res.status} while querying client accounts for manager ${normalizedManager}` };
+      }
+
+      const data = await res.json();
+      const results = data?.results || [];
+      const accounts = results.map((r: any) => {
+        const client = r.customerClient || {};
+        const rawId = String(client.id || "");
+        const resourceName = client.clientCustomer || `customers/${rawId}`;
+        return {
+          resourceName,
+          id: rawId,
+          descriptiveName: client.descriptiveName,
+          isManager: Boolean(client.manager),
+          status: client.status || "ENABLED",
+          managerCustomerId: normalizedManager,
+        };
+      });
+
+      return { success: true, accounts };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to list client accounts under manager." };
+    }
+  }
+
   async selectCustomer(
     tenantId: string,
-    rawCustomerId: string
-  ): Promise<{ success: boolean; customerId?: string; error?: string }> {
+    rawCustomerId: string,
+    options?: { managerCustomerId?: string }
+  ): Promise<{ success: boolean; customerId?: string; managerCustomerId?: string; error?: string }> {
     const conn = this.store.getConnection(tenantId, this.providerId);
     if (!conn || conn.status !== "CONNECTED") {
       return { success: false, error: "Google Ads is not connected." };
@@ -289,7 +394,73 @@ export class GoogleAdsAdapter {
       };
     }
 
-    // Require listAccessibleCustomers to succeed - FAIL CLOSED
+    const normDigits = (id: string) => id.replace("customers/", "").replace(/-/g, "");
+
+    // 1. Manager-to-client access mode (MCC)
+    if (options?.managerCustomerId) {
+      let normalizedManager = options.managerCustomerId.trim();
+      if (!normalizedManager.startsWith("customers/")) {
+        normalizedManager = `customers/${normalizedManager}`;
+      }
+
+      if (!/^customers\/[0-9\-]+$/.test(normalizedManager)) {
+        return {
+          success: false,
+          error: `Invalid manager customer identifier "${options.managerCustomerId}". Expected format: customers/123-456-7890 (numeric only).`,
+        };
+      }
+
+      const accessList = await this.listAccessibleCustomers(tenantId);
+      if (!accessList.success) {
+        return {
+          success: false,
+          error: `Unable to verify manager account access: ${accessList.error || "Upstream Google Ads API error"}. Customer account cannot be authorized.`,
+        };
+      }
+
+      const isManagerAccessible = (accessList.customers || []).some(
+        (c) => normDigits(c) === normDigits(normalizedManager)
+      );
+      if (!isManagerAccessible) {
+        return {
+          success: false,
+          error: `Manager account "${normalizedManager}" is not accessible by the authenticated Google Ads user.`,
+        };
+      }
+
+      const clientRes = await this.listClientAccounts(tenantId, normalizedManager);
+      if (!clientRes.success) {
+        return {
+          success: false,
+          error: `Unable to retrieve child accounts for manager "${normalizedManager}": ${clientRes.error || "Upstream Google Ads API error"}.`,
+        };
+      }
+
+      const matchedAccount = (clientRes.accounts || []).find(
+        (a) => normDigits(a.resourceName) === normDigits(normalized) || normDigits(a.id) === normDigits(normalized)
+      );
+      if (!matchedAccount) {
+        return {
+          success: false,
+          error: `Customer account "${normalized}" is not accessible under manager account "${normalizedManager}".`,
+        };
+      }
+
+      if (matchedAccount.isManager) {
+        return {
+          success: false,
+          error: `Selected account "${normalized}" is a manager account. Manager accounts do not serve ads directly; please select an operating advertiser client account under this manager.`,
+        };
+      }
+
+      this.store.updateAccountId(tenantId, this.providerId, normalized, {
+        managerCustomerId: normalizedManager,
+        isDirect: false,
+      });
+      return { success: true, customerId: normalized, managerCustomerId: normalizedManager };
+    }
+
+    // 2. Direct account access mode
     const accessList = await this.listAccessibleCustomers(tenantId);
     if (!accessList.success) {
       return {
@@ -305,7 +476,9 @@ export class GoogleAdsAdapter {
       };
     }
 
-    const isAuthorized = accessList.customers.includes(normalized);
+    const isAuthorized = accessList.customers.some(
+      (c) => normDigits(c) === normDigits(normalized)
+    );
     if (!isAuthorized) {
       return {
         success: false,
@@ -313,7 +486,47 @@ export class GoogleAdsAdapter {
       };
     }
 
-    this.store.updateAccountId(tenantId, this.providerId, normalized);
+    // Prevent manager account from being mistaken for advertiser account without clear explanation
+    let { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (isExpired || !accessToken) {
+      await this.refreshAccessToken(tenantId);
+      const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
+      accessToken = tokens.accessToken;
+    }
+
+    if (accessToken && this.developerToken) {
+      try {
+        const cleanDigits = normDigits(normalized);
+        const verifyRes = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/customers/${cleanDigits}/googleAds:search`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "developer-token": this.developerToken,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1",
+          }),
+        });
+        if (verifyRes.ok) {
+          const verifyData = await verifyRes.json();
+          const firstRow = verifyData?.results?.[0];
+          if (firstRow?.customer?.manager === true) {
+            return {
+              success: false,
+              error: `Account "${normalized}" is a Google Ads Manager (MCC) account. Manager accounts do not serve ads or hold campaign spend directly. Please select an operating advertiser client account under this manager account.`,
+            };
+          }
+        }
+      } catch {
+        // Allow pass-through if verification query cannot be completed in offline mocks
+      }
+    }
+
+    this.store.updateAccountId(tenantId, this.providerId, normalized, {
+      isDirect: true,
+      managerCustomerId: null,
+    });
     return { success: true, customerId: normalized };
   }
 
@@ -455,17 +668,30 @@ export class GoogleAdsAdapter {
     }
 
     const cleanCustomer = conn.account_id;
-    const loginCustomerId = cleanCustomer.replace("customers/", "").replace(/-/g, "");
+    let managerCustomerId: string | undefined = undefined;
+    if (conn.metadata_json) {
+      try {
+        const meta = JSON.parse(conn.metadata_json);
+        if (meta && typeof meta.managerCustomerId === "string" && meta.managerCustomerId) {
+          managerCustomerId = meta.managerCustomerId;
+        }
+      } catch {}
+    }
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      "developer-token": this.developerToken,
+      "Content-Type": "application/json",
+    };
+    if (managerCustomerId) {
+      const cleanManagerDigits = managerCustomerId.replace("customers/", "").replace(/-/g, "");
+      headers["login-customer-id"] = cleanManagerDigits;
+    }
 
     try {
       const res = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/${cleanCustomer}/googleAds:search`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "developer-token": this.developerToken,
-          "login-customer-id": loginCustomerId,
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           query: "SELECT metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions FROM customer WHERE segments.date DURING LAST_30_DAYS",
         }),
@@ -517,7 +743,7 @@ export class GoogleAdsAdapter {
         },
         provenance: {
           source: `Google Ads API ${this.apiVersion} (Live Search)`,
-          propertyOrAccount: cleanCustomer,
+          propertyOrAccount: managerCustomerId ? `${cleanCustomer} (via MCC ${managerCustomerId})` : cleanCustomer,
           fetchedAt: now,
         },
       };

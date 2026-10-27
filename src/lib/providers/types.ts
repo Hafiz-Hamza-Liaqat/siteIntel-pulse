@@ -66,6 +66,7 @@ export interface ProviderConnectionState {
   permissions?: string[];
   accountId?: string;
   propertyId?: string;
+  managerCustomerId?: string;
   lastSyncAt?: string;
   healthStatus?: "HEALTHY" | "DEGRADED" | "FAILING";
   configuredScope?: string[];
