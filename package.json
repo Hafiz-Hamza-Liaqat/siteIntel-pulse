@@ -22,7 +22,8 @@
     "admin:provision-tenant": "node scripts/provision-tenant-owner.mjs",
     "db:backup": "node scripts/backup-database.mjs",
     "db:restore": "node scripts/restore-database.mjs",
-    "db:verify": "node scripts/verify-backup-recovery.mjs"
+    "db:verify": "node scripts/verify-backup-recovery.mjs",
+    "preflight:hostinger": "node scripts/hostinger-preflight.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

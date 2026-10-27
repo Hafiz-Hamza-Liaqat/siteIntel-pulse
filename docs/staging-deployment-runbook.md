@@ -1,23 +1,21 @@
 # SiteIntel Pulse — Staging Deployment & Operational Runbook
 
 **Project:** SiteIntel Pulse — Website Intelligence & Growth Audit Platform  
+**Target Environment:** Hostinger KVM VPS (Ubuntu 24.04 LTS)  
 **Target Audience:** DevOps Engineers, Platform Administrators, Staging Release Team  
-**Version:** 1.0.0 (Milestone 4 Release Candidate)  
-**Date:** October 22, 2026  
+**Version:** 1.0.0 (Milestone 4 Release Candidate / Hostinger Staging Preparation)  
+**Date:** October 27, 2026  
+**Primary Deployment Architecture Guide:** [Hostinger VPS Deployment Guide](docs/hostinger-vps-deployment-guide.md)
 
 ---
 
 ## 1. Prerequisites & System Requirements
 
-### 1.1 Hardware Sizing
-- **CPU:** Minimum 2 vCPU (Recommended: 4 vCPU for concurrent crawls and Playwright rendering).
-- **RAM:** Minimum 2 GB (Recommended: 4 GB to accommodate Headless Chromium).
-- **Storage:** Minimum 20 GB SSD/NVMe persistent storage mounted with read-write permissions (`ReadWriteOnce`).
-
-### 1.2 Operating System & Software
-- **Operating System:** Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, or Debian 12 Bookworm.
-- **Option A (Containerized):** Docker Engine 24.0+ and Docker Compose v2.20+.
-- **Option B (Native):** Node.js >=22.5.0 LTS (Node 22 is required for native `node:sqlite`), npm 10+, and Chromium dependencies.
+### 1.1 Hostinger VPS Sizing & Hardware
+- **Hostinger VPS Plan:** **Hostinger KVM 2** (2 vCPU, 8 GB RAM, 100 GB NVMe) for Staging; **Hostinger KVM 4** (4 vCPU, 16 GB RAM, 200 GB NVMe) for Production.
+- **Operating System:** Ubuntu 24.04 LTS (Noble Numbat).
+- **Runtime:** Node.js 22 LTS (Latest supported patch release: `v22.23.4`, installed via NodeSource).
+- **Storage:** Persistent local NVMe SSD storage mounted with standard POSIX advisory file locking (`ReadWriteOnce`). Ephemeral serverless hosts (standard Vercel, AWS Lambda) are strictly prohibited.
 
 ---
 
