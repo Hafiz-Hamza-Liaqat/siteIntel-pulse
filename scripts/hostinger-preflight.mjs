@@ -113,7 +113,7 @@ export async function runPreflight(options = {}) {
 
   // 1. Environment File Loading
   const envFilePath = options.envFile !== undefined ? options.envFile : process.env.ENV_FILE;
-  const env = { ...(options.env || process.env) };
+  let env;
   let hasExplicitEnvFile = false;
 
   if (envFilePath) {
@@ -121,14 +121,18 @@ export async function runPreflight(options = {}) {
     const loadResult = loadEnvironmentFile(envFilePath);
     if (!loadResult.success) {
       fail(loadResult.error);
+      env = { ...(options.env || {}) };
     } else {
       hasExplicitEnvFile = true;
       pass(`Successfully loaded environment file: ${loadResult.resolvedPath}`);
-      // Apply parsed variables into env dictionary (do not overwrite already explicitly provided test options)
-      for (const [k, v] of Object.entries(loadResult.parsed)) {
-        env[k] = v;
-      }
+      // When ENV_FILE is specified, validate strictly against the loaded file's settings
+      env = {
+        ...loadResult.parsed,
+        ...(options.env || {}),
+      };
     }
+  } else {
+    env = { ...(options.env || process.env) };
   }
 
   const isProduction = env.NODE_ENV === "production" || hasExplicitEnvFile;
