@@ -44,12 +44,14 @@ export class ProviderConnectionStore {
     const encryptedAccessToken = params.accessToken ? encryptToken(params.accessToken) : null;
     const encryptedRefreshToken = params.refreshToken ? encryptToken(params.refreshToken) : null;
 
+    const metadataToSave = params.metadata !== undefined ? JSON.stringify(params.metadata) : null;
+
     const stmt = this.db.prepare(`
       INSERT INTO provider_connections (
         id, tenant_id, provider, account_id, property_id, status, scopes_json,
         encrypted_access_token, encrypted_refresh_token, token_expires_at,
         last_sync_at, health_status, metadata_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?, ?)
       ON CONFLICT(tenant_id, provider) DO UPDATE SET
         account_id = excluded.account_id,
         property_id = excluded.property_id,
@@ -60,7 +62,7 @@ export class ProviderConnectionStore {
         token_expires_at = excluded.token_expires_at,
         last_sync_at = excluded.last_sync_at,
         health_status = excluded.health_status,
-        metadata_json = excluded.metadata_json,
+        metadata_json = COALESCE(?, provider_connections.metadata_json, '{}'),
         updated_at = excluded.updated_at
     `);
 
@@ -77,9 +79,10 @@ export class ProviderConnectionStore {
       params.tokenExpiresAt || null,
       now,
       "HEALTHY",
-      JSON.stringify(params.metadata || {}),
+      metadataToSave,
       now,
-      now
+      now,
+      metadataToSave
     );
   }
 

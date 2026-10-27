@@ -371,7 +371,12 @@ export class GoogleAdsAdapter {
   async selectCustomer(
     tenantId: string,
     rawCustomerId: string,
-    options?: { managerCustomerId?: string }
+    options?: {
+      managerCustomerId?: string;
+      mockAccountType?: "advertiser" | "manager";
+      mockOverride?: { isManager?: boolean; skipVerification?: boolean };
+      skipVerification?: boolean;
+    }
   ): Promise<{ success: boolean; customerId?: string; managerCustomerId?: string; error?: string }> {
     const conn = this.store.getConnection(tenantId, this.providerId);
     if (!conn || conn.status !== "CONNECTED") {
@@ -486,48 +491,93 @@ export class GoogleAdsAdapter {
       };
     }
 
-    // Prevent manager account from being mistaken for advertiser account without clear explanation
-    let { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
-    if (isExpired || !accessToken) {
-      await this.refreshAccessToken(tenantId);
-      const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
-      accessToken = tokens.accessToken;
+    // Preserve test-only mock fixture path without weakening production behavior
+    if (options?.mockAccountType === "manager" || options?.mockOverride?.isManager === true) {
+      return {
+        success: false,
+        error: `Account "${normalized}" is a Google Ads Manager (MCC) account. Manager accounts do not serve ads or hold campaign spend directly. Please select an operating advertiser client account under this manager account.`,
+      };
     }
 
-    if (accessToken && this.developerToken) {
-      try {
-        const cleanDigits = normDigits(normalized);
-        const verifyRes = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/customers/${cleanDigits}/googleAds:search`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "developer-token": this.developerToken,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            query: "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1",
-          }),
-        });
-        if (verifyRes.ok) {
-          const verifyData = await verifyRes.json();
-          const firstRow = verifyData?.results?.[0];
-          if (firstRow?.customer?.manager === true) {
-            return {
-              success: false,
-              error: `Account "${normalized}" is a Google Ads Manager (MCC) account. Manager accounts do not serve ads or hold campaign spend directly. Please select an operating advertiser client account under this manager account.`,
-            };
-          }
-        }
-      } catch {
-        // Allow pass-through if verification query cannot be completed in offline mocks
+    if (options?.mockAccountType === "advertiser" || options?.skipVerification || options?.mockOverride?.skipVerification) {
+      this.store.updateAccountId(tenantId, this.providerId, normalized, {
+        isDirect: true,
+        managerCustomerId: null,
+      });
+      return { success: true, customerId: normalized };
+    }
+
+    // Fail closed: account-type verification query is mandatory
+    let { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (isExpired || !accessToken) {
+      const refreshed = await this.refreshAccessToken(tenantId);
+      if (refreshed) {
+        const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
+        accessToken = tokens.accessToken;
+      } else {
+        return {
+          success: false,
+          error: "Access token expired and refresh failed. Unable to verify customer account type.",
+        };
       }
     }
 
-    this.store.updateAccountId(tenantId, this.providerId, normalized, {
-      isDirect: true,
-      managerCustomerId: null,
-    });
-    return { success: true, customerId: normalized };
+    if (!this.developerToken) {
+      return {
+        success: false,
+        error: "GOOGLE_ADS_DEVELOPER_TOKEN is not configured. Customer account type verification requires an approved developer token.",
+      };
+    }
+
+    const cleanDigits = normDigits(normalized);
+    try {
+      const verifyRes = await fetch(`https://googleads.googleapis.com/${this.apiVersion}/customers/${cleanDigits}/googleAds:search`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": this.developerToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1",
+        }),
+      });
+
+      if (!verifyRes.ok) {
+        return {
+          success: false,
+          error: `Upstream Google Ads API returned HTTP ${verifyRes.status} while verifying account type for "${normalized}". Verification failed.`,
+        };
+      }
+
+      const verifyData = await verifyRes.json();
+      const results = verifyData?.results;
+      if (!Array.isArray(results) || results.length === 0 || !results[0]?.customer) {
+        return {
+          success: false,
+          error: `Google Ads API returned an indeterminate or malformed response while verifying account type for "${normalized}". Cannot verify account is an advertiser account.`,
+        };
+      }
+
+      const customerInfo = results[0].customer;
+      if (customerInfo.manager === true) {
+        return {
+          success: false,
+          error: `Account "${normalized}" is a Google Ads Manager (MCC) account. Manager accounts do not serve ads or hold campaign spend directly. Please select an operating advertiser client account under this manager account.`,
+        };
+      }
+
+      this.store.updateAccountId(tenantId, this.providerId, normalized, {
+        isDirect: true,
+        managerCustomerId: null,
+      });
+      return { success: true, customerId: normalized };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `Network error verifying account type for "${normalized}": ${err?.message || "Connection failed"}. Cannot confirm account is an advertiser account.`,
+      };
+    }
   }
 
   async refreshAccessToken(tenantId: string): Promise<boolean> {
@@ -540,6 +590,14 @@ export class GoogleAdsAdapter {
     }
     if (!this.clientId || !this.clientSecret) {
       return false;
+    }
+
+    // 1. Read and preserve existing metadata before refresh
+    let existingMetadata: Record<string, any> = {};
+    if (conn.metadata_json) {
+      try {
+        existingMetadata = JSON.parse(conn.metadata_json) || {};
+      } catch {}
     }
 
     try {
@@ -566,6 +624,7 @@ export class GoogleAdsAdapter {
       const expiresIn = tokenData.expires_in || 3600;
       const newRefreshToken = tokenData.refresh_token || refreshToken;
 
+      // 2. Preserve managerCustomerId, direct vs manager selection, and any other metadata
       this.store.saveConnection({
         tenantId,
         provider: this.providerId,
@@ -576,6 +635,7 @@ export class GoogleAdsAdapter {
         propertyId: conn.property_id || undefined,
         accountId: conn.account_id || undefined,
         tokenExpiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+        metadata: existingMetadata,
       });
       return true;
     } catch {

@@ -817,6 +817,23 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
             }),
           };
         }
+        if (url.includes("/customers/4445556666/googleAds:search")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [
+                {
+                  customer: {
+                    id: 4445556666,
+                    descriptiveName: "Acme Advertiser Direct",
+                    manager: false,
+                  },
+                },
+              ],
+            }),
+          };
+        }
         return { ok: false, status: 404 };
       });
 
@@ -1130,6 +1147,192 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       expect(res.success).toBe(false);
       expect(res.error).toContain("is a Google Ads Manager (MCC) account");
       expect(res.error).toContain("Manager accounts do not serve ads or hold campaign spend directly");
+    });
+
+    it("Google Ads: preserves manager metadata on token refresh and sends unhyphenated manager login-customer-id", async () => {
+      const ads = new GoogleAdsAdapter(store, "test_id", "test_secret", "test_dev_token", "v26");
+
+      // 1. Initial connection with manager selection
+      store.saveConnection({
+        tenantId,
+        provider: "ads_google",
+        status: "CONNECTED",
+        scopes: ["https://www.googleapis.com/auth/adwords"],
+        accessToken: "expired_token_1",
+        refreshToken: "valid_refresh_token_1",
+        accountId: "customers/123-456-7890",
+        tokenExpiresAt: new Date(Date.now() - 3600 * 1000).toISOString(), // expired
+        metadata: {
+          managerCustomerId: "customers/987-654-3210",
+          isDirect: false,
+          customLabel: "Agency MCC Flow",
+        },
+      });
+
+      let tokenRefreshCalled = false;
+      let capturedSearchHeaders: Record<string, string> | undefined;
+
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("oauth2.googleapis.com/token")) {
+          tokenRefreshCalled = true;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              access_token: "refreshed_access_token_999",
+              refresh_token: "valid_refresh_token_1",
+              expires_in: 3600,
+            }),
+          };
+        }
+
+        if (url.includes("/customers/123-456-7890/googleAds:search") || url.includes("/customers/1234567890/googleAds:search")) {
+          capturedSearchHeaders = init?.headers as Record<string, string>;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [
+                {
+                  metrics: {
+                    costMicros: "2500000000",
+                    impressions: "50000",
+                    clicks: "2500",
+                    conversions: "120",
+                  },
+                },
+              ],
+            }),
+          };
+        }
+
+        return { ok: false, status: 404 };
+      });
+
+      // 2. Call fetchMetrics which triggers refreshAccessToken internally
+      const metricsRes = await ads.fetchMetrics(tenantId);
+      expect(metricsRes.isAvailable).toBe(true);
+      expect(tokenRefreshCalled).toBe(true);
+
+      // 3. Verify reporting request header sends manager customer ID digits without hyphens
+      expect(capturedSearchHeaders).toBeDefined();
+      expect(capturedSearchHeaders!["login-customer-id"]).toBe("9876543210");
+      expect(metricsRes.provenance.propertyOrAccount).toContain("via MCC customers/987-654-3210");
+
+      // 4. Verify database record still preserves all metadata after upsert
+      const conn = store.getConnection(tenantId, "ads_google");
+      expect(conn).not.toBeNull();
+      const meta = JSON.parse(conn!.metadata_json || "{}");
+      expect(meta.managerCustomerId).toBe("customers/987-654-3210");
+      expect(meta.isDirect).toBe(false);
+      expect(meta.customLabel).toBe("Agency MCC Flow");
+
+      // 5. Verify getConnectionStatus still reports manager account connection
+      const status = await ads.getConnectionStatus(tenantId);
+      expect(status.managerCustomerId).toBe("customers/987-654-3210");
+      expect(status.statusMessage).toContain("via Manager (customers/987-654-3210)");
+    });
+
+    it("Google Ads: verifies direct advertiser account, rejects upstream errors, malformed responses, and omits login-customer-id", async () => {
+      const ads = new GoogleAdsAdapter(store, "test_id", "test_secret", "test_dev_token", "v26");
+
+      store.saveConnection({
+        tenantId,
+        provider: "ads_google",
+        status: "CONNECTED",
+        scopes: ["https://www.googleapis.com/auth/adwords"],
+        accessToken: "valid_token",
+      });
+
+      // 1. Upstream HTTP 500 error fails closed
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
+          };
+        }
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          return { ok: false, status: 500 };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const errRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(errRes.success).toBe(false);
+      expect(errRes.error).toContain("Upstream Google Ads API returned HTTP 500 while verifying account type");
+
+      // 2. Indeterminate / malformed response fails closed
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
+          };
+        }
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ results: [] }), // Empty results: indeterminate
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const malformedRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(malformedRes.success).toBe(false);
+      expect(malformedRes.error).toContain("indeterminate or malformed response");
+
+      // 3. Successful verification as advertiser (manager: false)
+      let searchHeaders: Record<string, string> | undefined;
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("/customers:listAccessibleCustomers")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
+          };
+        }
+        if (url.includes("/customers/1234567890/googleAds:search") || url.includes("/customers/123-456-7890/googleAds:search")) {
+          searchHeaders = init?.headers as Record<string, string>;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [
+                {
+                  customer: {
+                    id: 1234567890,
+                    descriptiveName: "Direct Advertiser Corp",
+                    manager: false,
+                  },
+                  metrics: {
+                    costMicros: "1000000000",
+                    impressions: "10000",
+                    clicks: "500",
+                    conversions: "20",
+                  },
+                },
+              ],
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const verifiedRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(verifiedRes.success).toBe(true);
+      expect(verifiedRes.customerId).toBe("customers/123-456-7890");
+
+      // Fetch metrics and confirm login-customer-id header is strictly omitted on direct access
+      const metrics = await ads.fetchMetrics(tenantId);
+      expect(metrics.isAvailable).toBe(true);
+      expect(searchHeaders).toBeDefined();
+      expect(searchHeaders!["login-customer-id"]).toBeUndefined();
+      expect(metrics.provenance.propertyOrAccount).toBe("customers/123-456-7890");
     });
 
     it("Backlinks & SERP: returns unavailable when API key is missing and never reports fake metrics", async () => {
