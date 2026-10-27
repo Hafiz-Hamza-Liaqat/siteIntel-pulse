@@ -1,9 +1,9 @@
 # SiteIntel Pulse — Milestones 1–3 Final Release Verification & Publication Report
 
-**Document Version:** `1.5.3`  
+**Document Version:** `1.6.0`  
 **Date:** `2026-10-27`  
-**Feature Code Commit:** `293b6ec8612690bf51ecd2deb7f0887d9c9dd541`  
-**PR Head Documentation Commit:** `a0fc4416d18068f7c05ec7d89a555b50ce6a291e`  
+**Feature Code Commit:** `c14a26aa7f4191343967876a6dad122bcb32a0a7`  
+**PR Head Documentation Commit:** `Pending Push`  
 **Publication Branch:** `feature/milestones-1-3-completion`  
 **Pull Request URL:** [PR #1 (feature/milestones-1-3-completion -> main)](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1)  
 **Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
@@ -21,36 +21,41 @@ All code and regression tests were authored directly on branch `feature/mileston
 
 ### Remote Publication Verification Output:
 ```text
-a0fc4416d18068f7c05ec7d89a555b50ce6a291e  refs/heads/feature/milestones-1-3-completion (PR #1 Head)
-293b6ec8612690bf51ecd2deb7f0887d9c9dd541  (Feature Code Implementation)
+c14a26aa7f4191343967876a6dad122bcb32a0a7  (Feature Code Implementation: Fail-Closed Strict Boolean Verification)
+2b92a83ff4fa2b74ec1499a0d9ca5a8403cc68ef  refs/heads/feature/milestones-1-3-completion (Preceding Verified PR Head)
 c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main (Untouched)
 ```
 
-### GitHub Actions Quality Gates on Latest PR Head Commit `a0fc441`
-- **CI Pipeline Run [40492122442](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492122442):** **`SUCCESS`** (TypeScript static typecheck, ESLint, 39 test files / 404 tests, 51-page PDF verification, SQLite ACID backup, Playwright E2E 33/33, Next.js 15 build).
-- **Docker Container Runtime Acceptance Run [40492122533](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492122533):** **`SUCCESS`** (Strict loopback `127.0.0.1:3000` binding, health probe, in-container PDF rasterization, public scan capture, PDF magic bytes validation, container restart durability).
+### GitHub Actions Quality Gates on Preceding PR Head Commit `2b92a83`
+- **CI Pipeline Run [40492658556](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492658556):** **`SUCCESS`** (TypeScript static typecheck, ESLint, 39 test files / 404 tests, 51-page PDF verification, SQLite ACID backup, Playwright E2E 33/33, Next.js 15 build).
+- **Docker Container Runtime Acceptance Run [40492657991](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492657991):** **`SUCCESS`** (Strict loopback `127.0.0.1:3000` binding, health probe, in-container PDF rasterization, public scan capture, PDF magic bytes validation, container restart durability).
 
-### GitHub Actions Quality Gates on Preceding PR Head Commit `6708f43`
+### GitHub Actions Quality Gates on Earlier PR Head Commit `a0fc441`
+- **CI Pipeline Run [40492122442](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492122442):** **`SUCCESS`**
+- **Docker Container Runtime Acceptance Run [40492122533](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40492122533):** **`SUCCESS`**
+
+### GitHub Actions Quality Gates on Earlier PR Head Commit `6708f43`
 - **CI Pipeline Run [40489623391](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40489623391):** **`SUCCESS`**
 - **Docker Container Runtime Acceptance Run [40489623526](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40489623526):** **`SUCCESS`**
-
-### GitHub Actions Quality Gates on Earlier PR Head Commit `1bf855e`
-- **CI Pipeline Run [40482773860](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40482773860):** **`SUCCESS`**
-- **Docker Container Runtime Acceptance Run [40482773889](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40482773889):** **`SUCCESS`**
 
 ---
 
 ## 2. Summary of Provider Hardening & Integration Correctness Fixes
 
-### 1. Google Ads Manager Metadata Preservation & Fail-Closed Account Selection (P0)
+### 1. Google Ads Strict Boolean Verification & Fail-Closed Selection (P0)
+- **Strict Boolean Verification (`customer.manager === false`):**
+  - In `GoogleAdsAdapter.selectCustomer()`, direct-account verification accepts an account only when `customer.manager` is explicitly boolean `false`.
+  - Missing (`undefined`), `null`, or non-boolean (string, number, object) values are rejected as indeterminate without persisting the selected account to the connection store.
+  - Accounts with `customer.manager === true` are rejected with a clear explanation directing the tenant to select an operating advertiser client account under that manager.
+  - If upstream returns non-200 (e.g. HTTP 500, 403), empty results (`[]`), or network errors, the system fails closed without persisting unverified accounts.
+- **API Route Security & Bypass Prevention:**
+  - The public customer-selection route (`POST /api/providers/google-ads/customers`) strictly passes only `{ managerCustomerId }`, preventing any client injection of internal test bypass options (`skipVerification`, `mockAccountType`, `mockOverride`).
 - **Metadata Preservation on Token Refresh:**
-  - In `ProviderConnectionStore.saveConnection()`, updated SQLite upsert query to use `COALESCE(?, provider_connections.metadata_json, '{}')` so omitting metadata on token refresh or status updates never inadvertently erases existing connection metadata.
-  - In `GoogleAdsAdapter.refreshAccessToken()`, explicitly reads and preserves existing `metadata_json` before updating tokens, guaranteeing that `managerCustomerId` and direct-vs-manager flags survive token refreshes indefinitely.
-- **Fail-Closed Direct Account Type Verification:**
-  - In `GoogleAdsAdapter.selectCustomer()`, account-type verification via `SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1` is mandatory when direct account access is requested.
-  - If upstream returns non-200 (e.g. HTTP 500, 403), returns an indeterminate or malformed response (e.g. empty results `[]`), or network fails, the system fails closed with an actionable error and does NOT silently accept the account.
-  - Preserves test mock options (`options?.mockAccountType`, `options?.skipVerification`, `options?.mockOverride`).
-  - If the account has `manager === true`, it rejects with a clear MCC explanation directing the user to select an operating advertiser client account under the manager.
+  - In `ProviderConnectionStore.saveConnection()`, SQL upsert uses `COALESCE(?, provider_connections.metadata_json, '{}')` so omitting metadata on token refresh or status updates never erases existing connection metadata.
+  - In `GoogleAdsAdapter.refreshAccessToken()`, reads and preserves existing `metadata_json` before updating tokens, guaranteeing that `managerCustomerId` (e.g. `customers/987-654-3210`) and direct-vs-manager flags survive token refreshes indefinitely.
+- **Reporting Header Correctness:**
+  - Direct account reporting strictly omits the `login-customer-id` header.
+  - Manager-to-client reporting sends the authorized manager account ID digits (e.g. `9876543210`) in `login-customer-id` even after token refresh.
 
 ### 2. Shopify Commerce Migration to GraphQL Admin API (P0)
 - **GraphQL Admin API Migration:** Completely migrated order ingestion and merchant metadata collection from legacy REST endpoints (`/shop.json`, `/orders.json`) to the Shopify GraphQL Admin API (`POST https://${shop}/admin/api/${this.apiVersion}/graphql.json`).
@@ -62,28 +67,18 @@ c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main (Untouched)
 - **Pagination Ceiling & Incomplete Data Fail-Closed:** Safe ceiling of 40 pages (up to 10,000 orders). If the pagination ceiling is reached with remaining pages (`hasNextPage === true`), the provider strictly refuses to certify incomplete data as verified financial metrics: returns `isAvailable: false`, flags `isIncomplete: true`, and sets `paginationComplete: false`.
 - **Currency Ingestion & Multi-Currency Safety:** Refuses silent USD default if shop currency cannot be established. Detects conflicting order currencies across pages and refuses to sum them into a single aggregate. Detects mismatch between shop settings currency and order currencies.
 
-### 3. Google Ads Manager (MCC) vs. Direct Account Access Semantics (P0)
-- **Direct Account Access (No Header):** When an account is directly owned and authorized, the `login-customer-id` HTTP header is strictly omitted from API requests, preventing upstream authentication errors.
-- **Manager-to-Client Access (MCC):** When operating a child advertiser account under a manager account, requests send the authorized manager account ID digits (e.g. `9876543210`) in the `login-customer-id` header, NOT the client account ID.
-- **Account Discovery & Hierarchy Verification:**
-  - `listAccessibleCustomers()` enumerates directly accessible accounts for the authenticated user.
-  - `listClientAccounts()` queries `customer_client` on a manager account using GAQL search (`SELECT customer_client.client_customer, customer_client.id, customer_client.descriptive_name, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.status = 'ENABLED'`) to discover operating accounts under an MCC.
-- **Prevention of Manager Mistaken for Advertiser:** Verifies the `customer.manager` flag. If an authenticated user selects an MCC manager account directly to query metrics, the system fails closed with a clear, actionable explanation: *"Account is a Google Ads Manager (MCC) account. Manager accounts do not serve ads or hold campaign spend directly. Please select an operating advertiser client account under this manager."*
-- **Fail-Closed Selection Validation:** `selectCustomer()` validates that manager accounts are accessible to the tenant, that child accounts are valid children under the manager, and that selected accounts are not sub-managers.
-- **Supported Version (`v26`):** Verified on version `v26` (`process.env.GOOGLE_ADS_API_VERSION || "v26"`). Requires approved developer token (`GOOGLE_ADS_DEVELOPER_TOKEN`). Provenance reflects `Google Ads API v26 (Live Search)` and tags metrics with `isAcquisitionContextOnly: true`.
-
-### 4. Fail-Closed GA4 Property Authorization (P0)
+### 3. Fail-Closed GA4 Property Authorization (P0)
 - In `GA4Adapter.selectProperty()`, strictly requires `listAccessibleProperties()` to succeed and return a non-empty listing.
 - Verifies that the normalized property ID (`properties/{digits}`) matches an entry in the accessible properties response.
 - Rejects empty property lists, API failures, inaccessible property IDs, and token refresh failures without persisting unauthorized properties into `ProviderConnectionStore`.
 
-### 5. Backlinks & SERP Intelligence Capability Truthfulness (P1)
+### 4. Backlinks & SERP Intelligence Capability Truthfulness (P1)
 - Explicitly labeled live integration as `SERP & Link Intelligence` (`SERP_SEARCH_INDEX_ONLY`), reporting Google Search index presence (`indexedPagesEstimate`) and organic search rankings count.
 - Referring domains, backlink counts, and domain link ratings are marked `undefined` with clear disclosures that dedicated backlink crawler index integrations are required.
 - Simulated offline fixtures are explicitly marked with `isSimulatedOrMock: true` and disclaimed.
 - Retained strict `isAcquisitionContextOnly: true` labeling.
 
-### 6. Cost of Inaction Integrity & Report Synchronization (P1)
+### 5. Cost of Inaction Integrity & Report Synchronization (P1)
 - **Input Precedence:** Owner explicit intake > Verified connected provider data > Calibrated baseline.
 - **Completeness Enforcement:** Requires connected Shopify data to be available (`isAvailable === true`), complete (`paginationComplete === true` and `!isIncomplete`), and currency-safe before ingesting. Incomplete data falls back to illustrative baseline with clear disclosure.
 - **Traffic Verification Policy:** Refuses synthetic traffic modeling (`INSUFFICIENT_INPUTS`) when neither owner traffic nor verified GA4 sessions are available.
@@ -100,15 +95,10 @@ Every required verification gate was executed against the exact implementation o
 |---|---|---|:---:|:---:|---|
 | 1 | **TypeScript Static Typecheck** | `npm run typecheck` (`tsc --noEmit`) | `0` | **PASS** | 0 compilation errors across all modules. |
 | 2 | **ESLint Code Standards** | `npm run lint` (`next lint`) | `0` | **PASS** | 0 warnings, 0 errors. |
-| 3 | **Unit & Integration Suite** | `npm run test` (`vitest run`) | `0` | **PASS** | **39 test files passed**, **404 tests passed**, 0 failed (100% green). |
+| 3 | **Unit & Integration Suite** | `npm run test` (`vitest run`) | `0` | **PASS** | **39 test files passed**, **405 tests passed**, 0 failed (100% green). |
 | 4 | **PDF Binary & Rasterization Suite** | `npm run test:pdf` | `0` | **PASS** | **10/10 fixtures verified**, **51 total pages rasterized**. 0 horizontal overflow, A4 dimensions, regex page numbering confirmed. |
 | 5 | **SQLite Backup & Recovery** | `npm run db:verify` | `0` | **PASS** | WAL mode, atomic `VACUUM INTO`, disaster recovery 100% record restoration fidelity. |
-| 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (2.1m). |
-| 7 | **Production Next.js Build** | `npm run build` (`next build`) | `0` | **PASS** | All routes compiled, 26/26 static pages generated cleanly. |
-| 8 | **Docker Container Acceptance** | GitHub Actions (`.github/workflows/container-acceptance.yml`) | `0` | **PASS** | Validated non-root user, strict loopback `127.0.0.1:3000` binding, health probes, in-container PDF rasterization, public scan capture, PDF magic bytes, restart durability, single-report invariant, and clean teardown. |
-| 4 | **PDF Binary & Rasterization Suite** | `npm run test:pdf` | `0` | **PASS** | **10/10 fixtures verified**, **51 total pages rasterized**. 0 horizontal overflow, A4 dimensions, regex page numbering confirmed. |
-| 5 | **SQLite Backup & Recovery** | `npm run db:verify` | `0` | **PASS** | WAL mode, atomic `VACUUM INTO`, disaster recovery 100% record restoration fidelity. |
-| 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (1.2m). |
+| 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (1.4m). |
 | 7 | **Production Next.js Build** | `npm run build` (`next build`) | `0` | **PASS** | All routes compiled, 26/26 static pages generated cleanly. |
 | 8 | **Docker Container Acceptance** | GitHub Actions (`.github/workflows/container-acceptance.yml`) | `0` | **PASS** | Validated non-root user, strict loopback `127.0.0.1:3000` binding, health probes, in-container PDF rasterization, public scan capture, PDF magic bytes, restart durability, single-report invariant, and clean teardown. |
 
@@ -156,7 +146,7 @@ PDF verification suite ([`scripts/verify-pdf.mjs`](file:///d:/Projects/SiteIntel
 
 ### Conclusion Justification
 1. **Local Implementation & Automated Verification Complete:**
-   - 39 test files and 404 tests pass cleanly (100%).
+   - 39 test files and 405 tests pass cleanly (100%).
    - 33 Playwright E2E tests pass across Desktop, Tablet, and Mobile viewports.
    - 51-page multi-fixture PDF validation and rasterization passes with zero layout defects.
    - TypeScript typecheck (0 errors), ESLint (0 errors/warnings), and Next.js 15 production build (26/26 pages) pass.
