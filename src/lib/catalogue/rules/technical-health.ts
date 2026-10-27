@@ -173,7 +173,18 @@ export const technicalHealthRules: RuleDefinition[] = [
     remediationAdvice: "Verify that public production pages do not emit 'noindex' or 'none' in meta tags or HTTP headers.",
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      if (ctx.pages.length === 0) {
+      const htmlPages = ctx.pages.filter((p) => {
+        const pageUrl = (p.finalUrl || (p as any).url || "").toLowerCase();
+        return (
+          (p.documentType === "html" || !p.documentType) &&
+          !p.isXmlSitemap &&
+          !(p.contentType || "").toLowerCase().includes("xml") &&
+          !pageUrl.endsWith(".xml") &&
+          !pageUrl.endsWith("/robots.txt")
+        );
+      });
+
+      if (htmlPages.length === 0) {
         return {
           testId: "TCH-03",
           testVersion: "1.0.0",
@@ -184,17 +195,17 @@ export const technicalHealthRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 0,
           title: "Pages Unobservable",
-          summary: "No page data available to evaluate crawlability and indexability directives.",
+          summary: "No HTML page data available to evaluate crawlability and indexability directives.",
           timestamp: now,
           confidence: "LOW",
         };
       }
-      const noindexPages = ctx.pages.filter((p) =>
-        p.robotsDirectives.some((d) => d.includes("noindex") || d.includes("none"))
+      const noindexPages = htmlPages.filter((p) =>
+        (p.robotsDirectives || []).some((d) => d.includes("noindex") || d.includes("none"))
       );
 
       // If entry page is noindexed, that is critical
-      const entryIsNoindex = ctx.pages[0]?.robotsDirectives.some((d) => d.includes("noindex"));
+      const entryIsNoindex = (htmlPages[0]?.robotsDirectives || []).some((d) => d.includes("noindex"));
 
       if (entryIsNoindex) {
         return {
@@ -211,7 +222,7 @@ export const technicalHealthRules: RuleDefinition[] = [
           timestamp: now,
           confidence: "HIGH",
           affectedUrlsCount: 1,
-          sampleEvidence: [ctx.pages[0]?.finalUrl || ctx.targetUrl],
+          sampleEvidence: [htmlPages[0]?.finalUrl || ctx.targetUrl],
         };
       }
 
@@ -244,7 +255,7 @@ export const technicalHealthRules: RuleDefinition[] = [
         maxPoints: 2,
         earnedPoints: 2,
         title: "All Public Pages Are Freely Indexable",
-        summary: `All ${ctx.pages.length} evaluated pages allow search engine indexing without blocking directives.`,
+        summary: `All ${htmlPages.length} evaluated HTML pages allow search engine indexing without blocking directives.`,
         timestamp: now,
         confidence: "HIGH",
       };

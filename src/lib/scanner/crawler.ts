@@ -141,12 +141,19 @@ export class SafeCrawler {
         : undefined);
 
     // 5. Build ScanCoverage
+    const htmlEligibleCount = pages.filter(
+      (p) => p.documentType === "html" || (!p.documentType && (p.contentType || "").includes("text/html"))
+    ).length;
+    const excludedDocCount = pages.filter((p) => p.documentType && p.documentType !== "html").length;
+
     const coverage: ScanCoverage = {
       discoveredPages: discoveredUrls.size,
+      htmlEligiblePages: htmlEligibleCount,
       testedPages: pages.length,
       skippedPages: Math.max(0, discoveredUrls.size - pages.length - failedCount),
       failedPages: failedCount,
       inaccessiblePages: failedCount,
+      excludedDocumentTypesCount: excludedDocCount,
       totalBytesFetched: stats.totalBytesFetched,
       totalPagesBudget: this.tracker.budgets.maxPages,
       crawlDepthReached: maxDepthReached,

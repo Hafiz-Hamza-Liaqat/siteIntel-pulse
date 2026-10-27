@@ -153,11 +153,15 @@ export const responsiveRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 0,
           title: `Horizontal Overflow Detected Across ${overflowRuns.length} Viewport Width(s)`,
-          summary: `Horizontal scrolling observed at widths: ${overflowRuns.map((r) => `${r.viewport}px`).join(", ")}. Content exceeds viewport boundary.`,
+          summary: `Horizontal scrolling observed at widths: ${overflowRuns.map((r) => `${r.viewport}px`).join(", ")}. Content exceeds viewport boundary (${offendingSelectors.length} unique offending selector(s)).`,
           timestamp: now,
           confidence: "HIGH",
-          affectedUrlsCount: overflowRuns.length,
-          sampleEvidence: offendingSelectors.slice(0, 4),
+          affectedUrlsCount: 1,
+          sampleEvidence: [
+            ...offendingSelectors.slice(0, 5),
+            `Observed viewports: ${overflowRuns.map((r) => `${r.viewport}px`).join(", ")}`,
+            `Total observation events: ${overflowRuns.length}`,
+          ],
         };
       }
 
@@ -248,7 +252,12 @@ export const responsiveRules: RuleDefinition[] = [
           summary: `Observed ${clippingIssuesTotal} navigation or header clipping instances and ${overlapTotal} control overlap instances across tested viewports.`,
           timestamp: now,
           confidence: "HIGH",
-          affectedUrlsCount: clippingIssuesTotal + overlapTotal,
+          affectedUrlsCount: 1,
+          sampleEvidence: [
+            `Target page: ${ctx.targetUrl}`,
+            `Clipping instances: ${clippingIssuesTotal}`,
+            `Overlap instances: ${overlapTotal}`,
+          ],
         };
       }
 
@@ -343,11 +352,15 @@ export const responsiveRules: RuleDefinition[] = [
           maxPoints: 2,
           earnedPoints: 1,
           title: "Mobile Usability or Typography Issues Detected",
-          summary: `Identified mobile usability concerns: ${issues.join("; ")}.`,
+          summary: `Identified mobile usability concerns: ${issues.join("; ")} (${touchSelectors.length} unique undersized control(s) across ${mobileResults.length} mobile viewports).`,
           timestamp: now,
           confidence: "HIGH",
-          affectedUrlsCount: totalTouchIssues,
-          sampleEvidence: touchSelectors.slice(0, 3),
+          affectedUrlsCount: 1,
+          sampleEvidence: [
+            `Target page: ${ctx.targetUrl}`,
+            `Unique undersized controls (${touchSelectors.length}): ${touchSelectors.slice(0, 3).join(", ")}`,
+            `Total viewport observations: ${totalTouchIssues} across mobile breakpoints (320px, 360px, 390px, 768px)`,
+          ],
         };
       }
 

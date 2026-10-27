@@ -1,4 +1,5 @@
 import type { ExpertReport } from "../../types";
+import { formatCurrency } from "./currency.ts";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -829,6 +830,60 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       })()}
     </tbody>
   </table>
+
+  ${report.costOfInaction?.status === "ESTIMATED" && report.costOfInaction.scenarios ? `
+  <div style="margin-top: 10px;">
+    <h3 style="font-size: 8.5pt; font-weight: 700; color: #0F172A; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em;">
+      Financial Opportunity Modeling &amp; Cost of Inaction Linkage (Synchronized Snapshot)
+    </h3>
+    <table style="width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 6px;">
+      <colgroup>
+        <col style="width: 20%;">
+        <col style="width: 20%;">
+        <col style="width: 20%;">
+        <col style="width: 20%;">
+        <col style="width: 20%;">
+      </colgroup>
+      <thead>
+        <tr style="background: #042F2E; color: white;">
+          <th style="padding: 4px 6px;">Scenario</th>
+          <th style="padding: 4px 6px;">Monthly Revenue</th>
+          <th style="padding: 4px 6px;">Annual Revenue</th>
+          <th style="padding: 4px 6px;">Gross Profit Opp</th>
+          <th style="padding: 4px 6px;">Payback Period</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding: 4px 6px;"><strong>Conservative (+0.20%)</strong></td>
+          <td style="padding: 4px 6px;">${formatCurrency(report.costOfInaction.scenarios.conservative.monthlyRevenueOpportunity ?? 0, report.costOfInaction.currency)} / mo</td>
+          <td style="padding: 4px 6px;">${formatCurrency(report.costOfInaction.scenarios.conservative.annualRevenueOpportunity ?? 0, report.costOfInaction.currency)} / yr</td>
+          <td style="padding: 4px 6px;">${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.conservative.monthlyGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / mo` : "Omitted"}</td>
+          <td style="padding: 4px 6px;">${report.costOfInaction.scenarios.conservative.paybackMonths != null ? `${report.costOfInaction.scenarios.conservative.paybackMonths} mo` : "N/A"}</td>
+        </tr>
+        <tr style="background: #F8FAFC;">
+          <td style="padding: 4px 6px;"><strong>Base Case (+0.50%)</strong></td>
+          <td style="padding: 4px 6px;">${formatCurrency(report.costOfInaction.scenarios.base.monthlyRevenueOpportunity ?? 0, report.costOfInaction.currency)} / mo</td>
+          <td style="padding: 4px 6px;">${formatCurrency(report.costOfInaction.scenarios.base.annualRevenueOpportunity ?? 0, report.costOfInaction.currency)} / yr</td>
+          <td style="padding: 4px 6px;">${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.base.monthlyGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / mo` : "Omitted"}</td>
+          <td style="padding: 4px 6px;">${report.costOfInaction.scenarios.base.paybackMonths != null ? `${report.costOfInaction.scenarios.base.paybackMonths} mo` : "N/A"}</td>
+        </tr>
+        <tr>
+          <td style="padding: 4px 6px;"><strong>Upside (+1.00%)</strong></td>
+          <td style="padding: 4px 6px;">${formatCurrency(report.costOfInaction.scenarios.upside.monthlyRevenueOpportunity ?? 0, report.costOfInaction.currency)} / mo</td>
+          <td style="padding: 4px 6px;">${formatCurrency(report.costOfInaction.scenarios.upside.annualRevenueOpportunity ?? 0, report.costOfInaction.currency)} / yr</td>
+          <td style="padding: 4px 6px;">${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.upside.monthlyGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / mo` : "Omitted"}</td>
+          <td style="padding: 4px 6px;">${report.costOfInaction.scenarios.upside.paybackMonths != null ? `${report.costOfInaction.scenarios.upside.paybackMonths} mo` : "N/A"}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="font-size: 7pt; color: #475569; padding: 5px 6px; background: #F1F5F9; border-radius: 4px;">
+      <strong>Evidence Traceability &amp; Attributed Defect Rules:</strong> Linked to friction findings in CRO-01..CRO-04, RSP-01..RSP-05, and PERF-01..PERF-05.
+      Estimated remediation cost: <strong>${formatCurrency(report.costOfInaction.remediationCostEstimate ?? 0, report.costOfInaction.currency)}</strong>.
+      Assumptions: ${(report.costOfInaction.assumptions || []).slice(0, 3).join(" • ")}.
+    </div>
+  </div>
+  ` : ""}
 
   <!-- SECTION 19: EXPORT MANIFEST & SIGN-OFF -->
   <h2>13. Cryptographic Integrity Sign-Off &amp; Manifest</h2>

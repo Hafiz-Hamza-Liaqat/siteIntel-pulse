@@ -27,6 +27,7 @@ export interface ScanDatabaseAdapter {
   getActiveScanCount(tenantId: string): Promise<number>;
   incrementRateLimit(key: string, ttlSeconds: number): Promise<{ count: number; resetAt: number }>;
   getAuthService(): AuthService;
+  getRawDb(): DatabaseSync;
   ping(): boolean;
   close(): void;
 }
@@ -75,6 +76,10 @@ export class SqliteScanDatabaseAdapter implements ScanDatabaseAdapter {
 
   getAuthService(): AuthService {
     return this.authService;
+  }
+
+  getRawDb(): DatabaseSync {
+    return this.db;
   }
 
   async createJob(request: ScanRequest, tenantId?: string, userId?: string): Promise<ScanJob> {

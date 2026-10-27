@@ -155,6 +155,46 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at);
     `,
   },
+  {
+    version: 3,
+    name: "0003_provider_connections_and_oauth",
+    sql: `
+      CREATE TABLE IF NOT EXISTS provider_connections (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        account_id TEXT,
+        property_id TEXT,
+        status TEXT NOT NULL DEFAULT 'NOT_CONNECTED',
+        scopes_json TEXT NOT NULL DEFAULT '[]',
+        encrypted_access_token TEXT,
+        encrypted_refresh_token TEXT,
+        token_expires_at TEXT,
+        last_sync_at TEXT,
+        health_status TEXT NOT NULL DEFAULT 'HEALTHY',
+        metadata_json TEXT DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+        UNIQUE(tenant_id, provider)
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_states (
+        state_token TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        code_verifier TEXT,
+        redirect_uri TEXT NOT NULL,
+        metadata_json TEXT DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_provider_connections_tenant ON provider_connections(tenant_id, provider);
+      CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): { appliedCount: number } {

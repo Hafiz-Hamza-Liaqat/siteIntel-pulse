@@ -10,6 +10,8 @@ import { checkPublicExposure, ExposureCheckResult } from "./exposure-checker";
 import { PageSpeedProvider } from "../providers/pagespeed";
 import { PageSpeedResult } from "../providers/types";
 import { detectBusinessCategory } from "../classifier/business-category-detector";
+import { calculateCostOfInaction } from "../reports/cost-of-inaction";
+import { integrationsManager } from "../providers/analytics";
 
 export class ScanOrchestrator {
   /**
@@ -137,6 +139,24 @@ export class ScanOrchestrator {
 
       const assessmentResults = assessmentRegistry.evaluateAll(evalContext);
 
+      // Fetch verified connected business metrics when tenantId is present
+      let connectedMetrics: Record<string, any> | undefined;
+      if (job.tenantId) {
+        try {
+          connectedMetrics = await integrationsManager.fetchAllMetrics(job.tenantId, parsedUrl.hostname);
+        } catch {
+          // Non-blocking fallback to intake/heuristics
+        }
+      }
+
+      // Shared Immutable Cost of Inaction Result (ensures Owner & Expert reports never diverge)
+      const costOfInaction = calculateCostOfInaction({
+        businessCategory: categoryDetection.effectiveCategory,
+        request,
+        results: assessmentResults,
+        connectedMetrics,
+      });
+
       // Stage 4: Scoring
       await jobManager.updateProgress(jobId, "scoring", "Computing category scores and overall weighted composite baseline", 85, undefined, job.tenantId);
 
@@ -161,6 +181,8 @@ export class ScanOrchestrator {
             browserResponsiveResults: responsiveResult?.viewportResults,
             visualDesign: responsiveResult?.visualDesign,
             businessCategoryDetection: categoryDetection,
+            costOfInaction,
+            connectedMetrics,
           },
           job.tenantId
         );
@@ -202,6 +224,7 @@ export class ScanOrchestrator {
             pageSpeedData: { mobile: pageSpeedMobile, desktop: pageSpeedDesktop },
             browserResponsiveResults: responsiveResult?.viewportResults,
             businessCategoryDetection: categoryDetection,
+            costOfInaction,
           }
         );
         await scanDb.saveReport(ownerReport, job.tenantId);
