@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import {
   parseSemVer,
@@ -343,6 +344,139 @@ describe("Hostinger VPS Preflight Validator & Environment Suite", () => {
       const res = loadEnvironmentFile(envPath);
       expect(res.success).toBe(true);
       expect(res.parsed).toEqual({ TEST_A: "hello", TEST_B: "world" });
+    });
+  });
+
+  describe("Next.js next.config.mjs ENV_FILE Fail-Closed Resolution", () => {
+    it("fails the process when ENV_FILE specifies a non-existent file", () => {
+      const nonExistentPath = path.join(os.tmpdir(), "nonexistent-env-file.env");
+      const code = `
+        import './next.config.mjs';
+      `;
+      const res = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+        cwd: process.cwd(),
+        env: { ...process.env, ENV_FILE: nonExistentPath },
+        encoding: "utf-8",
+      });
+
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toContain("[next.config.mjs] Fatal: Environment file specified by ENV_FILE does not exist");
+      expect(res.stderr).toContain(nonExistentPath);
+    });
+
+    it("fails the process when ENV_FILE specifies a directory instead of a regular file", () => {
+      const tempDir = createTempDir("siteintel-test-dir-as-env");
+      const code = `
+        import './next.config.mjs';
+      `;
+      const res = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+        cwd: process.cwd(),
+        env: { ...process.env, ENV_FILE: tempDir },
+        encoding: "utf-8",
+      });
+
+      expect(res.status).not.toBe(0);
+      expect(res.stderr).toContain("is not a regular file");
+    });
+
+    it("loads cleanly without action when ENV_FILE is unset or empty", () => {
+      const code = `
+        import './next.config.mjs';
+        console.log('NEXT_CONFIG_LOADED_OK');
+      `;
+      const res = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+        cwd: process.cwd(),
+        env: { ...process.env, ENV_FILE: "" },
+        encoding: "utf-8",
+      });
+
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain("NEXT_CONFIG_LOADED_OK");
+    });
+
+    it("loads valid environment file and honors host precedence over file values", () => {
+      const tempDir = createTempDir("siteintel-test-next-env");
+      const envPath = path.join(tempDir, "custom.env");
+      fs.writeFileSync(
+        envPath,
+        [
+          "HOST_PRECEDENCE_TEST=from_file",
+          "NEW_SETTING_FROM_FILE=custom_value_42",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const code = `
+        import './next.config.mjs';
+        console.log('PRECEDENCE:', process.env.HOST_PRECEDENCE_TEST);
+        console.log('NEW_SETTING:', process.env.NEW_SETTING_FROM_FILE);
+      `;
+      const res = spawnSync(process.execPath, ["--input-type=module", "-e", code], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ENV_FILE: envPath,
+          HOST_PRECEDENCE_TEST: "from_host_environment",
+        },
+        encoding: "utf-8",
+      });
+
+      expect(res.status).toBe(0);
+      // Host environment takes precedence over file
+      expect(res.stdout).toContain("PRECEDENCE: from_host_environment");
+      // New setting from file is populated
+      expect(res.stdout).toContain("NEW_SETTING: custom_value_42");
+    });
+  });
+
+  describe("Hostinger Preflight CLI Process Exit Behavior", () => {
+    it("exits with status 1 when preflight validation fails", () => {
+      const tempDir = createTempDir("siteintel-test-cli-fail");
+      const envPath = path.join(tempDir, "invalid.env");
+      fs.writeFileSync(envPath, "NODE_ENV=production\n", "utf-8");
+
+      const scriptPath = path.join(process.cwd(), "scripts", "hostinger-preflight.mjs");
+      const res = spawnSync(process.execPath, [scriptPath], {
+        cwd: process.cwd(),
+        env: { ...process.env, ENV_FILE: envPath },
+        encoding: "utf-8",
+      });
+
+      expect(res.status).toBe(1);
+      expect(res.stdout).toContain("PREFLIGHT RESULT: 2 CHECK(S) FAILED");
+    });
+
+    it("exits with status 0 when preflight validation passes", () => {
+      const tempDir = createTempDir("siteintel-test-cli-pass");
+      const envPath = path.join(tempDir, "valid.env");
+      const randomSecret = crypto.randomBytes(32).toString("hex");
+      const randomKey = crypto.randomBytes(32).toString("hex");
+      fs.writeFileSync(
+        envPath,
+        [
+          "NODE_ENV=production",
+          "PORT=3000",
+          "HOST=127.0.0.1",
+          "TRUSTED_IP_HEADER=x-real-ip",
+          `SESSION_SECRET=${randomSecret}`,
+          `PROVIDER_ENCRYPTION_KEY=${randomKey}`,
+          "ALLOW_STAGING_SEEDS=false",
+        ].join("\n"),
+        "utf-8"
+      );
+
+      const scriptPath = path.join(process.cwd(), "scripts", "hostinger-preflight.mjs");
+      const res = spawnSync(process.execPath, [scriptPath], {
+        cwd: process.cwd(),
+        env: { ...process.env, ENV_FILE: envPath },
+        encoding: "utf-8",
+      });
+
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain("PREFLIGHT RESULT: ALL CHECKS PASSED");
+      // Verify secrets are NOT leaked in stdout or stderr
+      expect(res.stdout).not.toContain(randomSecret);
+      expect(res.stdout).not.toContain(randomKey);
     });
   });
 });

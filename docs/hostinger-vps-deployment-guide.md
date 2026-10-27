@@ -212,6 +212,12 @@ PAGESPEED_API_KEY=
 
 ## 7. Preflight Verification & Production Compilation
 
+### 7.1 Environment Loading Precedence & Fail-Closed Guarantee
+- **Deterministic Loading:** Both `scripts/hostinger-preflight.mjs` and `next.config.mjs` natively evaluate `process.env.ENV_FILE`.
+- **Fail-Closed Contract:** If `ENV_FILE` is specified but missing, inaccessible, or a directory, preflight and Next.js production compilation fail immediately with an explicit fatal error (secret values are never leaked in error outputs).
+- **Variable Precedence:** Variables exported by the shell or systemd take precedence over variables defined in `ENV_FILE` (`override: false`). Unset variables are deterministically populated from `ENV_FILE`.
+
+### 7.2 Execute Preflight & Build
 Run the preflight validator to verify all runtime checks before building:
 
 ```bash
@@ -219,7 +225,7 @@ cd /opt/siteintel-pulse
 sudo -u siteintel ENV_FILE=/etc/siteintel-pulse.env npm run preflight:hostinger
 ```
 
-If preflight reports **PREFLIGHT RESULT: ALL CHECKS PASSED**, proceed to compile the Next.js production bundle:
+If preflight reports **PREFLIGHT RESULT: ALL CHECKS PASSED**, compile the Next.js production bundle:
 
 ```bash
 sudo -u siteintel ENV_FILE=/etc/siteintel-pulse.env npm run build
