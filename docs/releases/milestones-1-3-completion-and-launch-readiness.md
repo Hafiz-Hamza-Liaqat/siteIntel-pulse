@@ -2,7 +2,9 @@
 
 **Document Version:** `1.3.0`  
 **Date:** `2026-10-27`  
+**Feature Code Commit:** `e47fd6fdee2b1ec78fe75b2b63c3089dc097c08a`  
 **Publication Branch:** `feature/milestones-1-3-completion`  
+**Pull Request URL:** [PR #1 (feature/milestones-1-3-completion -> main)](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1)  
 **Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
 **Remote Repository URL:** `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse.git`  
 **Baseline Commit on `main`:** `c77d08e6977503c7596d92b15e34424bc9ee3234`  
@@ -14,7 +16,17 @@
 
 This document certifies the final verification and publication of **Milestone 1 (Evidence & Score Transparency)**, **Milestone 2 (Assessment Depth & Diagnostics)**, and **Milestone 3 (Authorized Business Data Connections & Cost of Inaction v1/v2)** for SiteIntel Pulse.
 
-All code and regression tests were authored directly on branch `feature/milestones-1-3-completion`.
+All code and regression tests were authored directly on branch `feature/milestones-1-3-completion`. A formal Pull Request targeting `main` was opened at [PR #1](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/pull/1).
+
+### Remote Publication Verification Output:
+```text
+e47fd6fdee2b1ec78fe75b2b63c3089dc097c08a  refs/heads/feature/milestones-1-3-completion
+c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main
+```
+
+### GitHub Actions Quality Gates on PR #1
+- **CI Pipeline Run [40472127636](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40472127636):** **`SUCCESS`** (TypeScript typecheck, ESLint, 39 test files / 386 tests, 51-page PDF verification, SQLite ACID backup, Playwright E2E 33/33, Next.js 15 build).
+- **Docker Container Runtime Acceptance Run [40472127548](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40472127548):** **`SUCCESS`** (Strict loopback `127.0.0.1:3000` binding, container health probe, in-container scan execution, PDF magic bytes validation, container restart durability).
 
 ### Summary of Milestone 3 Correctness & Provider Hardening Enhancements
 1. **GA4 Property Flow & Resource Correctness:**
@@ -72,7 +84,7 @@ Every required verification gate was executed against the exact implementation o
 | 5 | **SQLite Backup & Recovery** | `npm run db:verify` | `0` | **PASS** | WAL mode, atomic `VACUUM INTO`, disaster recovery 100% record restoration fidelity. |
 | 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (1.2m). |
 | 7 | **Production Next.js Build** | `npm run build` (`next build`) | `0` | **PASS** | All routes compiled, 25/25 static pages generated cleanly. |
-| 8 | **Docker Container Acceptance** | Local / GitHub Actions | `N/A` | **READY** | Docker daemon not present on local Windows host (`docker: CommandNotFoundException`). Container acceptance workflow (`.github/workflows/container-acceptance.yml`) verified in CI baseline Runs [40445557359](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40445557359) and [40448358888](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40448358888). Staging container Dockerfile verified with non-root user and loopback binding. |
+| 8 | **Docker Container Acceptance** | GitHub Actions (`.github/workflows/container-acceptance.yml`) | `0` | **PASS** | Automated run on PR #1 ([Run 40472127548](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40472127548)). Validated non-root user, strict loopback `127.0.0.1:3000` binding, health probes, in-container PDF rasterization, public scan capture, PDF magic bytes, restart durability, single-report invariant, and clean teardown. |
 
 ---
 
