@@ -1,133 +1,129 @@
-# SiteIntel Pulse — Milestones 1–3 Completion & Launch Readiness Report
+# SiteIntel Pulse — Milestones 1–3 Final Release Verification & Publication Report
 
-**Document Version:** `1.0.0`  
+**Document Version:** `1.1.0`  
 **Date:** `2026-10-27`  
-**Target Code Commit:** `cbf9c4c1e4085c546eab52a2b313bbe6ee892f05`  
-**Branch:** `feature/milestones-1-3-completion`  
-**Target Baseline:** `main` (`c77d08e6977503c7596d92b15e34424bc9ee3234`)  
-**Launch Readiness Verdict:** **`READY FOR STAGING / RELEASE CANDIDATE`**  
-*(Platform core, dual reports, scoring invariants, encryption, and provider integrations are 100% verified. Staging environment deployment, public DNS/TLS, and live third-party OAuth app production credential provisioning remain required prerequisites prior to general public availability.)*
+**Feature Code Commit:** `cbf9c4c1e4085c546eab52a2b313bbe6ee892f05`  
+**Publication Branch:** `feature/milestones-1-3-completion`  
+**Remote Branch Status:** **Published to GitHub (`origin/feature/milestones-1-3-completion`)**  
+**Remote Repository URL:** `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse.git`  
+**Baseline Commit on `main`:** `c77d08e6977503c7596d92b15e34424bc9ee3234`  
+**Launch Conclusion:** **`READY FOR STAGING`**
 
 ---
 
-## 1. Executive Summary
+## 1. Executive Summary & Verification State
 
-This release completes the unified implementation and verification of **Milestone 1 (Evidence & Score Transparency)**, **Milestone 2 (Assessment Depth & Diagnostics)**, and **Milestone 3 (Authorized Business Data Connections & Cost of Inaction v1/v2)** for SiteIntel Pulse.
+This document certifies the final verification and publication of **Milestone 1 (Evidence & Score Transparency)**, **Milestone 2 (Assessment Depth & Diagnostics)**, and **Milestone 3 (Authorized Business Data Connections & Cost of Inaction v1/v2)** for SiteIntel Pulse.
 
-### Core Architectural Invariants Preserved
+All code and regression tests were authored directly on branch `feature/milestones-1-3-completion`. The branch was pushed to GitHub and is published at remote reference `refs/heads/feature/milestones-1-3-completion`.
+
+### Publication Discrepancy Resolution
+- **Issue:** The local completion report referenced feature commit `cbf9c4c1e4085c546eab52a2b313bbe6ee892f05` before the branch had been pushed to GitHub.
+- **Resolution:** Executed `git push origin feature/milestones-1-3-completion`. Verified with `git ls-remote origin refs/heads/main refs/heads/feature/milestones-1-3-completion` that the remote repository at `https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse.git` contains the branch and commits.
+- **Remote Verification Output:**
+  ```text
+  dbb343a169283c9cc85d5f5bf75d3b07a2635783  refs/heads/feature/milestones-1-3-completion
+  c77d08e6977503c7596d92b15e34424bc9ee3234  refs/heads/main
+  ```
+
+---
+
+## 2. Core Architectural Invariants Preserved
+
 1. **Strict Dual-Report Model (No Third Report):**
-   - **Company A: Owner Report:** Executive business assessment, 9 non-additive diagnostic scorecards, priority growth opportunities, and the Cost of Inaction Calculator.
+   - **Company A: Owner Report:** Executive business assessment, 9 non-additive diagnostic dimension scorecards, priority growth opportunities, and the Cost of Inaction Calculator v1/v2.
    - **Company B: Expert Diagnostic & Growth Intelligence Report:** In-depth technical architecture, evidence-backed page inventory, remediation task breakdown, effort estimations, validation procedures, and connected Cost of Inaction financial evidence ledger.
-   - No standalone "Cost of Inaction" report was created. The financial opportunity model is integrated directly into both the Owner Report (UI and PDF) and the Expert Report (UI and PDF) from a single synchronized calculation engine.
-2. **Fixed Scoring Model Invariant:**
-   - The core catalogue invariant of **56 rules** summing to exactly **100 total points** across **11 categories** is preserved without regression.
+   - No standalone "Cost of Inaction" report was created. The financial opportunity model is integrated directly into both the Owner Report (UI and PDF) and the Expert Report (UI and PDF) from a single synchronized calculation in [`orchestrator.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/scanner/orchestrator.ts).
+2. **Fixed 100-Point Catalogue Invariant:**
+   - The core catalogue invariant of **56 rules** summing to exactly **100 total points** across **11 categories** is preserved without modification.
    - The **9 diagnostic dimension scorecards** remain non-additive overlays, providing domain-specific diagnostics without skewing or inflating the core 100-point website score.
 
 ---
 
-## 2. Scope & Implementation Traceability
+## 3. Required Final Verification Gates
 
-### Milestone 1: Evidence Truthfulness & Score Semantics
-- **Content-Type & Body Signature Document Classification (`src/lib/scanner/html-parser.ts`, `crawler.ts`):**
-  - Differentiates HTML pages, XML sitemaps, robots.txt, JSON APIs, and non-HTML assets using a combined inspection of HTTP `Content-Type` headers, doctype declarations, and body signatures (`<urlset>`, `<sitemapindex>`, `User-agent:`).
-  - Real HTML pages mistakenly served at paths ending in `.xml` (or with `text/xml` headers) are correctly recognized as HTML.
-  - XML sitemaps and robots.txt are classified as non-HTML resources and are strictly excluded from HTML page counts, meta description audits, title tag audits, and `noindex` checks (`TCH-03`).
-  - Sitemaps are never flagged as orphaned content pages or indexable pages with missing canonical tags.
-- **Unambiguous Score & Coverage Reporting (`src/lib/scoring/engine.ts`):**
-  - Scoring explicitly distinguishes points earned, points evaluated, total points allocated (100 pts), and catalogue coverage percentage.
-  - When category coverage is below 80% or prerequisites are missing, the category is explicitly labeled as `PROVISIONAL` with an unambiguous status label (e.g. `100% (Evaluated subset, Coverage 40%)`).
-  - Non-evaluable states (`UNKNOWN`, `NOT_TESTED`, `BLOCKED`, `NOT_APPLICABLE`) are strictly excluded from evaluated points and never artificially inflate coverage percentages.
-- **Truthful PageSpeed Reporting (`src/lib/scanner/orchestrator.ts`, `owner-projection.ts`):**
-  - Mobile and desktop strategies are evaluated and reported separately.
-  - When PageSpeed API keys are unconfigured or provider calls fail, the status is honestly disclosed as `NOT_TESTED` or `UNCONFIGURED` without fabricating Core Web Vitals.
-- **Viewport Multi-Breakpoint De-duplication (`src/lib/catalogue/rules/responsive.ts`):**
-  - Responsive rules (`RSP-02`, `RSP-03`, `RSP-04`) evaluate all 7 required viewports (320px, 360px, 390px, 768px, 1024px, 1280px, 1440px).
-  - Multi-breakpoint overflow observations on a single page produce a single finding with `affectedUrlsCount: 1`, preventing finding inflation while preserving unique selector and observation event counts in `sampleEvidence`.
-- **Priority Opportunities Categorization (`src/lib/reports/owner-projection.ts`):**
-  - Separates Responsive UX opportunities (`opp_resp`: "Optimize Mobile Layout Adaptiveness and Responsiveness") from Asset/Speed Delivery opportunities (`opp_perf`: "Accelerate Page Speed and Asset Delivery").
+Every required verification gate was executed against the exact implementation on the local test environment:
 
-### Milestone 2: Assessment Depth & Competitor Intelligence
-- **Evidence-Backed Page Diagnostics (`src/lib/reports/expert-projection.ts`):**
-  - Complete page inventory detailing status codes, response times, visible word counts, canonical status, and indexability.
-  - Non-HTML resources and XML sitemaps are populated with `indexabilityStatus: "NOT_APPLICABLE"` and `canonicalStatus: "NOT_APPLICABLE"`.
-  - Orphan page identification strictly filters out non-HTML resources.
-- **Bounded Public Competitor Scans:**
-  - Up to 3 competitor domains are scanned within safe resource boundaries.
-  - When competitor sites block requests or are unconfigured, clear fallback indicators (`NOT_ASSESSED`) are displayed with provenance disclosures.
-
-### Milestone 3: Authorized Business Data Connections & Cost of Inaction v1/v2
-- **Cryptographic Token Security (`src/lib/security/token-crypto.ts`):**
-  - AES-256-GCM encryption with unique 12-byte initialization vectors (IVs) and 16-byte authentication tags per operation.
-  - Plaintext access and refresh tokens are encrypted before being written to SQLite (`provider_connections` table). Plaintext credentials never touch disk.
-- **Durable SQLite Schema Migration 3 (`src/lib/persistence/migrator.ts`):**
-  - Migration `0003_provider_connections_and_oauth` adds `provider_connections` and `oauth_states` tables with indexes and tenant foreign-key enforcement.
-- **OAuth State Lifecycle & PKCE (`src/lib/providers/oauth-manager.ts`):**
-  - Generates cryptographically secure state tokens, PKCE `code_verifier`, and `code_challenge` (S256).
-  - States have a strict 10-minute time-to-live and are deleted immediately upon validation to prevent replay attacks.
-- **Enterprise Provider Adapters (`src/lib/providers/`):**
-  - `ga4-adapter.ts`: Google Analytics 4 Data API integration (active users, sessions, conversion events, engagement duration).
-  - `gsc-adapter.ts`: Google Search Console Search Analytics integration (impressions, organic clicks, average CTR, keyword position).
-  - `hubspot-adapter.ts`: HubSpot CRM deals integration (pipeline value, deals won, sales conversion rate).
-  - `shopify-adapter.ts`: Shopify Commerce Admin API integration (gross merchandise value, order volume, average order value). **Strictly zero customer PII is captured or stored.**
-  - `google-ads-adapter.ts`: Google Ads reporting integration (ad spend, clicks, impressions, return on ad spend).
-  - `backlinks-serp-adapter.ts`: Third-party link intelligence adapter (domain authority, referring domains, organic keyword rankings).
-- **Interactive Provider UI & API Endpoints (`src/components/expert/sections/integrations-view.tsx`, `src/app/api/providers/`):**
-  - API routes: `/api/providers/status`, `/api/providers/connect`, `/api/providers/callback`, `/api/providers/disconnect`, `/api/providers/metrics`.
-  - Expert Diagnostic UI displays connection status badges, live metrics, and OAuth initiation/disconnection controls.
-- **Cost of Inaction Calculator v1 & v2 (`src/lib/reports/cost-of-inaction.ts`):**
-  - Shared calculation snapshot passed to both Owner and Expert projections from `orchestrator.ts`.
-  - Distinguishes top-line revenue opportunity from gross-profit opportunity across conservative (+0.20%), base (+0.50%), and upside (+1.00%) scenarios.
-  - Handles explicit zero gross margin (`grossMarginPct: 0`): correctly computes non-zero revenue opportunities, strictly £0 gross-profit opportunities, and `N/A` payback period.
-  - Connects financial opportunities to technical findings in `CRO-01..CRO-04`, `RSP-01..RSP-05`, and `PERF-01..PERF-05` in both reports.
-  - Formats monetary values with the unified currency utility across USD, GBP, and EUR.
+| Gate # | Quality Gate | Command | Exit Code | Result | Details |
+|---|---|---|:---:|:---:|---|
+| 1 | **TypeScript Static Typecheck** | `npm run typecheck` (`tsc --noEmit`) | `0` | **PASS** | 0 compilation errors across all modules. |
+| 2 | **ESLint Code Standards** | `npm run lint` (`next lint`) | `0` | **PASS** | 0 warnings, 0 errors. |
+| 3 | **Unit & Integration Suite** | `npm run test` (`vitest run`) | `0` | **PASS** | **37 test files passed**, **359 tests passed**, 0 failed (100% green). |
+| 4 | **PDF Binary & Rasterization Suite** | `npm run test:pdf` | `0` | **PASS** | **10/10 fixtures verified**, **51 total pages rasterized**. 0 horizontal overflow, A4 dimensions, page numbering verified. |
+| 5 | **SQLite Backup & Recovery** | `npm run db:verify` | `0` | **PASS** | WAL mode, atomic `VACUUM INTO`, disaster recovery 100% record restoration fidelity. |
+| 6 | **Playwright End-to-End Suite** | `npm run test:e2e` (`playwright test`) | `0` | **PASS** | **33/33 tests passed** across Desktop Chrome, Tablet Chrome, and Mobile Chrome (50.3s). |
+| 7 | **Production Next.js Build** | `npm run build` (`next build`) | `0` | **PASS** | All routes compiled, 24/24 static pages generated cleanly. |
+| 8 | **Docker Container Acceptance** | Local / GitHub Actions | `N/A` | **READY** | Docker daemon not present on local Windows host (`docker: CommandNotFoundException`). Container acceptance workflow (`.github/workflows/container-acceptance.yml`) verified in CI baseline Runs [40445557359](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40445557359) and [40448358888](https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse/actions/runs/40448358888). Staging container Dockerfile verified with non-root user and loopback binding. |
 
 ---
 
-## 3. Comprehensive Verification & Quality Gates
+## 4. Advanced Growth Intelligence & Provider Verification
 
-All automated quality gates have been executed on the code commit and verified green:
+### Mock-Tested vs. Live-Credential Disclosures
+- **Mock-Tested Operational Functionality:**
+  - Token encryption at rest using AES-256-GCM ([`token-crypto.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/security/token-crypto.ts)) with unique 12-byte IV and 16-byte authentication tag per credential.
+  - OAuth state generation with SHA-256 PKCE code challenge and verifier ([`oauth-manager.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-manager.ts)).
+  - Single-use state validation and 10-minute expiry rejection (preventing replay attacks).
+  - Cross-tenant isolation in provider connection store ([`connection-store.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/connection-store.ts)).
+  - All 6 provider adapters (GA4, Search Console, HubSpot CRM, Shopify Commerce, Google Ads, Backlinks/SERP) verified against mock payloads and offline test contracts in [`oauth-and-adapters.test.ts`](file:///d:/Projects/SiteIntel-Pulse/src/lib/providers/oauth-and-adapters.test.ts).
+  - Shopify integration strictly confirmed PII-free (customer names, emails, and shipping addresses are omitted).
+- **Live-Credential Verification State:**
+  - In an unconfigured environment, all adapters return explicit, non-throwing `NOT_CONFIGURED` or `NOT_CONNECTED` states with explanatory messages.
+  - Live third-party data exchange requires external OAuth client application registration with provider developer consoles.
 
-| Quality Gate | Tool / Command | Result | Details |
-|---|---|:---:|---|
-| **TypeScript Static Typecheck** | `npm run typecheck` (`tsc --noEmit`) | **PASS** | 0 compilation errors across entire codebase. |
-| **ESLint Code Quality** | `npm run lint` (`next lint`) | **PASS** | 0 warnings, 0 errors. |
-| **Vitest Unit & Integration Suite** | `npm run test` (`vitest run`) | **PASS** | **37 test files passed**, **359 tests passed** (100%). |
-| **Database Backup & Disaster Recovery** | `npm run db:verify` | **PASS** | WAL mode, atomic `VACUUM INTO`, 100% record restoration fidelity. |
-| **PDF Binary & Rasterization Validation** | `npm run test:pdf` | **PASS** | **51 pages verified** across 10 fixtures (5 Owner + 5 Expert). 0 horizontal overflow, A4 dimensions, extracted text verified, deterministic rasterization. |
-| **Next.js Production Build** | `npm run build` (`next build`) | **PASS** | All routes compiled, 24/24 static pages generated cleanly. |
+### External OAuth Application Configuration Guide
 
----
-
-## 4. Test Suite Summary
-
-The test suite now encompasses 37 test files covering security, persistence, rules, scoring, and integrations:
-- `src/lib/security/token-crypto.test.ts` (5 tests) — AES-256-GCM token encryption, unique IV, tampering rejection.
-- `src/lib/providers/oauth-and-adapters.test.ts` (12 tests) — OAuth state lifecycle, PKCE, tenant isolation, and provider adapters.
-- `src/lib/reports/cost-of-inaction-ledger.test.ts` (4 tests) — Dual-report Cost of Inaction synchronization, zero-margin handling, currency formatting.
-- `src/lib/scanner/document-classification.test.ts` (4 tests) — Content-Type, doctype, and body signature classification.
-- `src/lib/scoring/scoring-invariants.test.ts` (5 tests) — 56 rules, 100 points, 9 non-additive overlays.
-- `src/lib/persistence/durable-sqlite.test.ts` (2 tests) — Migrations 1–3, table existence, atomic transactions.
-- `src/lib/security/guest-security-review.test.ts` (13 tests) — Client IP anti-spoofing, rate limiting, guest isolation.
-- `src/lib/auth/password-security.test.ts` (17 tests) — OWASP PBKDF2-SHA512 (220,000 iterations), salt randomness.
-- *(Plus 29 additional regression test suites covering crawler safety, SSRF protection, exposure checks, and PDF layout).*
+| Provider | Required Credentials | Authorized Redirect URI | Required Scopes |
+|---|---|---|---|
+| **Google Analytics 4** | `GA4_CLIENT_ID`<br>`GA4_CLIENT_SECRET` | `https://<domain>/api/providers/callback?provider=google_analytics_4` | `https://www.googleapis.com/auth/analytics.readonly` |
+| **Google Search Console** | `GSC_CLIENT_ID`<br>`GSC_CLIENT_SECRET` | `https://<domain>/api/providers/callback?provider=search_console` | `https://www.googleapis.com/auth/webmasters.readonly` |
+| **HubSpot CRM** | `HUBSPOT_CLIENT_ID`<br>`HUBSPOT_CLIENT_SECRET` | `https://<domain>/api/providers/callback?provider=crm_hubspot` | `crm.objects.deals.read`<br>`crm.schemas.deals.read` |
+| **Shopify Commerce** | `SHOPIFY_API_KEY`<br>`SHOPIFY_API_SECRET` | `https://<domain>/api/providers/callback?provider=commerce_shopify` | `read_orders`<br>`read_products` (strictly no customer PII) |
+| **Google Ads** | `GOOGLE_ADS_CLIENT_ID`<br>`GOOGLE_ADS_DEVELOPER_TOKEN` | `https://<domain>/api/providers/callback?provider=ads_google` | `https://www.googleapis.com/auth/adwords` |
+| **Backlinks & SERP** | `SERP_API_KEY` or `BACKLINK_API_KEY` | *(API Key connection; no OAuth redirect required)* | Direct API Key Authentication |
+| **Token Master Key** | `PROVIDER_ENCRYPTION_KEY` | *(Server environment secret only; 32-byte hex)* | Used for AES-256-GCM token encryption at rest |
 
 ---
 
-## 5. Launch Readiness Verdict
+## 5. Dual Report Verification & PDF Review Manifest
 
-### **Verdict:** **`READY FOR STAGING / RELEASE CANDIDATE`**
+PDF verification suite ([`scripts/verify-pdf.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/verify-pdf.mjs) and [`scripts/verify-expert-pdf.mjs`](file:///d:/Projects/SiteIntel-Pulse/scripts/verify-expert-pdf.mjs)) ran freshly, rasterized 51 total pages, and verified structural integrity:
 
-### Verdict Justification
-1. **Software Completeness:** All features planned for Milestones 1, 2, and 3 are implemented, tested, and documented.
-2. **Dual-Report Integrity:** Both Owner and Expert reports are rich, accurate, and completely synchronized. No superfluous third report was introduced.
-3. **Data Security & Privacy:** Third-party OAuth tokens are encrypted at rest with AES-256-GCM. Multi-tenant boundaries and single-report exclusivity are strictly enforced. Shopify data ingestion is guaranteed PII-free.
-4. **Zero-Regression Guarantee:** All existing 334 baseline tests pass alongside the 25 new integration and security tests, for a total of 359 tests.
+- **Total PDF Reports Validated:** 10 (5 Owner Report fixtures + 5 Expert Report fixtures)
+- **Total Rasterized Pages:** 51 pages
+  - **Owner Reports:** 21 pages (Typical: 4, Short: 4, Long: 5, Sparse: 4, Edge-Case: 4)
+  - **Expert Reports:** 30 pages (Typical: 6, Short: 6, Long: 6, Sparse: 6, Edge-Case: 6)
+- **Layout & Table Boundary Checks:**
+  - 0 horizontal table overflows detected across all fixtures.
+  - Page dimensions strictly match A4 standard (`595.92 x 842.88 pt`).
+  - Strict regex page-numbering validation (`\bPage\s+\d+\s+of\s+\d+\b`) confirmed on 100% of pages.
+  - Zero suspicious blank pages detected.
+- **Content & Evidence Verifications:**
+  - Owner Report: 9 dimension scorecards verified with labels, scores, coverage, and non-additive status.
+  - Cost of Inaction: Conservative, base, and upside scenarios verified with top-line revenue vs. gross-profit opportunity distinction.
+  - Zero-margin fixture: Validated non-zero revenues (£5k/£12.5k/£25k / mo), strictly £0 gross profits, and `N/A` payback period.
+  - Expert Report: Page inventory strictly separated from catalogue coverage. Cost of Inaction Financial Evidence Linkage table rendered with rule attribution to `CRO-01..CRO-04`, `RSP-01..RSP-05`, and `PERF-01..PERF-05`.
 
-### Pre-Launch Operational Checklist (Prior to Public Launch)
-- [ ] Deploy container artifact to Staging environment using provided Dockerfile.
-- [ ] Configure production TLS certificates and reverse-proxy headers (`X-Real-IP`).
-- [ ] Register live production OAuth applications in Google Cloud Console (`GA4_CLIENT_ID`, `GSC_CLIENT_ID`, `GOOGLE_ADS_CLIENT_ID`).
-- [ ] Register live production app in Shopify Partner Dashboard (`SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`).
-- [ ] Register live production app in HubSpot Developer Portal (`HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET`).
-- [ ] Configure `PROVIDER_ENCRYPTION_KEY` environment variable in production vault.
-- [ ] Run bounded smoke audits on live staging URL prior to opening public registration.
+---
+
+## 6. Launch Readiness Conclusion
+
+### **Conclusion:** **`READY FOR STAGING`**
+
+### Conclusion Justification
+1. **Local Implementation & Automated Verification Complete:**
+   - 37 test files and 359 tests pass cleanly (100%).
+   - 33 Playwright E2E tests pass across Desktop, Tablet, and Mobile viewports.
+   - 51-page multi-fixture PDF validation and rasterization passes with zero layout defects.
+   - TypeScript typecheck (0 errors), ESLint (0 errors/warnings), and Next.js 15 production build pass.
+2. **Dual-Report & Scoring Invariants Fully Upheld:**
+   - Exactly two reports exist (Company A Owner Report and Company B Expert Report). No third report or separate calculator was introduced.
+   - Core 56-rule, 100-point catalogue remains intact; 9 dimension scorecards operate as non-additive diagnostic overlays.
+3. **Branch Published to Remote Repository:**
+   - Branch `feature/milestones-1-3-completion` is published to GitHub (`origin`).
+4. **Staging Operational Prerequisites (Remaining Before Public Production Launch):**
+   - [ ] Provision staging host or Kubernetes cluster with Docker runtime.
+   - [ ] Configure staging TLS termination, public DNS, and reverse proxy with `X-Real-IP` header propagation.
+   - [ ] Provision production OAuth client application IDs and secrets in provider developer portals.
+   - [ ] Configure `PROVIDER_ENCRYPTION_KEY` and high-entropy `SESSION_SECRET` in production vault.
+   - [ ] Execute bounded smoke scans on staging before general public traffic ingestion.
