@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pdfGenerator, generateReportHtml } from "../src/lib/reports/pdf-generator.ts";
+import { formatCurrency } from "../src/lib/reports/currency.ts";
 import { rasterizePdf } from "./pdf-rasterizer.mjs";
 import { recordValidationReport } from "./validation-manifest.mjs";
 
@@ -763,17 +764,79 @@ async function verifyOwnerPdfs() {
           throw new Error(`Before/after conversion rate modeling missing from Cost of Inaction in ${tc.name}`);
         }
 
+        const coi = tc.report.costOfInaction;
+        const curr = coi.currency || "USD";
+        const scenarios = coi.scenarios;
+
+        // Verify all 3 scenarios' expected financial values match PDF text
+        for (const [sKey, s] of Object.entries(scenarios)) {
+          // Expected Revenue values (must be non-zero and exact formatted string)
+          const expectedMonthlyRev = `${formatCurrency(s.monthlyRevenueOpportunity ?? s.monthlyOpportunity, curr).toUpperCase()} / MO`;
+          const expectedAnnualRev = `${formatCurrency(
+            s.annualRevenueOpportunity ?? (s.monthlyRevenueOpportunity ? s.monthlyRevenueOpportunity * 12 : s.annualOpportunity),
+            curr
+          ).toUpperCase()} / YR`;
+
+          if (!fullPdfText.includes(expectedMonthlyRev)) {
+            throw new Error(`Expected monthly revenue "${expectedMonthlyRev}" for scenario ${sKey} missing from PDF text in ${tc.name}`);
+          }
+          if (!fullPdfText.includes(expectedAnnualRev)) {
+            throw new Error(`Expected annual revenue "${expectedAnnualRev}" for scenario ${sKey} missing from PDF text in ${tc.name}`);
+          }
+
+          // Expected Gross Profit values
+          if (coi.grossMarginPct != null) {
+            const expectedMonthlyGP = `${formatCurrency(s.monthlyGrossProfitOpportunity ?? 0, curr).toUpperCase()} / MO`;
+            const expectedAnnualGP = `${formatCurrency(s.annualGrossProfitOpportunity ?? 0, curr).toUpperCase()} / YR (${coi.grossMarginPct}% MARGIN)`;
+
+            if (!fullPdfText.includes(expectedMonthlyGP)) {
+              throw new Error(`Expected monthly gross profit "${expectedMonthlyGP}" for scenario ${sKey} missing from PDF text in ${tc.name}`);
+            }
+            if (!fullPdfText.includes(expectedAnnualGP)) {
+              throw new Error(`Expected annual gross profit "${expectedAnnualGP}" for scenario ${sKey} missing from PDF text in ${tc.name}`);
+            }
+          }
+
+          // Expected Payback
+          const expectedPayback = s.paybackMonths != null ? `${s.paybackMonths} MO` : "N/A";
+          if (!fullPdfText.includes(expectedPayback)) {
+            throw new Error(`Expected payback period "${expectedPayback}" for scenario ${sKey} missing from PDF text in ${tc.name}`);
+          }
+        }
+
+        // Expected Remediation Cost
+        if (coi.remediationCostEstimate != null) {
+          const expectedRemediationCost = formatCurrency(coi.remediationCostEstimate, curr).toUpperCase();
+          if (!fullPdfText.includes(expectedRemediationCost)) {
+            throw new Error(`Expected remediation cost "${expectedRemediationCost}" missing from PDF text in ${tc.name}`);
+          }
+        }
+
         // Specific scenario & margin assertions:
-        if (tc.report.costOfInaction.grossMarginPct === 0) {
-          // Zero gross margin case: gross profit must be £0 / 0 / mo, revenue must be non-zero, payback must be N/A
-          if (!fullPdfText.includes("0 / MO") || !fullPdfText.includes("0 / YR")) {
-            throw new Error(`Zero gross margin case must display zero gross profit in ${tc.name}`);
+        if (coi.grossMarginPct === 0) {
+          // Explicitly assert zero-margin fixture values for all 3 scenarios:
+          // 1. Non-zero monthly revenues: Conservative £5,000 / mo, Base £12,500 / mo, Upside £25,000 / mo
+          // 2. Non-zero annual revenues: Conservative £60,000 / yr, Base £150,000 / yr, Upside £300,000 / yr
+          // 3. Strictly zero gross profits: £0 / mo, £0 / yr (0% margin) across all 3 scenarios
+          // 4. Strictly N/A payback period across all 3 scenarios
+          const zeroMarginAsserts = [
+            "£5,000 / MO",
+            "£60,000 / YR",
+            "£12,500 / MO",
+            "£150,000 / YR",
+            "£25,000 / MO",
+            "£300,000 / YR",
+            "£0 / MO",
+            "£0 / YR (0% MARGIN)",
+            "N/A",
+          ];
+          for (const expectedVal of zeroMarginAsserts) {
+            if (!fullPdfText.includes(expectedVal)) {
+              throw new Error(`Zero gross margin assertion failed: expected "${expectedVal}" missing from PDF text in ${tc.name}`);
+            }
           }
-          if (!fullPdfText.includes("N/A")) {
-            throw new Error(`Zero gross margin case must display N/A for payback in ${tc.name}`);
-          }
-          console.log(`    [PASS] Zero gross margin verified: zero gross profit, non-zero revenue, and N/A payback confirmed.`);
-        } else if (tc.report.costOfInaction.grossMarginPct == null) {
+          console.log(`    [PASS] Zero gross margin verified: exact non-zero revenues (£5,000 / £12,500 / £25,000 / mo), zero gross profits (£0 / mo), and N/A payback confirmed across all three scenarios.`);
+        } else if (coi.grossMarginPct == null) {
           // Omitted gross margin case: gross profit row shows "Omitted (supply margin %)" and primary metric labeled as top-line revenue
           if (!fullPdfText.includes("OMITTED (SUPPLY MARGIN %)")) {
             throw new Error(`Omitted margin case must show "Omitted (supply margin %)" for gross profit in ${tc.name}`);
@@ -784,7 +847,7 @@ async function verifyOwnerPdfs() {
           console.log(`    [PASS] Omitted gross margin verified: gross profit marked omitted and primary labeled revenue.`);
         } else {
           // Explicit positive gross margin case: gross profit opportunity indicated with %
-          if (!fullPdfText.includes(`GROSS PROFIT OPPORTUNITY (${tc.report.costOfInaction.grossMarginPct}% MARGIN APPLIED)`)) {
+          if (!fullPdfText.includes(`GROSS PROFIT OPPORTUNITY (${coi.grossMarginPct}% MARGIN APPLIED)`)) {
             throw new Error(`Primary metric not labeled with gross margin % in ${tc.name}`);
           }
           console.log(`    [PASS] Explicit positive gross margin verified: revenue and gross profit distinguished.`);
