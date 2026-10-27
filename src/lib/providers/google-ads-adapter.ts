@@ -567,6 +567,22 @@ export class GoogleAdsAdapter {
         };
       }
 
+      // Explicit fail-closed check: customer.manager must be strictly boolean false
+      if (typeof customerInfo.manager !== "boolean" || customerInfo.manager !== false) {
+        return {
+          success: false,
+          error: `Google Ads API returned an indeterminate account type for "${normalized}" (customer.manager is ${
+            customerInfo.manager === undefined
+              ? "missing"
+              : customerInfo.manager === null
+              ? "null"
+              : typeof customerInfo.manager !== "boolean"
+              ? `non-boolean (${JSON.stringify(customerInfo.manager)})`
+              : JSON.stringify(customerInfo.manager)
+          }). Direct account access requires customer.manager to be explicitly boolean false. Account cannot be authorized.`,
+        };
+      }
+
       this.store.updateAccountId(tenantId, this.providerId, normalized, {
         isDirect: true,
         managerCustomerId: null,

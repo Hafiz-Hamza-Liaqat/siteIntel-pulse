@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { NextRequest } from "next/server";
 import crypto from "node:crypto";
 import { SqliteScanDatabaseAdapter } from "../persistence/db";
 import { seedInitialAccounts } from "../auth/seed";
@@ -12,6 +13,7 @@ import { BacklinksSerpAdapter } from "./backlinks-serp-adapter";
 import { calculateCostOfInaction } from "../reports/cost-of-inaction";
 import { projectOwnerReport } from "../reports/owner-projection";
 import { projectExpertReport } from "../reports/expert-projection";
+import { POST as googleAdsCustomerSelectionPost } from "@/app/api/providers/google-ads/customers/route";
 import { CrawlResult, AssessmentResult } from "@/types";
 
 describe("Milestone 3 Correctness & Security Gate Tests", () => {
@@ -1233,7 +1235,7 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       expect(status.statusMessage).toContain("via Manager (customers/987-654-3210)");
     });
 
-    it("Google Ads: verifies direct advertiser account, rejects upstream errors, malformed responses, and omits login-customer-id", async () => {
+    it("Google Ads: direct-account verification strictly requires customer.manager === false, rejects missing/null/non-boolean/manager, and does not persist unverified accounts", async () => {
       const ads = new GoogleAdsAdapter(store, "test_id", "test_secret", "test_dev_token", "v26");
 
       store.saveConnection({
@@ -1244,40 +1246,57 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
         accessToken: "valid_token",
       });
 
-      // 1. Upstream HTTP 500 error fails closed
+      const accessibleCustomersMock = {
+        ok: true,
+        status: 200,
+        json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
+      };
+
+      // 1. HTTP 500 error fails closed and does not persist
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/customers:listAccessibleCustomers")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
-          };
-        }
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
+        if (url.includes("/customers/1234567890/googleAds:search")) return { ok: false, status: 500 };
+        return { ok: false, status: 404 };
+      });
+
+      const httpErrRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(httpErrRes.success).toBe(false);
+      expect(httpErrRes.error).toContain("Upstream Google Ads API returned HTTP 500 while verifying account type");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
+
+      // 2. Network error fails closed and does not persist
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
         if (url.includes("/customers/1234567890/googleAds:search")) {
-          return { ok: false, status: 500 };
+          throw new Error("ETIMEDOUT: Connection reset by peer");
         }
         return { ok: false, status: 404 };
       });
 
-      const errRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
-      expect(errRes.success).toBe(false);
-      expect(errRes.error).toContain("Upstream Google Ads API returned HTTP 500 while verifying account type");
+      const netErrRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(netErrRes.success).toBe(false);
+      expect(netErrRes.error).toContain("Network error verifying account type");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
 
-      // 2. Indeterminate / malformed response fails closed
+      // 3. Empty results array fails closed and does not persist
       global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes("/customers:listAccessibleCustomers")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
-          };
-        }
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
         if (url.includes("/customers/1234567890/googleAds:search")) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ results: [] }), // Empty results: indeterminate
-          };
+          return { ok: true, status: 200, json: async () => ({ results: [] }) };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const emptyRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(emptyRes.success).toBe(false);
+      expect(emptyRes.error).toContain("indeterminate or malformed response");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
+
+      // 4. Malformed results (missing customer object) fails closed and does not persist
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          return { ok: true, status: 200, json: async () => ({ results: [{ otherField: true }] }) };
         }
         return { ok: false, status: 404 };
       });
@@ -1285,17 +1304,117 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       const malformedRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
       expect(malformedRes.success).toBe(false);
       expect(malformedRes.error).toContain("indeterminate or malformed response");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
 
-      // 3. Successful verification as advertiser (manager: false)
-      let searchHeaders: Record<string, string> | undefined;
-      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
-        if (url.includes("/customers:listAccessibleCustomers")) {
+      // 5. Manager account (customer.manager === true) is rejected and not persisted
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
+        if (url.includes("/customers/1234567890/googleAds:search")) {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
+            json: async () => ({
+              results: [{ customer: { id: 1234567890, descriptiveName: "Agency MCC", manager: true } }],
+            }),
           };
         }
+        return { ok: false, status: 404 };
+      });
+
+      const mgrRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(mgrRes.success).toBe(false);
+      expect(mgrRes.error).toContain("is a Google Ads Manager (MCC) account");
+      expect(mgrRes.error).toContain("Manager accounts do not serve ads");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
+
+      // 6. Missing customer.manager property is rejected as indeterminate and not persisted
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [{ customer: { id: 1234567890, descriptiveName: "Missing Field Co" } }],
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const missingRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(missingRes.success).toBe(false);
+      expect(missingRes.error).toContain("indeterminate account type");
+      expect(missingRes.error).toContain("missing");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
+
+      // 7. customer.manager === null is rejected as indeterminate and not persisted
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [{ customer: { id: 1234567890, descriptiveName: "Null Field Co", manager: null } }],
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const nullRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(nullRes.success).toBe(false);
+      expect(nullRes.error).toContain("indeterminate account type");
+      expect(nullRes.error).toContain("null");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
+
+      // 8. Non-boolean string customer.manager === "false" is rejected and not persisted
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [{ customer: { id: 1234567890, descriptiveName: "String Field Co", manager: "false" } }],
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const strRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(strRes.success).toBe(false);
+      expect(strRes.error).toContain("indeterminate account type");
+      expect(strRes.error).toContain("non-boolean");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
+
+      // 9. Non-boolean number customer.manager === 0 is rejected and not persisted
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [{ customer: { id: 1234567890, descriptiveName: "Zero Field Co", manager: 0 } }],
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const numRes = await ads.selectCustomer(tenantId, "customers/123-456-7890");
+      expect(numRes.success).toBe(false);
+      expect(numRes.error).toContain("indeterminate account type");
+      expect(numRes.error).toContain("non-boolean");
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
+
+      // 10. Explicit customer.manager === false is accepted, persisted, and omits login-customer-id
+      let searchHeaders: Record<string, string> | undefined;
+      global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes("/customers:listAccessibleCustomers")) return accessibleCustomersMock;
         if (url.includes("/customers/1234567890/googleAds:search") || url.includes("/customers/123-456-7890/googleAds:search")) {
           searchHeaders = init?.headers as Record<string, string>;
           return {
@@ -1327,12 +1446,78 @@ describe("Milestone 3 Correctness & Security Gate Tests", () => {
       expect(verifiedRes.success).toBe(true);
       expect(verifiedRes.customerId).toBe("customers/123-456-7890");
 
+      // Verify connection is properly persisted
+      const persistedConn = store.getConnection(tenantId, "ads_google");
+      expect(persistedConn?.account_id).toBe("customers/123-456-7890");
+      const meta = JSON.parse(persistedConn?.metadata_json || "{}");
+      expect(meta.isDirect).toBe(true);
+      expect(meta.managerCustomerId).toBeNull();
+
       // Fetch metrics and confirm login-customer-id header is strictly omitted on direct access
       const metrics = await ads.fetchMetrics(tenantId);
       expect(metrics.isAvailable).toBe(true);
       expect(searchHeaders).toBeDefined();
       expect(searchHeaders!["login-customer-id"]).toBeUndefined();
       expect(metrics.provenance.propertyOrAccount).toBe("customers/123-456-7890");
+    });
+
+    it("Google Ads: customer selection API route ignores client-supplied bypass options and enforces verification", async () => {
+      // Seed session and connection for tenant_comp_a
+      const authService = adapter.getAuthService();
+      const session = authService.createSession("usr_companya_admin", tenantId);
+
+      store.saveConnection({
+        tenantId,
+        provider: "ads_google",
+        status: "CONNECTED",
+        scopes: ["https://www.googleapis.com/auth/adwords"],
+        accessToken: "valid_token",
+      });
+
+      // Mock accessible customers
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/customers:listAccessibleCustomers")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ resourceNames: ["customers/123-456-7890"] }),
+          };
+        }
+        if (url.includes("/customers/1234567890/googleAds:search")) {
+          // Upstream returns indeterminate (manager: null)
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [{ customer: { id: 1234567890, descriptiveName: "Test Co", manager: null } }],
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      // Attempt to bypass verification via malicious request body properties
+      const maliciousReq = new NextRequest("http://localhost:3000/api/providers/google-ads/customers", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerId: "customers/123-456-7890",
+          skipVerification: true,
+          mockAccountType: "advertiser",
+          mockOverride: { skipVerification: true },
+        }),
+      });
+
+      const res = await googleAdsCustomerSelectionPost(maliciousReq);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.success).toBe(false);
+      expect(data.error).toContain("indeterminate account type");
+      // Confirm account was not persisted
+      expect(store.getConnection(tenantId, "ads_google")?.account_id).toBeNull();
     });
 
     it("Backlinks & SERP: returns unavailable when API key is missing and never reports fake metrics", async () => {

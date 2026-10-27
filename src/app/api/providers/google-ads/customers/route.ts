@@ -35,9 +35,10 @@ export async function POST(req: NextRequest) {
   const tenantId = authResult.auth.tenant.id;
   try {
     const body = await req.json();
-    const { customerId, managerCustomerId } = body || {};
+    const customerId = typeof body?.customerId === "string" ? body.customerId.trim() : undefined;
+    const managerCustomerId = typeof body?.managerCustomerId === "string" ? body.managerCustomerId.trim() : undefined;
 
-    if (!customerId || typeof customerId !== "string") {
+    if (!customerId) {
       return NextResponse.json(
         { success: false, error: "customerId string is required (e.g. customers/123-456-7890 or 123-456-7890)." },
         { status: 400 }
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ads = integrationsManager.getGoogleAdsAdapter();
+    // Strictly pass only managerCustomerId to prevent client injection of test-only verification bypass options
     const res = await ads.selectCustomer(tenantId, customerId, { managerCustomerId });
 
     if (!res.success) {
