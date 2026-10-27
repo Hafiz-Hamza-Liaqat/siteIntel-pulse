@@ -312,6 +312,7 @@ typicalReport.costOfInaction = {
       modeledConversionRatePct: 2.80,
     },
   },
+  remediationCostEstimate: 3600,
   grossMarginPct: 40,
   formula: "Gross Profit Opportunity = Monthly Sessions × Incremental Conversion Lift (% pts) × Transaction Value × Gross Margin %",
   inputSource: "Owner Provided Commercial Inputs",
@@ -342,6 +343,61 @@ const shortReport = {
   competitorSnapshot: [],
   priorityOpportunities: [typicalReport.priorityOpportunities[0]],
 };
+
+shortReport.costOfInaction = {
+  status: "ESTIMATED",
+  businessModel: "ecommerce",
+  currency: "EUR",
+  scenarios: {
+    conservative: {
+      scenario: "conservative",
+      monthlyOpportunity: 6000,
+      annualOpportunity: 72000,
+      conversionRateDeltaPct: 0.20,
+      paybackMonths: 0.8,
+      monthlyRevenueOpportunity: 6000,
+      annualRevenueOpportunity: 72000,
+      baselineConversionRatePct: 2.10,
+      modeledConversionRatePct: 2.30,
+    },
+    base: {
+      scenario: "base",
+      monthlyOpportunity: 15000,
+      annualOpportunity: 180000,
+      conversionRateDeltaPct: 0.50,
+      paybackMonths: 0.3,
+      monthlyRevenueOpportunity: 15000,
+      annualRevenueOpportunity: 180000,
+      baselineConversionRatePct: 2.10,
+      modeledConversionRatePct: 2.60,
+    },
+    upside: {
+      scenario: "upside",
+      monthlyOpportunity: 30000,
+      annualOpportunity: 360000,
+      conversionRateDeltaPct: 1.00,
+      paybackMonths: 0.2,
+      monthlyRevenueOpportunity: 30000,
+      annualRevenueOpportunity: 360000,
+      baselineConversionRatePct: 2.10,
+      modeledConversionRatePct: 3.10,
+    },
+  },
+  remediationCostEstimate: 4500,
+  formula: "Gross Revenue Opportunity = Monthly Sessions × Incremental Conversion Lift (% pts) × Transaction Value",
+  inputSource: "Owner Provided Commercial Inputs",
+  confidence: "HIGH",
+  calculatedAt: new Date().toISOString(),
+  methodologyNotes: "Calculated via SiteIntel Cost of Inaction Calculator v1.",
+  assumptions: [
+    "[Owner Provided] Monthly traffic: 30,000 unique visitor sessions.",
+    "[Default Scenario Assumption - Illustrative] Gross Margin: 100% applied (represents top-line revenue opportunity; supply gross margin % in intake to evaluate net profit contribution).",
+  ],
+  disclaimers: [
+    "Results represent forward-looking modeled growth opportunity from resolving identified UX, speed, and conversion barriers; this is NOT verified historical lost revenue.",
+  ],
+};
+
 
 // 3. Long Report Fixture (Multi-page, extensive findings)
 const longReport = {
@@ -456,6 +512,68 @@ const edgeCaseReport = {
     },
   ],
 };
+
+edgeCaseReport.costOfInaction = {
+  status: "ESTIMATED",
+  businessModel: "ecommerce",
+  currency: "GBP",
+  scenarios: {
+    conservative: {
+      scenario: "conservative",
+      monthlyOpportunity: 0,
+      annualOpportunity: 0,
+      conversionRateDeltaPct: 0.20,
+      paybackMonths: null,
+      monthlyRevenueOpportunity: 5000,
+      annualRevenueOpportunity: 60000,
+      monthlyGrossProfitOpportunity: 0,
+      annualGrossProfitOpportunity: 0,
+      baselineConversionRatePct: 1.80,
+      modeledConversionRatePct: 2.00,
+    },
+    base: {
+      scenario: "base",
+      monthlyOpportunity: 0,
+      annualOpportunity: 0,
+      conversionRateDeltaPct: 0.50,
+      paybackMonths: null,
+      monthlyRevenueOpportunity: 12500,
+      annualRevenueOpportunity: 150000,
+      monthlyGrossProfitOpportunity: 0,
+      annualGrossProfitOpportunity: 0,
+      baselineConversionRatePct: 1.80,
+      modeledConversionRatePct: 2.30,
+    },
+    upside: {
+      scenario: "upside",
+      monthlyOpportunity: 0,
+      annualOpportunity: 0,
+      conversionRateDeltaPct: 1.00,
+      paybackMonths: null,
+      monthlyRevenueOpportunity: 25000,
+      annualRevenueOpportunity: 300000,
+      monthlyGrossProfitOpportunity: 0,
+      annualGrossProfitOpportunity: 0,
+      baselineConversionRatePct: 1.80,
+      modeledConversionRatePct: 2.80,
+    },
+  },
+  remediationCostEstimate: 5000,
+  grossMarginPct: 0,
+  formula: "Gross Profit Opportunity = Monthly Sessions × Incremental Conversion Lift (% pts) × Transaction Value × Gross Margin %",
+  inputSource: "Owner Provided Commercial Inputs",
+  confidence: "HIGH",
+  calculatedAt: new Date().toISOString(),
+  methodologyNotes: "Calculated via SiteIntel Cost of Inaction Calculator v1.",
+  assumptions: [
+    "[Owner Provided] Monthly traffic: 25,000 unique visitor sessions.",
+    "[Owner Provided] Zero gross margin (0%): Modeled gross profit opportunity is £0; top-line revenue opportunity is tracked separately.",
+  ],
+  disclaimers: [
+    "Results represent forward-looking modeled growth opportunity from resolving identified UX, speed, and conversion barriers; this is NOT verified historical lost revenue.",
+  ],
+};
+
 
 // Binary validation
 function validatePdfBinary(buffer, expectedMinPages = 1) {
@@ -587,22 +705,97 @@ async function verifyOwnerPdfs() {
         console.log(`    [PASS] Canonical provisional coverage notice verified in PDF text.`);
       }
 
-      // If dimensionScorecards exist, verify presence in rasterized PDF text
+      // If dimensionScorecards exist, verify presence and content in rasterized PDF text
       if (tc.report.dimensionScorecards && tc.report.dimensionScorecards.length > 0) {
         const hasScorecards = fullPdfText.includes("SPECIALIZED DIAGNOSTIC DIMENSIONS") || fullPdfText.includes("DIAGNOSTIC DIMENSION");
         if (!hasScorecards) {
           throw new Error(`Diagnostic Dimension Scorecards section missing from rasterized PDF text in ${tc.name}`);
         }
-        console.log(`    [PASS] Diagnostic Dimension Scorecards verified in PDF text.`);
+
+        // Assert dimension labels, scores, coverage, and non-additive status
+        for (const dim of tc.report.dimensionScorecards) {
+          const upperDimName = dim.name.toUpperCase();
+          if (!fullPdfText.includes(upperDimName)) {
+            throw new Error(`Dimension scorecard label "${dim.name}" missing from rasterized PDF text in ${tc.name}`);
+          }
+          if (!fullPdfText.includes(`${dim.score}%`)) {
+            throw new Error(`Dimension score "${dim.score}%" missing from rasterized PDF text in ${tc.name}`);
+          }
+          if (!fullPdfText.includes(`${dim.coveragePercentage}%`)) {
+            throw new Error(`Dimension coverage "${dim.coveragePercentage}%" missing from rasterized PDF text in ${tc.name}`);
+          }
+          if (!fullPdfText.includes(`${dim.evaluatedTestsCount} / ${dim.totalTestsCount}`)) {
+            throw new Error(`Dimension evaluated tests "${dim.evaluatedTestsCount} / ${dim.totalTestsCount}" missing from rasterized PDF text in ${tc.name}`);
+          }
+        }
+        if (!fullPdfText.includes("NON-ADDITIVE")) {
+          throw new Error(`"Non-additive" notice missing from dimension scorecards in ${tc.name}`);
+        }
+        console.log(`    [PASS] Diagnostic Dimension Scorecards verified with labels, scores, coverage, and non-additive status.`);
       }
 
-      // If costOfInaction exists, verify presence in rasterized PDF text
-      if (tc.report.costOfInaction) {
+      // If costOfInaction exists, verify presence and thorough financial content in rasterized PDF text
+      if (tc.report.costOfInaction && tc.report.costOfInaction.scenarios) {
         const hasCalculator = fullPdfText.includes("COST OF INACTION") || fullPdfText.includes("OPPORTUNITY CALCULATOR");
         if (!hasCalculator) {
           throw new Error(`Cost of Inaction section missing from rasterized PDF text in ${tc.name}`);
         }
-        console.log(`    [PASS] Cost of Inaction Calculator verified in PDF text.`);
+
+        const requiredMetrics = [
+          "MONTHLY REVENUE OPPORTUNITY",
+          "ANNUAL REVENUE OPPORTUNITY",
+          "MONTHLY GROSS PROFIT OPPORTUNITY",
+          "ANNUAL GROSS PROFIT OPPORTUNITY",
+          "MODELED CONVERSION RATE",
+          "EST. REMEDIATION COST",
+          "EST. PAYBACK PERIOD",
+        ];
+
+        for (const metric of requiredMetrics) {
+          if (!fullPdfText.includes(metric)) {
+            throw new Error(`Required Cost of Inaction metric "${metric}" missing from rasterized PDF text in ${tc.name}`);
+          }
+        }
+
+        // Assert before/after conversion rate modeling
+        const hasConversionModeling = fullPdfText.includes("→") && fullPdfText.includes("% ABS");
+        if (!hasConversionModeling) {
+          throw new Error(`Before/after conversion rate modeling missing from Cost of Inaction in ${tc.name}`);
+        }
+
+        // Specific scenario & margin assertions:
+        if (tc.report.costOfInaction.grossMarginPct === 0) {
+          // Zero gross margin case: gross profit must be £0 / 0 / mo, revenue must be non-zero, payback must be N/A
+          if (!fullPdfText.includes("0 / MO") || !fullPdfText.includes("0 / YR")) {
+            throw new Error(`Zero gross margin case must display zero gross profit in ${tc.name}`);
+          }
+          if (!fullPdfText.includes("N/A")) {
+            throw new Error(`Zero gross margin case must display N/A for payback in ${tc.name}`);
+          }
+          console.log(`    [PASS] Zero gross margin verified: zero gross profit, non-zero revenue, and N/A payback confirmed.`);
+        } else if (tc.report.costOfInaction.grossMarginPct == null) {
+          // Omitted gross margin case: gross profit row shows "Omitted (supply margin %)" and primary metric labeled as top-line revenue
+          if (!fullPdfText.includes("OMITTED (SUPPLY MARGIN %)")) {
+            throw new Error(`Omitted margin case must show "Omitted (supply margin %)" for gross profit in ${tc.name}`);
+          }
+          if (!fullPdfText.includes("TOP-LINE REVENUE OPPORTUNITY (GROSS MARGIN OMITTED)")) {
+            throw new Error(`Primary metric not correctly labeled as top-line revenue in ${tc.name}`);
+          }
+          console.log(`    [PASS] Omitted gross margin verified: gross profit marked omitted and primary labeled revenue.`);
+        } else {
+          // Explicit positive gross margin case: gross profit opportunity indicated with %
+          if (!fullPdfText.includes(`GROSS PROFIT OPPORTUNITY (${tc.report.costOfInaction.grossMarginPct}% MARGIN APPLIED)`)) {
+            throw new Error(`Primary metric not labeled with gross margin % in ${tc.name}`);
+          }
+          console.log(`    [PASS] Explicit positive gross margin verified: revenue and gross profit distinguished.`);
+        }
+
+        // Assumptions provenance check (Owner Provided vs Illustrative Scenario)
+        if (!fullPdfText.includes("[OWNER PROVIDED]")) {
+          throw new Error(`"[Owner Provided]" assumption label missing from Cost of Inaction in ${tc.name}`);
+        }
+
+        console.log(`    [PASS] Cost of Inaction Calculator verified: metrics, scenarios, currencies, and assumptions.`);
       }
 
       // Record in Validation Manifest

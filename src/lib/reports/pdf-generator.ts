@@ -1,4 +1,5 @@
 import type { OwnerReport } from "../../types";
+import { formatCurrency, getCurrencySymbol } from "./currency.ts";
 import path from "node:path";
 import fs from "node:fs/promises";
 
@@ -15,18 +16,7 @@ function escapeHtml(str: unknown): string {
 export function generateReportHtml(report: OwnerReport): string {
   const overall = report.executiveSnapshot.overallScore;
   const company = report.companyIdentity;
-  const getPdfCurrencySymbol = (currency?: string) => {
-    switch ((currency || "USD").toUpperCase()) {
-      case "EUR": return "€";
-      case "GBP": return "£";
-      case "CAD": return "CA$";
-      case "AUD": return "A$";
-      case "JPY": return "¥";
-      case "CHF": return "CHF ";
-      case "USD": default: return "$";
-    }
-  };
-  const currSymbol = getPdfCurrencySymbol(report.costOfInaction?.currency);
+  const currSymbol = getCurrencySymbol(report.costOfInaction?.currency);
   const detection = company.businessCategoryDetection;
   const dateFormatted = new Date(report.generatedAt).toLocaleDateString("en-US", {
     year: "numeric",
@@ -602,10 +592,10 @@ export function generateReportHtml(report: OwnerReport): string {
   ${report.costOfInaction.status === "ESTIMATED" && report.costOfInaction.scenarios ? `
     <table class="table-custom no-break">
       <colgroup>
-        <col style="width: 25%;">
-        <col style="width: 25%;">
-        <col style="width: 25%;">
-        <col style="width: 25%;">
+        <col style="width: 28%;">
+        <col style="width: 24%;">
+        <col style="width: 24%;">
+        <col style="width: 24%;">
       </colgroup>
       <thead>
         <tr>
@@ -617,19 +607,43 @@ export function generateReportHtml(report: OwnerReport): string {
       </thead>
       <tbody>
         <tr>
-          <td><strong>Monthly Opportunity</strong></td>
-          <td>${currSymbol}${report.costOfInaction.scenarios.conservative.monthlyOpportunity.toLocaleString()} / mo</td>
-          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${currSymbol}${report.costOfInaction.scenarios.base.monthlyOpportunity.toLocaleString()} / mo</td>
-          <td>${currSymbol}${report.costOfInaction.scenarios.upside.monthlyOpportunity.toLocaleString()} / mo</td>
+          <td><strong>Monthly Revenue Opportunity</strong></td>
+          <td>${formatCurrency(report.costOfInaction.scenarios.conservative.monthlyRevenueOpportunity ?? report.costOfInaction.scenarios.conservative.monthlyOpportunity, report.costOfInaction.currency)} / mo</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${formatCurrency(report.costOfInaction.scenarios.base.monthlyRevenueOpportunity ?? report.costOfInaction.scenarios.base.monthlyOpportunity, report.costOfInaction.currency)} / mo</td>
+          <td>${formatCurrency(report.costOfInaction.scenarios.upside.monthlyRevenueOpportunity ?? report.costOfInaction.scenarios.upside.monthlyOpportunity, report.costOfInaction.currency)} / mo</td>
         </tr>
         <tr>
-          <td><strong>Annualized Opportunity</strong></td>
-          <td>${currSymbol}${report.costOfInaction.scenarios.conservative.annualOpportunity.toLocaleString()} / yr</td>
-          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${currSymbol}${report.costOfInaction.scenarios.base.annualOpportunity.toLocaleString()} / yr</td>
-          <td>${currSymbol}${report.costOfInaction.scenarios.upside.annualOpportunity.toLocaleString()} / yr</td>
+          <td><strong>Annual Revenue Opportunity</strong></td>
+          <td>${formatCurrency(report.costOfInaction.scenarios.conservative.annualRevenueOpportunity ?? (report.costOfInaction.scenarios.conservative.monthlyRevenueOpportunity ? report.costOfInaction.scenarios.conservative.monthlyRevenueOpportunity * 12 : report.costOfInaction.scenarios.conservative.annualOpportunity), report.costOfInaction.currency)} / yr</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${formatCurrency(report.costOfInaction.scenarios.base.annualRevenueOpportunity ?? (report.costOfInaction.scenarios.base.monthlyRevenueOpportunity ? report.costOfInaction.scenarios.base.monthlyRevenueOpportunity * 12 : report.costOfInaction.scenarios.base.annualOpportunity), report.costOfInaction.currency)} / yr</td>
+          <td>${formatCurrency(report.costOfInaction.scenarios.upside.annualRevenueOpportunity ?? (report.costOfInaction.scenarios.upside.monthlyRevenueOpportunity ? report.costOfInaction.scenarios.upside.monthlyRevenueOpportunity * 12 : report.costOfInaction.scenarios.upside.annualOpportunity), report.costOfInaction.currency)} / yr</td>
         </tr>
         <tr>
-          <td><strong>Est. Payback</strong></td>
+          <td><strong>Monthly Gross Profit Opportunity</strong></td>
+          <td>${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.conservative.monthlyGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / mo` : 'Omitted (supply margin %)'}</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.base.monthlyGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / mo` : 'Omitted (supply margin %)'}</td>
+          <td>${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.upside.monthlyGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / mo` : 'Omitted (supply margin %)'}</td>
+        </tr>
+        <tr>
+          <td><strong>Annual Gross Profit Opportunity</strong></td>
+          <td>${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.conservative.annualGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / yr (${report.costOfInaction.grossMarginPct}% margin)` : 'Omitted (supply margin %)'}</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.base.annualGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / yr (${report.costOfInaction.grossMarginPct}% margin)` : 'Omitted (supply margin %)'}</td>
+          <td>${report.costOfInaction.grossMarginPct != null ? `${formatCurrency(report.costOfInaction.scenarios.upside.annualGrossProfitOpportunity ?? 0, report.costOfInaction.currency)} / yr (${report.costOfInaction.grossMarginPct}% margin)` : 'Omitted (supply margin %)'}</td>
+        </tr>
+        <tr>
+          <td><strong>Modeled Conversion Rate</strong></td>
+          <td>${report.costOfInaction.scenarios.conservative.baselineConversionRatePct != null && report.costOfInaction.scenarios.conservative.modeledConversionRatePct != null ? `${report.costOfInaction.scenarios.conservative.baselineConversionRatePct.toFixed(2)}% → ${report.costOfInaction.scenarios.conservative.modeledConversionRatePct.toFixed(2)}% (+${report.costOfInaction.scenarios.conservative.conversionRateDeltaPct}% abs)` : `+${report.costOfInaction.scenarios.conservative.conversionRateDeltaPct}% abs`}</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${report.costOfInaction.scenarios.base.baselineConversionRatePct != null && report.costOfInaction.scenarios.base.modeledConversionRatePct != null ? `${report.costOfInaction.scenarios.base.baselineConversionRatePct.toFixed(2)}% → ${report.costOfInaction.scenarios.base.modeledConversionRatePct.toFixed(2)}% (+${report.costOfInaction.scenarios.base.conversionRateDeltaPct}% abs)` : `+${report.costOfInaction.scenarios.base.conversionRateDeltaPct}% abs`}</td>
+          <td>${report.costOfInaction.scenarios.upside.baselineConversionRatePct != null && report.costOfInaction.scenarios.upside.modeledConversionRatePct != null ? `${report.costOfInaction.scenarios.upside.baselineConversionRatePct.toFixed(2)}% → ${report.costOfInaction.scenarios.upside.modeledConversionRatePct.toFixed(2)}% (+${report.costOfInaction.scenarios.upside.conversionRateDeltaPct}% abs)` : `+${report.costOfInaction.scenarios.upside.conversionRateDeltaPct}% abs`}</td>
+        </tr>
+        <tr>
+          <td><strong>Est. Remediation Cost</strong></td>
+          <td>${formatCurrency(report.costOfInaction.remediationCostEstimate ?? 0, report.costOfInaction.currency)}</td>
+          <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${formatCurrency(report.costOfInaction.remediationCostEstimate ?? 0, report.costOfInaction.currency)}</td>
+          <td>${formatCurrency(report.costOfInaction.remediationCostEstimate ?? 0, report.costOfInaction.currency)}</td>
+        </tr>
+        <tr>
+          <td><strong>Est. Payback Period</strong></td>
           <td>${report.costOfInaction.scenarios.conservative.paybackMonths != null ? `${report.costOfInaction.scenarios.conservative.paybackMonths} mo` : 'N/A'}</td>
           <td style="background: #F0FDF4; font-weight: 700; color: #0F766E;">${report.costOfInaction.scenarios.base.paybackMonths != null ? `${report.costOfInaction.scenarios.base.paybackMonths} mo` : 'N/A'}</td>
           <td>${report.costOfInaction.scenarios.upside.paybackMonths != null ? `${report.costOfInaction.scenarios.upside.paybackMonths} mo` : 'N/A'}</td>
@@ -637,8 +651,12 @@ export function generateReportHtml(report: OwnerReport): string {
       </tbody>
     </table>
     <div class="no-break" style="font-size: 7.5pt; color: #475569; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; margin-top: 4px; margin-bottom: 10px;">
-      <div><strong>Formula:</strong> ${escapeHtml(report.costOfInaction.formula || "Monthly Sessions × Conversion Lift × Transaction Value × Gross Margin %")}</div>
+      <div><strong>Primary Metric:</strong> ${report.costOfInaction.grossMarginPct != null ? `Gross Profit Opportunity (${report.costOfInaction.grossMarginPct}% Margin Applied)` : 'Top-Line Revenue Opportunity (Gross Margin Omitted)'}</div>
+      <div style="margin-top: 2px;"><strong>Formula:</strong> ${escapeHtml(report.costOfInaction.formula || 'Monthly Sessions × Conversion Lift × Transaction Value [× Gross Margin %]')}</div>
       <div style="margin-top: 2px;"><strong>Source &amp; Confidence:</strong> ${escapeHtml(report.costOfInaction.inputSource)} (${report.costOfInaction.confidence} Confidence)</div>
+      ${report.costOfInaction.assumptions && report.costOfInaction.assumptions.length > 0 ? `
+      <div style="margin-top: 2px;"><strong>Assumptions:</strong> ${report.costOfInaction.assumptions.slice(0, 3).map(a => escapeHtml(a)).join(" • ")}</div>
+      ` : ""}
       <div style="margin-top: 2px; color: #92400E;"><strong>Notice:</strong> Forward-looking modeled growth opportunity, NOT verified historical lost revenue.</div>
     </div>
   ` : `

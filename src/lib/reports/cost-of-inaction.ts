@@ -6,37 +6,22 @@ import {
   AssessmentResult,
   Confidence,
 } from "@/types";
+import {
+  getCurrencySymbol,
+  formatCurrency,
+  SUPPORTED_CURRENCIES,
+  type SupportedCurrency,
+  type FormatCurrencyOptions,
+} from "./currency.ts";
+
+export { getCurrencySymbol, formatCurrency, SUPPORTED_CURRENCIES };
+export type { SupportedCurrency, FormatCurrencyOptions };
 
 export interface CostOfInactionOptions {
   businessCategory: BusinessCategory;
   request?: Partial<ScanRequest>;
   results?: AssessmentResult[];
   remediationCostEstimate?: number;
-}
-
-export function getCurrencySymbol(currency: string = "USD"): string {
-  switch (currency.toUpperCase()) {
-    case "EUR":
-      return "€";
-    case "GBP":
-      return "£";
-    case "CAD":
-      return "CA$";
-    case "AUD":
-      return "A$";
-    case "JPY":
-      return "¥";
-    case "CHF":
-      return "CHF ";
-    case "USD":
-    default:
-      return "$";
-  }
-}
-
-export function formatCurrency(amount: number, currency: string = "USD"): string {
-  const symbol = getCurrencySymbol(currency);
-  return `${symbol}${Math.round(amount).toLocaleString()}`;
 }
 
 export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfInactionResult {
@@ -333,8 +318,8 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
         paybackMonths: paybackMonthsConservative,
         monthlyRevenueOpportunity: Math.round(monthlyRevConservative),
         annualRevenueOpportunity: Math.round(monthlyRevConservative * 12),
-        monthlyGrossProfitOpportunity: Math.round(monthlyGPConservative),
-        annualGrossProfitOpportunity: Math.round(monthlyGPConservative * 12),
+        monthlyGrossProfitOpportunity: hasExplicitGrossMargin ? Math.round(monthlyGPConservative) : undefined,
+        annualGrossProfitOpportunity: hasExplicitGrossMargin ? Math.round(monthlyGPConservative * 12) : undefined,
         baselineConversionRatePct,
         modeledConversionRatePct: Math.round((baselineConversionRatePct + 0.20) * 100) / 100,
       },
@@ -346,8 +331,8 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
         paybackMonths: paybackMonthsBase,
         monthlyRevenueOpportunity: Math.round(monthlyRevBase),
         annualRevenueOpportunity: Math.round(monthlyRevBase * 12),
-        monthlyGrossProfitOpportunity: Math.round(monthlyGPBase),
-        annualGrossProfitOpportunity: Math.round(monthlyGPBase * 12),
+        monthlyGrossProfitOpportunity: hasExplicitGrossMargin ? Math.round(monthlyGPBase) : undefined,
+        annualGrossProfitOpportunity: hasExplicitGrossMargin ? Math.round(monthlyGPBase * 12) : undefined,
         baselineConversionRatePct,
         modeledConversionRatePct: Math.round((baselineConversionRatePct + 0.50) * 100) / 100,
       },
@@ -359,8 +344,8 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
         paybackMonths: paybackMonthsUpside,
         monthlyRevenueOpportunity: Math.round(monthlyRevUpside),
         annualRevenueOpportunity: Math.round(monthlyRevUpside * 12),
-        monthlyGrossProfitOpportunity: Math.round(monthlyGPUpside),
-        annualGrossProfitOpportunity: Math.round(monthlyGPUpside * 12),
+        monthlyGrossProfitOpportunity: hasExplicitGrossMargin ? Math.round(monthlyGPUpside) : undefined,
+        annualGrossProfitOpportunity: hasExplicitGrossMargin ? Math.round(monthlyGPUpside * 12) : undefined,
         baselineConversionRatePct,
         modeledConversionRatePct: Math.round((baselineConversionRatePct + 1.00) * 100) / 100,
       },

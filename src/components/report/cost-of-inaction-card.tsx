@@ -1,30 +1,11 @@
 import React from "react";
 import { CostOfInactionResult } from "@/types";
-import { TrendingUp, AlertCircle, ShieldAlert, DollarSign, Calculator, Clock } from "lucide-react";
+import { TrendingUp, AlertCircle, ShieldAlert, Calculator, Clock, Wrench } from "lucide-react";
+import { formatCurrency, getCurrencySymbol } from "@/lib/reports/currency";
 
 interface CostOfInactionCardProps {
   costOfInaction?: CostOfInactionResult;
   result?: CostOfInactionResult;
-}
-
-function getCurrencySymbol(currency: string = "USD"): string {
-  switch (currency.toUpperCase()) {
-    case "EUR":
-      return "€";
-    case "GBP":
-      return "£";
-    case "CAD":
-      return "CA$";
-    case "AUD":
-      return "A$";
-    case "JPY":
-      return "¥";
-    case "CHF":
-      return "CHF ";
-    case "USD":
-    default:
-      return "$";
-  }
 }
 
 export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCardProps) {
@@ -32,10 +13,11 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
   if (!data) return null;
 
   const isEstimated = data.status === "ESTIMATED" && Boolean(data.scenarios);
-  const currencySymbol = getCurrencySymbol(data.currency);
+  const currency = data.currency || "USD";
   const businessModel = (data.businessModel || "ecommerce").toUpperCase();
   const confidence = data.confidence || "MEDIUM";
   const hasExplicitGrossMargin = data.grossMarginPct != null;
+  const remediationCost = data.remediationCostEstimate ?? 0;
 
   return (
     <div className="rounded-2xl border border-brand-border bg-brand-card p-6 sm:p-8 space-y-6 shadow-xl">
@@ -49,17 +31,30 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
             Simulates potential commercial upside from eliminating observable UX, speed, and conversion barriers.
           </p>
         </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           <span className="text-xs font-semibold text-brand-tealLight bg-brand-teal/10 px-3 py-1 rounded-md border border-brand-teal/30">
             Model: {businessModel}
           </span>
-          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-            confidence === "HIGH"
-              ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-              : confidence === "MEDIUM"
-              ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
-              : "bg-rose-500/15 text-rose-400 border-rose-500/30"
-          }`}>
+          <span
+            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+              hasExplicitGrossMargin
+                ? "bg-brand-teal/15 text-brand-tealLight border-brand-teal/30"
+                : "bg-indigo-500/15 text-indigo-300 border-indigo-500/30"
+            }`}
+          >
+            {hasExplicitGrossMargin
+              ? `Gross Profit (${data.grossMarginPct}% Margin)`
+              : "Revenue Model (Margin Omitted)"}
+          </span>
+          <span
+            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+              confidence === "HIGH"
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                : confidence === "MEDIUM"
+                ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
+                : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+            }`}
+          >
             {confidence} Confidence
           </span>
         </div>
@@ -71,9 +66,7 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
             <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <h3 className="text-sm font-bold text-white">Commercial Session Inputs Required</h3>
-              <p className="text-xs text-brand-textMuted">
-                {data.methodologyNotes}
-              </p>
+              <p className="text-xs text-brand-textMuted">{data.methodologyNotes}</p>
             </div>
           </div>
 
@@ -92,6 +85,20 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Estimated Remediation Cost Callout */}
+          <div className="flex items-center justify-between p-3.5 rounded-xl bg-brand-surface border border-brand-borderSubtle text-xs text-brand-textMuted">
+            <div className="flex items-center gap-2">
+              <Wrench className="w-4 h-4 text-brand-teal" />
+              <span>
+                <strong className="text-white">Estimated Remediation Investment:</strong>{" "}
+                Benchmark engineering cost based on observable friction findings.
+              </span>
+            </div>
+            <span className="text-sm font-bold text-white">
+              {formatCurrency(remediationCost, currency)}
+            </span>
+          </div>
+
           {/* 3 Scenarios Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Conservative */}
@@ -104,35 +111,101 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                   +{data.scenarios!.conservative.conversionRateDeltaPct}% CR
                 </span>
               </div>
+
+              {/* Primary Metric */}
               <div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-brand-textMuted">
+                  {hasExplicitGrossMargin ? "Gross-Profit Opportunity" : "Top-Line Revenue Opportunity"}
+                </div>
                 <div className="text-2xl font-black text-white">
-                  {currencySymbol}{data.scenarios!.conservative.monthlyOpportunity.toLocaleString()}
+                  {formatCurrency(data.scenarios!.conservative.monthlyOpportunity, currency)}
                   <span className="text-xs text-brand-textMuted font-normal"> / mo</span>
                 </div>
-                <div className="text-xs text-brand-teal font-semibold mt-1">
-                  {currencySymbol}{data.scenarios!.conservative.annualOpportunity.toLocaleString()} annualized {hasExplicitGrossMargin ? "gross profit" : "revenue"}
+                <div className="text-xs text-brand-teal font-semibold mt-0.5">
+                  {formatCurrency(data.scenarios!.conservative.annualOpportunity, currency)} / yr{" "}
+                  {hasExplicitGrossMargin ? `(${data.grossMarginPct}% margin)` : "annualized"}
                 </div>
-                {hasExplicitGrossMargin && data.scenarios!.conservative.monthlyRevenueOpportunity != null && (
-                  <div className="text-[11px] text-brand-textMuted mt-0.5">
-                    Top-line revenue: {currencySymbol}{data.scenarios!.conservative.monthlyRevenueOpportunity.toLocaleString()} / mo
+              </div>
+
+              {/* Detailed Revenue vs Gross-Profit Breakdown */}
+              <div className="pt-2 border-t border-brand-borderSubtle/60 text-xs space-y-1.5">
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Monthly Revenue:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(
+                      data.scenarios!.conservative.monthlyRevenueOpportunity ??
+                        data.scenarios!.conservative.monthlyOpportunity,
+                      currency
+                    )}{" "}
+                    / mo
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Annual Revenue:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(
+                      data.scenarios!.conservative.annualRevenueOpportunity ??
+                        (data.scenarios!.conservative.monthlyRevenueOpportunity
+                          ? data.scenarios!.conservative.monthlyRevenueOpportunity * 12
+                          : data.scenarios!.conservative.annualOpportunity),
+                      currency
+                    )}{" "}
+                    / yr
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Monthly Gross Profit:</span>
+                  <span className="font-semibold text-white">
+                    {hasExplicitGrossMargin
+                      ? `${formatCurrency(
+                          data.scenarios!.conservative.monthlyGrossProfitOpportunity ?? 0,
+                          currency
+                        )} / mo`
+                      : "Omitted (supply margin %)"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Annual Gross Profit:</span>
+                  <span className="font-semibold text-white">
+                    {hasExplicitGrossMargin
+                      ? `${formatCurrency(
+                          data.scenarios!.conservative.annualGrossProfitOpportunity ?? 0,
+                          currency
+                        )} / yr`
+                      : "Omitted (supply margin %)"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Modeled Conversion Rate */}
+              {data.scenarios!.conservative.baselineConversionRatePct != null &&
+                data.scenarios!.conservative.modeledConversionRatePct != null && (
+                  <div className="text-[10px] font-mono text-brand-textMuted bg-brand-card/80 p-2 rounded border border-brand-borderSubtle">
+                    CR: {data.scenarios!.conservative.baselineConversionRatePct.toFixed(2)}% →{" "}
+                    {data.scenarios!.conservative.modeledConversionRatePct.toFixed(2)}% (+
+                    {data.scenarios!.conservative.conversionRateDeltaPct}% abs)
                   </div>
                 )}
-              </div>
-              {data.scenarios!.conservative.baselineConversionRatePct != null && data.scenarios!.conservative.modeledConversionRatePct != null && (
-                <div className="text-[10px] font-mono text-brand-textMuted bg-brand-card/80 p-1.5 rounded border border-brand-borderSubtle">
-                  CR: {data.scenarios!.conservative.baselineConversionRatePct.toFixed(2)}% → {data.scenarios!.conservative.modeledConversionRatePct.toFixed(2)}% (+{data.scenarios!.conservative.conversionRateDeltaPct}% abs)
+
+              {/* Est. Remediation Cost & Payback */}
+              <div className="pt-2 border-t border-brand-borderSubtle/60 space-y-1 text-xs text-brand-textMuted">
+                <div className="flex items-center justify-between">
+                  <span>Est. Remediation Cost:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(remediationCost, currency)}
+                  </span>
                 </div>
-              )}
-              <div className="pt-2 border-t border-brand-borderSubtle/60 flex items-center justify-between text-xs text-brand-textMuted">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-brand-teal" />
-                  <span>Est. Payback</span>
-                </span>
-                <span className="font-semibold text-white">
-                  {data.scenarios!.conservative.paybackMonths != null
-                    ? `${data.scenarios!.conservative.paybackMonths} months`
-                    : "N/A"}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-brand-teal" />
+                    <span>Est. Payback:</span>
+                  </span>
+                  <span className="font-semibold text-white">
+                    {data.scenarios!.conservative.paybackMonths != null
+                      ? `${data.scenarios!.conservative.paybackMonths} months`
+                      : "N/A"}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -146,35 +219,101 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                   +{data.scenarios!.base.conversionRateDeltaPct}% CR
                 </span>
               </div>
+
+              {/* Primary Metric */}
               <div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-brand-tealLight">
+                  {hasExplicitGrossMargin ? "Gross-Profit Opportunity" : "Top-Line Revenue Opportunity"}
+                </div>
                 <div className="text-3xl font-black text-white">
-                  {currencySymbol}{data.scenarios!.base.monthlyOpportunity.toLocaleString()}
+                  {formatCurrency(data.scenarios!.base.monthlyOpportunity, currency)}
                   <span className="text-xs text-brand-textMuted font-normal"> / mo</span>
                 </div>
-                <div className="text-xs text-brand-tealLight font-bold mt-1">
-                  {currencySymbol}{data.scenarios!.base.annualOpportunity.toLocaleString()} annualized {hasExplicitGrossMargin ? "gross profit" : "revenue"}
+                <div className="text-xs text-brand-tealLight font-bold mt-0.5">
+                  {formatCurrency(data.scenarios!.base.annualOpportunity, currency)} / yr{" "}
+                  {hasExplicitGrossMargin ? `(${data.grossMarginPct}% margin)` : "annualized"}
                 </div>
-                {hasExplicitGrossMargin && data.scenarios!.base.monthlyRevenueOpportunity != null && (
-                  <div className="text-[11px] text-brand-textMuted mt-0.5">
-                    Top-line revenue: {currencySymbol}{data.scenarios!.base.monthlyRevenueOpportunity.toLocaleString()} / mo
+              </div>
+
+              {/* Detailed Revenue vs Gross-Profit Breakdown */}
+              <div className="pt-2 border-t border-brand-teal/30 text-xs space-y-1.5">
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Monthly Revenue:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(
+                      data.scenarios!.base.monthlyRevenueOpportunity ??
+                        data.scenarios!.base.monthlyOpportunity,
+                      currency
+                    )}{" "}
+                    / mo
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Annual Revenue:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(
+                      data.scenarios!.base.annualRevenueOpportunity ??
+                        (data.scenarios!.base.monthlyRevenueOpportunity
+                          ? data.scenarios!.base.monthlyRevenueOpportunity * 12
+                          : data.scenarios!.base.annualOpportunity),
+                      currency
+                    )}{" "}
+                    / yr
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Monthly Gross Profit:</span>
+                  <span className="font-semibold text-white">
+                    {hasExplicitGrossMargin
+                      ? `${formatCurrency(
+                          data.scenarios!.base.monthlyGrossProfitOpportunity ?? 0,
+                          currency
+                        )} / mo`
+                      : "Omitted (supply margin %)"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Annual Gross Profit:</span>
+                  <span className="font-semibold text-white">
+                    {hasExplicitGrossMargin
+                      ? `${formatCurrency(
+                          data.scenarios!.base.annualGrossProfitOpportunity ?? 0,
+                          currency
+                        )} / yr`
+                      : "Omitted (supply margin %)"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Modeled Conversion Rate */}
+              {data.scenarios!.base.baselineConversionRatePct != null &&
+                data.scenarios!.base.modeledConversionRatePct != null && (
+                  <div className="text-[10px] font-mono text-brand-tealLight bg-brand-card/80 p-2 rounded border border-brand-teal/30">
+                    CR: {data.scenarios!.base.baselineConversionRatePct.toFixed(2)}% →{" "}
+                    {data.scenarios!.base.modeledConversionRatePct.toFixed(2)}% (+
+                    {data.scenarios!.base.conversionRateDeltaPct}% abs)
                   </div>
                 )}
-              </div>
-              {data.scenarios!.base.baselineConversionRatePct != null && data.scenarios!.base.modeledConversionRatePct != null && (
-                <div className="text-[10px] font-mono text-brand-tealLight bg-brand-card/80 p-1.5 rounded border border-brand-teal/30">
-                  CR: {data.scenarios!.base.baselineConversionRatePct.toFixed(2)}% → {data.scenarios!.base.modeledConversionRatePct.toFixed(2)}% (+{data.scenarios!.base.conversionRateDeltaPct}% abs)
+
+              {/* Est. Remediation Cost & Payback */}
+              <div className="pt-2 border-t border-brand-teal/30 space-y-1 text-xs text-brand-textMuted">
+                <div className="flex items-center justify-between">
+                  <span>Est. Remediation Cost:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(remediationCost, currency)}
+                  </span>
                 </div>
-              )}
-              <div className="pt-2 border-t border-brand-teal/30 flex items-center justify-between text-xs text-brand-textMuted">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-brand-teal" />
-                  <span>Est. Payback</span>
-                </span>
-                <span className="font-bold text-brand-tealLight">
-                  {data.scenarios!.base.paybackMonths != null
-                    ? `${data.scenarios!.base.paybackMonths} months`
-                    : "N/A"}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-brand-teal" />
+                    <span>Est. Payback:</span>
+                  </span>
+                  <span className="font-bold text-brand-tealLight">
+                    {data.scenarios!.base.paybackMonths != null
+                      ? `${data.scenarios!.base.paybackMonths} months`
+                      : "N/A"}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -188,35 +327,101 @@ export function CostOfInactionCard({ costOfInaction, result }: CostOfInactionCar
                   +{data.scenarios!.upside.conversionRateDeltaPct}% CR
                 </span>
               </div>
+
+              {/* Primary Metric */}
               <div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-brand-textMuted">
+                  {hasExplicitGrossMargin ? "Gross-Profit Opportunity" : "Top-Line Revenue Opportunity"}
+                </div>
                 <div className="text-2xl font-black text-white">
-                  {currencySymbol}{data.scenarios!.upside.monthlyOpportunity.toLocaleString()}
+                  {formatCurrency(data.scenarios!.upside.monthlyOpportunity, currency)}
                   <span className="text-xs text-brand-textMuted font-normal"> / mo</span>
                 </div>
-                <div className="text-xs text-cyan-400 font-semibold mt-1">
-                  {currencySymbol}{data.scenarios!.upside.annualOpportunity.toLocaleString()} annualized {hasExplicitGrossMargin ? "gross profit" : "revenue"}
+                <div className="text-xs text-cyan-400 font-semibold mt-0.5">
+                  {formatCurrency(data.scenarios!.upside.annualOpportunity, currency)} / yr{" "}
+                  {hasExplicitGrossMargin ? `(${data.grossMarginPct}% margin)` : "annualized"}
                 </div>
-                {hasExplicitGrossMargin && data.scenarios!.upside.monthlyRevenueOpportunity != null && (
-                  <div className="text-[11px] text-brand-textMuted mt-0.5">
-                    Top-line revenue: {currencySymbol}{data.scenarios!.upside.monthlyRevenueOpportunity.toLocaleString()} / mo
+              </div>
+
+              {/* Detailed Revenue vs Gross-Profit Breakdown */}
+              <div className="pt-2 border-t border-brand-borderSubtle/60 text-xs space-y-1.5">
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Monthly Revenue:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(
+                      data.scenarios!.upside.monthlyRevenueOpportunity ??
+                        data.scenarios!.upside.monthlyOpportunity,
+                      currency
+                    )}{" "}
+                    / mo
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Annual Revenue:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(
+                      data.scenarios!.upside.annualRevenueOpportunity ??
+                        (data.scenarios!.upside.monthlyRevenueOpportunity
+                          ? data.scenarios!.upside.monthlyRevenueOpportunity * 12
+                          : data.scenarios!.upside.annualOpportunity),
+                      currency
+                    )}{" "}
+                    / yr
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Monthly Gross Profit:</span>
+                  <span className="font-semibold text-white">
+                    {hasExplicitGrossMargin
+                      ? `${formatCurrency(
+                          data.scenarios!.upside.monthlyGrossProfitOpportunity ?? 0,
+                          currency
+                        )} / mo`
+                      : "Omitted (supply margin %)"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-brand-textMuted">
+                  <span>Annual Gross Profit:</span>
+                  <span className="font-semibold text-white">
+                    {hasExplicitGrossMargin
+                      ? `${formatCurrency(
+                          data.scenarios!.upside.annualGrossProfitOpportunity ?? 0,
+                          currency
+                        )} / yr`
+                      : "Omitted (supply margin %)"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Modeled Conversion Rate */}
+              {data.scenarios!.upside.baselineConversionRatePct != null &&
+                data.scenarios!.upside.modeledConversionRatePct != null && (
+                  <div className="text-[10px] font-mono text-brand-textMuted bg-brand-card/80 p-2 rounded border border-brand-borderSubtle">
+                    CR: {data.scenarios!.upside.baselineConversionRatePct.toFixed(2)}% →{" "}
+                    {data.scenarios!.upside.modeledConversionRatePct.toFixed(2)}% (+
+                    {data.scenarios!.upside.conversionRateDeltaPct}% abs)
                   </div>
                 )}
-              </div>
-              {data.scenarios!.upside.baselineConversionRatePct != null && data.scenarios!.upside.modeledConversionRatePct != null && (
-                <div className="text-[10px] font-mono text-brand-textMuted bg-brand-card/80 p-1.5 rounded border border-brand-borderSubtle">
-                  CR: {data.scenarios!.upside.baselineConversionRatePct.toFixed(2)}% → {data.scenarios!.upside.modeledConversionRatePct.toFixed(2)}% (+{data.scenarios!.upside.conversionRateDeltaPct}% abs)
+
+              {/* Est. Remediation Cost & Payback */}
+              <div className="pt-2 border-t border-brand-borderSubtle/60 space-y-1 text-xs text-brand-textMuted">
+                <div className="flex items-center justify-between">
+                  <span>Est. Remediation Cost:</span>
+                  <span className="font-semibold text-white">
+                    {formatCurrency(remediationCost, currency)}
+                  </span>
                 </div>
-              )}
-              <div className="pt-2 border-t border-brand-borderSubtle/60 flex items-center justify-between text-xs text-brand-textMuted">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-brand-teal" />
-                  <span>Est. Payback</span>
-                </span>
-                <span className="font-semibold text-white">
-                  {data.scenarios!.upside.paybackMonths != null
-                    ? `${data.scenarios!.upside.paybackMonths} months`
-                    : "N/A"}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-brand-teal" />
+                    <span>Est. Payback:</span>
+                  </span>
+                  <span className="font-semibold text-white">
+                    {data.scenarios!.upside.paybackMonths != null
+                      ? `${data.scenarios!.upside.paybackMonths} months`
+                      : "N/A"}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
