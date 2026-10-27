@@ -1,50 +1,51 @@
 # SiteIntel Pulse — Staging Deployment & Operational Runbook
 
 **Project:** SiteIntel Pulse — Website Intelligence & Growth Audit Platform  
+**Target Environment:** Hostinger KVM VPS (Ubuntu 24.04 LTS)  
 **Target Audience:** DevOps Engineers, Platform Administrators, Staging Release Team  
-**Version:** 1.0.0 (Milestone 4 Release Candidate)  
-**Date:** October 22, 2026  
+**Version:** 1.0.0 (Milestone 4 Release Candidate / Hostinger Staging Preparation)  
+**Date:** October 27, 2026  
+**Primary Deployment Architecture Guide:** [Hostinger VPS Deployment Guide](docs/hostinger-vps-deployment-guide.md)
 
 ---
 
 ## 1. Prerequisites & System Requirements
 
-### 1.1 Hardware Sizing
-- **CPU:** Minimum 2 vCPU (Recommended: 4 vCPU for concurrent crawls and Playwright rendering).
-- **RAM:** Minimum 2 GB (Recommended: 4 GB to accommodate Headless Chromium).
-- **Storage:** Minimum 20 GB SSD/NVMe persistent storage mounted with read-write permissions (`ReadWriteOnce`).
-
-### 1.2 Operating System & Software
-- **Operating System:** Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, or Debian 12 Bookworm.
-- **Option A (Containerized):** Docker Engine 24.0+ and Docker Compose v2.20+.
-- **Option B (Native):** Node.js >=22.5.0 LTS (Node 22 is required for native `node:sqlite`), npm 10+, and Chromium dependencies.
+### 1.1 Hostinger VPS Sizing & Hardware
+- **Hostinger VPS Plan:** **Hostinger KVM 2** (2 vCPU, 8 GB RAM, 100 GB NVMe) for Staging; **Hostinger KVM 4** (4 vCPU, 16 GB RAM, 200 GB NVMe) for Production.
+- **Operating System:** Ubuntu 24.04 LTS (Noble Numbat).
+- **Runtime:** Node.js 22 LTS (Latest supported patch release: `v22.23.4`, installed via NodeSource).
+- **Storage:** Persistent local NVMe SSD storage mounted with standard POSIX advisory file locking (`ReadWriteOnce`). Ephemeral serverless hosts (standard Vercel, AWS Lambda) are strictly prohibited.
 
 ---
 
 ## 2. Environment Configuration
 
-Create a `.env` file in the project root based on `.env.example`.
+The production and staging runtime environment configuration is stored at `/etc/siteintel-pulse.env` (permissions `600`, owned by `siteintel:siteintel`).
 
 ```env
 # Application Host and Port
 PORT=3000
-HOST=0.0.0.0
+HOST=127.0.0.1
 NEXT_PUBLIC_APP_URL=https://staging.yourdomain.com
 
 # Environment Mode
 NODE_ENV=production
 
 # Persistence (Durable SQLite on persistent storage mount)
-DATABASE_PATH=/app/data/siteintel.db
+DATABASE_PATH=/var/lib/siteintel-pulse/data/siteintel.db
 
 # Authentication & Session Security (MANDATORY: Generate unique secret via `openssl rand -hex 32`)
-# Generate on your server using: openssl rand -hex 32
-# Set the generated 64-character hex string below. Keep this file private and OUT of Git.
-# Application startup will abort if this variable is missing, shorter than 32 chars, or uses a placeholder.
-SESSION_SECRET=
+SESSION_SECRET=<GENERATE_VIA_OPENSSL_RAND_HEX_32>
+
+# Token Encryption at Rest (MANDATORY: Generate unique 32-byte hex key via `openssl rand -hex 32`)
+PROVIDER_ENCRYPTION_KEY=<GENERATE_VIA_OPENSSL_RAND_HEX_32>
+
+# Ingress Header Trust Contract
+TRUSTED_IP_HEADER=x-real-ip
 
 # Staging Demonstration Seed Guard
-# Keep false in production. Set to true only in temporary non-production demo environments.
+# Keep false in production and staging. Set to true only in temporary non-production demo environments.
 ALLOW_STAGING_SEEDS=false
 
 # Scanning & Crawling Limits (Durable Safety Controls)
@@ -70,14 +71,92 @@ PAGESPEED_API_KEY=
 
 ## 3. Staging Deployment Procedures
 
-### Method A: Docker Compose Deployment (Recommended)
+### Method A: Native Systemd Linux VPS Deployment (Canonical / Recommended)
+
+Native Node.js with systemd supervision and Nginx reverse proxy is the canonical architecture for SiteIntel Pulse on Hostinger VPS, ensuring direct POSIX file locking for SQLite WAL mode and persistent Playwright Chromium browser caching.
+
+1. **Install Chromium System Dependencies & Node.js 22 LTS:**
+   ```bash
+   sudo apt-get update && sudo apt-get install -y \
+     curl libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+     libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 ca-certificates
+   ```
+
+2. **Create Service User and Persistent Directories:**
+   ```bash
+   sudo useradd -r -s /bin/false -d /opt/siteintel-pulse siteintel
+   sudo mkdir -p /opt/siteintel-pulse
+   sudo mkdir -p /var/lib/siteintel-pulse/data /var/lib/siteintel-pulse/backups
+   sudo mkdir -p /var/log/siteintel-pulse
+   sudo chown -R siteintel:siteintel /opt/siteintel-pulse /var/lib/siteintel-pulse /var/log/siteintel-pulse
+   sudo chmod 750 /var/lib/siteintel-pulse/data /var/lib/siteintel-pulse/backups
+   ```
+
+3. **Install Dependencies, Validate Preflight & Build:**
+   ```bash
+   cd /opt/siteintel-pulse
+   sudo -u siteintel git clone https://github.com/Hafiz-Hamza-Liaqat/siteIntel-pulse.git .
+   sudo -u siteintel npm ci
+   sudo -u siteintel npx playwright install chromium
+   sudo -u siteintel npx playwright install-deps chromium
+
+   # Run Hostinger preflight validator against loaded environment
+   sudo -u siteintel ENV_FILE=/etc/siteintel-pulse.env npm run preflight:hostinger
+
+   # Compile production bundle
+   sudo -u siteintel ENV_FILE=/etc/siteintel-pulse.env npm run build
+   ```
+
+4. **Install Systemd Unit (`/etc/systemd/system/siteintel-pulse.service`):**
+   ```ini
+   [Unit]
+   Description=SiteIntel Pulse Website Intelligence Platform
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=siteintel
+   Group=siteintel
+   WorkingDirectory=/opt/siteintel-pulse
+   EnvironmentFile=/etc/siteintel-pulse.env
+   ExecStart=/usr/bin/node /opt/siteintel-pulse/node_modules/.bin/next start -p 3000 -H 127.0.0.1
+   Restart=always
+   RestartSec=5
+   LimitNOFILE=65535
+   StandardOutput=append:/var/log/siteintel-pulse/app.log
+   StandardError=append:/var/log/siteintel-pulse/error.log
+   SyslogIdentifier=siteintel-pulse
+
+   # Sandboxing
+   ProtectSystem=full
+   ProtectHome=true
+   PrivateTmp=true
+   NoNewPrivileges=true
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+5. **Start and Enable Service:**
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now siteintel-pulse
+   sudo systemctl status siteintel-pulse
+   ```
+
+---
+
+### Method B: Docker Compose Deployment (Optional Container Alternative)
+
+Docker Compose is supported as an optional alternative for containerized environments. Note that persistent volume mounts must support standard POSIX locks for SQLite WAL stability.
 
 1. **Clone Repository and Prepare Directories:**
    ```bash
    git clone https://github.com/Hafiz-Hamza-Liaqat/siteintel-pulse.git /opt/siteintel-pulse
    cd /opt/siteintel-pulse
    cp .env.example .env
-   # Edit .env with your staging domain and strong SESSION_SECRET
+   # Edit .env with your staging domain, strong SESSION_SECRET, and PROVIDER_ENCRYPTION_KEY
    ```
 
 2. **Build and Launch Container:**
@@ -95,59 +174,6 @@ PAGESPEED_API_KEY=
    ```bash
    curl -i http://localhost:3000/api/health
    # Expected: HTTP 200 OK, {"status":"healthy","checks":{"database":"connected"}}
-   ```
-
----
-
-### Method B: Native Systemd Linux VPS Deployment
-
-1. **Install Chromium System Dependencies:**
-   ```bash
-   sudo apt-get update && sudo apt-get install -y \
-     curl libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
-     libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 ca-certificates
-   ```
-
-2. **Create Service User and Persistent Directories:**
-   ```bash
-   sudo useradd -r -s /bin/false siteintel
-   sudo mkdir -p /var/lib/siteintel/data /var/lib/siteintel/backups
-   sudo chown -R siteintel:siteintel /var/lib/siteintel
-   ```
-
-3. **Install Dependencies & Build:**
-   ```bash
-   cd /opt/siteintel-pulse
-   npm ci
-   npm run build
-   ```
-
-4. **Install Systemd Unit (`/etc/systemd/system/siteintel.service`):**
-   ```ini
-   [Unit]
-   Description=SiteIntel Pulse Website Intelligence Platform
-   After=network.target
-
-   [Service]
-   Type=simple
-   User=siteintel
-   WorkingDirectory=/opt/siteintel-pulse
-   EnvironmentFile=/etc/siteintel.env
-   ExecStart=/usr/bin/node /opt/siteintel-pulse/node_modules/.bin/next start -p 3000 -H 127.0.0.1
-   Restart=always
-   RestartSec=5
-   LimitNOFILE=65535
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-5. **Start and Enable Service:**
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now siteintel
-   sudo systemctl status siteintel
    ```
 
 ---
@@ -241,7 +267,7 @@ While demo seeds are strictly locked out in production, SiteIntel Pulse provides
 docker exec -it siteintel-pulse-staging npm run admin:provision-tenant
 
 # Native Systemd Linux VPS (run as service user siteintel to preserve SQLite file ownership):
-sudo -u siteintel ENV_FILE=/etc/siteintel.env npm run admin:provision-tenant
+sudo -u siteintel ENV_FILE=/etc/siteintel-pulse.env npm run admin:provision-tenant
 ```
 
 #### Security Controls & Safeguards:
@@ -249,7 +275,7 @@ sudo -u siteintel ENV_FILE=/etc/siteintel.env npm run admin:provision-tenant
 2. **Terminal Echo Suppression:** Passwords are typed securely with echo disabled (`terminal: true`); credentials are never leaked to process lists, shell histories (`.bash_history`), or terminal displays.
 3. **Password Policy Enforcement:** Passwords must be $\ge 12$ characters and satisfy complexity rules (uppercase, lowercase, number, symbol, no whitespace) with confirmation.
 4. **Secret Validation & Insecure Fixture Rejection:** Rejects missing secrets, default placeholders, and known public test fixtures. Enforces strict 64-hexadecimal format matching `openssl rand -hex 32`.
-5. **Database File Ownership Preservation:** Executing as `sudo -u siteintel` ensures `/var/lib/siteintel/data/siteintel.db` and WAL files maintain `siteintel:siteintel` permissions, preventing service downtime from root-owned file locks.
+5. **Database File Ownership Preservation:** Executing as `sudo -u siteintel` ensures `/var/lib/siteintel-pulse/data/siteintel.db` and WAL files maintain `siteintel:siteintel` permissions, preventing service downtime from root-owned file locks.
 6. **PBKDF2-HMAC-SHA512 Cryptography:** Passwords are salted with 32 random bytes and hashed with 220,000 iterations of PBKDF2-HMAC-SHA512, ensuring 100% compatibility with `AuthService.authenticateUser` and `verifyPassword`.
 7. **Atomic Isolation & Rollback:** Tenant creation, slug generation, user mapping, and owner role assignment occur within an atomic SQLite transaction. If any constraint fails (e.g., duplicate email or tenant slug), the transaction rolls back cleanly.
 8. **No Pre-Generated API Keys:** Tenant owners are created without API keys or elevated cross-tenant permissions, maintaining strict data isolation.
@@ -296,14 +322,14 @@ node scripts/backup-database.mjs ./backups/manual-pre-upgrade.db
 ```bash
 # 1. Stop the active application process:
 docker compose -f docker-compose.staging.yml stop
-# or: sudo systemctl stop siteintel
+# or: sudo systemctl stop siteintel-pulse
 
 # 2. Execute restore utility pointing to verified backup snapshot:
 node scripts/restore-database.mjs ./backups/siteintel-backup-YYYY-MM-DD.db ./data/siteintel.db
 
 # 3. Restart application:
 docker compose -f docker-compose.staging.yml start
-# or: sudo systemctl start siteintel
+# or: sudo systemctl start siteintel-pulse
 
 # 4. Verify probe:
 curl -i http://localhost:3000/api/health

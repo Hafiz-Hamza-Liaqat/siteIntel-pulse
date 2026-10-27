@@ -22,12 +22,14 @@
     "admin:provision-tenant": "node scripts/provision-tenant-owner.mjs",
     "db:backup": "node scripts/backup-database.mjs",
     "db:restore": "node scripts/restore-database.mjs",
-    "db:verify": "node scripts/verify-backup-recovery.mjs"
+    "db:verify": "node scripts/verify-backup-recovery.mjs",
+    "preflight:hostinger": "node scripts/hostinger-preflight.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
     "cheerio": "^1.0.0",
     "clsx": "^2.1.1",
+    "dotenv": "^16.4.7",
     "lucide-react": "^0.475.0",
     "next": "15.1.7",
     "react": "^19.0.0",
@@ -45,7 +47,6 @@
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "dotenv": "^16.4.7",
     "eslint": "^9.19.0",
     "eslint-config-next": "15.1.7",
     "jsdom": "^26.0.0",
