@@ -65,6 +65,20 @@ export class GoogleAdsAdapter {
       };
     }
 
+    const hasValidCustomer = Boolean(conn.account_id && /^customers\/[0-9\-]+$/.test(conn.account_id));
+    const hasDevToken = Boolean(this.developerToken);
+
+    let statusMsg = `Connected to Google Ads Customer Account (${conn.account_id}).`;
+    let health: "HEALTHY" | "DEGRADED" = "HEALTHY";
+
+    if (!hasDevToken) {
+      statusMsg = "Connected via OAuth, but GOOGLE_ADS_DEVELOPER_TOKEN is not configured. Live queries unavailable.";
+      health = "DEGRADED";
+    } else if (!hasValidCustomer) {
+      statusMsg = "Connected to Google Ads account. Customer account selection required before metrics can be retrieved.";
+      health = "DEGRADED";
+    }
+
     return {
       provider: this.providerId,
       displayName: this.displayName,
@@ -72,13 +86,13 @@ export class GoogleAdsAdapter {
       status: "CONNECTED",
       isConnected: true,
       hasCredentials: true,
-      statusMessage: `Connected to Google Ads Customer Account (${conn.account_id || "Active Account"}).`,
+      statusMessage: statusMsg,
       supportedCapabilities: this.supportedCapabilities,
       permissions: JSON.parse(conn.scopes_json || "[]"),
       propertyId: conn.property_id || undefined,
-      accountId: conn.account_id || undefined,
+      accountId: hasValidCustomer ? conn.account_id! : undefined,
       lastSyncAt: conn.last_sync_at || undefined,
-      healthStatus: "HEALTHY",
+      healthStatus: health,
     };
   }
 
@@ -100,6 +114,24 @@ export class GoogleAdsAdapter {
     return url.toString();
   }
 
+  async listAccessibleCustomersWithToken(accessToken: string): Promise<string[]> {
+    if (!this.developerToken) return [];
+    try {
+      const res = await fetch("https://googleads.googleapis.com/v16/customers:listAccessibleCustomers", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": this.developerToken,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data?.resourceNames) ? data.resourceNames : [];
+    } catch {
+      return [];
+    }
+  }
+
   async handleCallback(params: {
     tenantId: string;
     code: string;
@@ -107,6 +139,11 @@ export class GoogleAdsAdapter {
     mockTokens?: { accessToken: string; refreshToken: string; customerId?: string };
   }): Promise<{ success: boolean; customerId?: string; error?: string }> {
     if (params.mockTokens) {
+      const validMockCustomer =
+        params.mockTokens.customerId && /^customers\/[0-9\-]+$/.test(params.mockTokens.customerId)
+          ? params.mockTokens.customerId
+          : undefined;
+
       this.store.saveConnection({
         tenantId: params.tenantId,
         provider: this.providerId,
@@ -114,10 +151,10 @@ export class GoogleAdsAdapter {
         scopes: this.requiredScopes,
         accessToken: params.mockTokens.accessToken,
         refreshToken: params.mockTokens.refreshToken,
-        accountId: params.mockTokens.customerId || "customers/123-456-7890",
+        accountId: validMockCustomer,
         tokenExpiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
       });
-      return { success: true, customerId: params.mockTokens.customerId || "customers/123-456-7890" };
+      return { success: true, customerId: validMockCustomer };
     }
 
     if (!this.clientId || !this.clientSecret) {
@@ -142,21 +179,104 @@ export class GoogleAdsAdapter {
       }
 
       const tokenData = await tokenRes.json();
+      const accessToken = tokenData.access_token;
+      const refreshToken = tokenData.refresh_token;
+
+      let selectedCustomer: string | undefined = undefined;
+      const discovered = await this.listAccessibleCustomersWithToken(accessToken);
+      if (discovered.length === 1) {
+        selectedCustomer = discovered[0];
+      }
+
       this.store.saveConnection({
         tenantId: params.tenantId,
         provider: this.providerId,
         status: "CONNECTED",
         scopes: this.requiredScopes,
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
-        accountId: "customers/active",
+        accessToken,
+        refreshToken,
+        accountId: selectedCustomer,
         tokenExpiresAt: new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString(),
       });
 
-      return { success: true, customerId: "customers/active" };
+      return { success: true, customerId: selectedCustomer };
     } catch (err: any) {
       return { success: false, error: err?.message || "Token exchange failed." };
     }
+  }
+
+  async listAccessibleCustomers(tenantId: string): Promise<{ success: boolean; customers?: string[]; error?: string }> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn || conn.status !== "CONNECTED") {
+      return { success: false, error: "Google Ads is not connected." };
+    }
+
+    if (!this.developerToken) {
+      return {
+        success: false,
+        error: "GOOGLE_ADS_DEVELOPER_TOKEN is not configured. Google Ads API calls require an approved developer token.",
+      };
+    }
+
+    let { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (isExpired || !accessToken) {
+      const refreshed = await this.refreshAccessToken(tenantId);
+      if (refreshed) {
+        const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
+        accessToken = tokens.accessToken;
+      } else {
+        return { success: false, error: "Access token expired and refresh failed." };
+      }
+    }
+
+    try {
+      const res = await fetch("https://googleads.googleapis.com/v16/customers:listAccessibleCustomers", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": this.developerToken,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!res.ok) {
+        return { success: false, error: `Google Ads API returned HTTP ${res.status}` };
+      }
+
+      const data = await res.json();
+      const customers = Array.isArray(data?.resourceNames) ? data.resourceNames : [];
+      return { success: true, customers };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to list accessible customers." };
+    }
+  }
+
+  async selectCustomer(
+    tenantId: string,
+    rawCustomerId: string
+  ): Promise<{ success: boolean; customerId?: string; error?: string }> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn || conn.status !== "CONNECTED") {
+      return { success: false, error: "Google Ads is not connected." };
+    }
+
+    if (!rawCustomerId || typeof rawCustomerId !== "string") {
+      return { success: false, error: "Customer ID is required." };
+    }
+
+    let normalized = rawCustomerId.trim();
+    if (!normalized.startsWith("customers/")) {
+      normalized = `customers/${normalized}`;
+    }
+
+    if (!/^customers\/[0-9\-]+$/.test(normalized)) {
+      return {
+        success: false,
+        error: `Invalid customer identifier "${rawCustomerId}". Expected format: customers/123-456-7890 (numeric only).`,
+      };
+    }
+
+    this.store.updateAccountId(tenantId, this.providerId, normalized);
+    return { success: true, customerId: normalized };
   }
 
   async refreshAccessToken(tenantId: string): Promise<boolean> {
@@ -245,14 +365,123 @@ export class GoogleAdsAdapter {
       };
     }
 
-    return {
-      provider: this.providerId,
-      isAvailable: false,
-      dataTimestamp: now,
-      metrics: {},
-      provenance: { source: "Google Ads", propertyOrAccount: conn.account_id || "UNKNOWN", fetchedAt: now },
-      limitations: "Live Google Ads API queries require production manager account approval and active campaign spend.",
-    };
+    if (!this.developerToken) {
+      return {
+        provider: this.providerId,
+        isAvailable: false,
+        dataTimestamp: now,
+        metrics: {},
+        provenance: { source: "Google Ads API", propertyOrAccount: conn.account_id || "NOT_CONFIGURED", fetchedAt: now },
+        limitations: "Google Ads developer token (GOOGLE_ADS_DEVELOPER_TOKEN) is not configured. Google Ads API calls require an approved developer token from Google.",
+      };
+    }
+
+    if (!conn.account_id || !/^customers\/[0-9\-]+$/.test(conn.account_id)) {
+      return {
+        provider: this.providerId,
+        isAvailable: false,
+        dataTimestamp: now,
+        metrics: {},
+        provenance: { source: "Google Ads API", propertyOrAccount: "NO_CUSTOMER_SELECTED", fetchedAt: now },
+        limitations: "No valid Google Ads customer account selected. Customer account selection is required before advertising metrics can be retrieved.",
+      };
+    }
+
+    let { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    if (isExpired || !accessToken) {
+      const refreshed = await this.refreshAccessToken(tenantId);
+      if (refreshed) {
+        const tokens = this.store.getDecryptedTokens(tenantId, this.providerId);
+        accessToken = tokens.accessToken;
+      } else {
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {},
+          provenance: { source: "Google Ads API", propertyOrAccount: conn.account_id, fetchedAt: now },
+          limitations: "Access token expired and refresh failed. Re-authentication required.",
+        };
+      }
+    }
+
+    const cleanCustomer = conn.account_id;
+    const loginCustomerId = cleanCustomer.replace("customers/", "").replace(/-/g, "");
+
+    try {
+      const res = await fetch(`https://googleads.googleapis.com/v16/${cleanCustomer}/googleAds:search`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": this.developerToken,
+          "login-customer-id": loginCustomerId,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: "SELECT metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions FROM customer WHERE segments.date DURING LAST_30_DAYS",
+        }),
+      });
+
+      if (!res.ok) {
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {},
+          provenance: { source: "Google Ads API v16", propertyOrAccount: cleanCustomer, fetchedAt: now },
+          limitations: `Google Ads API returned HTTP ${res.status}. Verify developer token approval and customer account access.`,
+        };
+      }
+
+      const data = await res.json();
+      const results = data?.results || [];
+      let totalCostMicros = 0;
+      let totalImpressions = 0;
+      let totalClicks = 0;
+      let totalConversions = 0;
+
+      for (const row of results) {
+        totalCostMicros += Number(row?.metrics?.costMicros || 0);
+        totalImpressions += Number(row?.metrics?.impressions || 0);
+        totalClicks += Number(row?.metrics?.clicks || 0);
+        totalConversions += Number(row?.metrics?.conversions || 0);
+      }
+
+      const spend = Math.round((totalCostMicros / 1000000) * 100) / 100;
+      const cpc = totalClicks > 0 ? Math.round((spend / totalClicks) * 100) / 100 : 0;
+
+      return {
+        provider: this.providerId,
+        isAvailable: true,
+        dataTimestamp: now,
+        dateRange: {
+          startDate: "LAST_30_DAYS",
+          endDate: "today",
+        },
+        metrics: {
+          monthlySpend: spend,
+          paidClicks: totalClicks,
+          paidImpressions: totalImpressions,
+          conversions: totalConversions,
+          averageCpc: cpc,
+          isAcquisitionContextOnly: true,
+        },
+        provenance: {
+          source: "Google Ads API v16 (Live Search)",
+          propertyOrAccount: cleanCustomer,
+          fetchedAt: now,
+        },
+      };
+    } catch (err: any) {
+      return {
+        provider: this.providerId,
+        isAvailable: false,
+        dataTimestamp: now,
+        metrics: {},
+        provenance: { source: "Google Ads API", propertyOrAccount: cleanCustomer, fetchedAt: now },
+        limitations: `Failed to query Google Ads API: ${err?.message || "Network error"}`,
+      };
+    }
   }
 
   async disconnect(tenantId: string): Promise<boolean> {

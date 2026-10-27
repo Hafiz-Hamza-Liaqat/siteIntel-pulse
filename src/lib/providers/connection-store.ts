@@ -102,6 +102,26 @@ export class ProviderConnectionStore {
     stmt.run(status, now, tenantId, provider);
   }
 
+  updatePropertyId(tenantId: string, provider: ProviderId, propertyId: string | null): void {
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      UPDATE provider_connections
+      SET property_id = ?, updated_at = ?
+      WHERE tenant_id = ? AND provider = ?
+    `);
+    stmt.run(propertyId, now, tenantId, provider);
+  }
+
+  updateAccountId(tenantId: string, provider: ProviderId, accountId: string | null): void {
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      UPDATE provider_connections
+      SET account_id = ?, updated_at = ?
+      WHERE tenant_id = ? AND provider = ?
+    `);
+    stmt.run(accountId, now, tenantId, provider);
+  }
+
   getDecryptedTokens(tenantId: string, provider: ProviderId): {
     accessToken?: string;
     refreshToken?: string;

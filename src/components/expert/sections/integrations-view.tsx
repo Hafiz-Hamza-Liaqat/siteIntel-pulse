@@ -91,6 +91,31 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
     setLoading(false);
   };
 
+  const handleSelectGA4Property = async () => {
+    const propInput = window.prompt("Enter Google Analytics 4 Property ID (e.g. properties/123456789 or 123456789):");
+    if (!propInput || !propInput.trim()) return;
+
+    setLoading(true);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/providers/ga4/properties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ propertyId: propInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setActionError(data.error || "Failed to select GA4 property.");
+      } else {
+        await fetchProviders();
+      }
+    } catch (err: any) {
+      setActionError(err?.message || "Property selection request failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getStateBadge = (state: string) => {
     switch (state) {
       case "BEHAVIOR_VERIFIED":
@@ -119,8 +144,20 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    if (status === "CONNECTED") {
+  const getStatusBadge = (provider: ProviderConnectionState) => {
+    if (provider.status === "CONNECTED") {
+      if (
+        provider.healthStatus === "DEGRADED" ||
+        (provider.provider === "google_analytics_4" && !provider.propertyId) ||
+        (provider.provider === "ads_google" && !provider.accountId)
+      ) {
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+            <AlertCircle className="w-3 h-3" />
+            SETUP REQUIRED
+          </span>
+        );
+      }
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
           <Check className="w-3 h-3" />
@@ -128,9 +165,9 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
         </span>
       );
     }
-    if (status === "NOT_CONFIGURED") {
+    if (provider.status === "NOT_CONFIGURED") {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
           NOT CONFIGURED
         </span>
       );
@@ -183,7 +220,7 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-white text-sm">{p.displayName}</span>
-                  {getStatusBadge(p.status)}
+                  {getStatusBadge(p)}
                 </div>
 
                 <p className="text-[11px] text-brand-textMuted leading-relaxed">
@@ -212,13 +249,24 @@ export function IntegrationsView({ integrations }: IntegrationsViewProps) {
                   {p.lastSyncAt ? `Synced ${new Date(p.lastSyncAt).toLocaleDateString()}` : "No active sync"}
                 </span>
                 {p.isConnected ? (
-                  <button
-                    onClick={() => handleDisconnect(p.provider)}
-                    disabled={loading}
-                    className="px-2.5 py-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-md border border-rose-500/30 transition disabled:opacity-50"
-                  >
-                    Disconnect
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {p.provider === "google_analytics_4" && (
+                      <button
+                        onClick={handleSelectGA4Property}
+                        disabled={loading}
+                        className="px-2 py-1 text-[10px] font-semibold text-brand-cyan hover:text-white bg-brand-cyan/10 hover:bg-brand-cyan/20 rounded-md border border-brand-cyan/30 transition disabled:opacity-50"
+                      >
+                        {p.propertyId ? "Change Property" : "Select Property"}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDisconnect(p.provider)}
+                      disabled={loading}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-md border border-rose-500/30 transition disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
                 ) : (
                   <button
                     onClick={() => handleConnect(p.provider)}

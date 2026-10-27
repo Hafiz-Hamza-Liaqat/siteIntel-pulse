@@ -82,6 +82,7 @@ export interface ProviderMetricsResult {
     propertyOrAccount: string;
     isSimulatedOrMock?: boolean;
     fetchedAt: string;
+    reportingPeriod?: Record<string, any>;
   };
   limitations?: string;
 }

@@ -58,6 +58,7 @@ export class GA4Adapter {
       };
     }
 
+    const hasValidProperty = Boolean(conn.property_id && /^properties\/[0-9]+$/.test(conn.property_id));
     return {
       provider: this.providerId,
       displayName: this.displayName,
@@ -65,13 +66,15 @@ export class GA4Adapter {
       status: "CONNECTED",
       isConnected: true,
       hasCredentials: true,
-      statusMessage: `Connected to Google Analytics 4 Property (${conn.property_id || "Primary Property"}).`,
+      statusMessage: hasValidProperty
+        ? `Connected to Google Analytics 4 Property (${conn.property_id}).`
+        : "Connected to Google Analytics account. Property selection required before traffic can be verified.",
       supportedCapabilities: this.supportedCapabilities,
       permissions: JSON.parse(conn.scopes_json || "[]"),
-      propertyId: conn.property_id || undefined,
+      propertyId: hasValidProperty ? conn.property_id! : undefined,
       accountId: conn.account_id || undefined,
       lastSyncAt: conn.last_sync_at || undefined,
-      healthStatus: "HEALTHY",
+      healthStatus: hasValidProperty ? "HEALTHY" : "DEGRADED",
     };
   }
 
@@ -98,6 +101,37 @@ export class GA4Adapter {
     return url.toString();
   }
 
+  async listAccessiblePropertiesWithToken(accessToken: string): Promise<
+    Array<{ propertyId: string; displayName: string; accountName?: string }>
+  > {
+    try {
+      const res = await fetch("https://analyticsadmin.googleapis.com/v1beta/accountSummaries", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const results: Array<{ propertyId: string; displayName: string; accountName?: string }> = [];
+      const summaries = data?.accountSummaries || [];
+      for (const account of summaries) {
+        for (const prop of account.propertySummaries || []) {
+          if (prop.property) {
+            results.push({
+              propertyId: prop.property,
+              displayName: prop.displayName || prop.property,
+              accountName: account.displayName || account.account,
+            });
+          }
+        }
+      }
+      return results;
+    } catch {
+      return [];
+    }
+  }
+
   async handleCallback(params: {
     tenantId: string;
     code: string;
@@ -107,6 +141,11 @@ export class GA4Adapter {
   }): Promise<{ success: boolean; propertyId?: string; error?: string }> {
     if (params.mockTokens) {
       // Offline contract test path
+      const validMockProperty =
+        params.mockTokens.propertyId && /^properties\/[0-9]+$/.test(params.mockTokens.propertyId)
+          ? params.mockTokens.propertyId
+          : undefined;
+
       this.store.saveConnection({
         tenantId: params.tenantId,
         provider: this.providerId,
@@ -114,10 +153,10 @@ export class GA4Adapter {
         scopes: this.requiredScopes,
         accessToken: params.mockTokens.accessToken,
         refreshToken: params.mockTokens.refreshToken,
-        propertyId: params.mockTokens.propertyId || "properties/987654321",
+        propertyId: validMockProperty,
         tokenExpiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
       });
-      return { success: true, propertyId: params.mockTokens.propertyId || "properties/987654321" };
+      return { success: true, propertyId: validMockProperty };
     }
 
     if (!this.clientId || !this.clientSecret) {
@@ -147,6 +186,13 @@ export class GA4Adapter {
       const refreshToken = tokenData.refresh_token;
       const expiresIn = tokenData.expires_in || 3600;
 
+      // Discover accessible GA4 properties
+      let selectedProperty: string | undefined = undefined;
+      const discovered = await this.listAccessiblePropertiesWithToken(accessToken);
+      if (discovered.length === 1) {
+        selectedProperty = discovered[0].propertyId;
+      }
+
       this.store.saveConnection({
         tenantId: params.tenantId,
         provider: this.providerId,
@@ -154,14 +200,111 @@ export class GA4Adapter {
         scopes: this.requiredScopes,
         accessToken,
         refreshToken,
-        propertyId: "properties/active",
+        propertyId: selectedProperty,
         tokenExpiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
       });
 
-      return { success: true, propertyId: "properties/active" };
+      return { success: true, propertyId: selectedProperty };
     } catch (err: any) {
       return { success: false, error: err?.message || "Token exchange failed." };
     }
+  }
+
+  async listAccessibleProperties(tenantId: string): Promise<{
+    success: boolean;
+    properties?: Array<{ propertyId: string; displayName: string; accountName?: string }>;
+    error?: string;
+  }> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn || conn.status !== "CONNECTED") {
+      return { success: false, error: "Google Analytics 4 is not connected." };
+    }
+
+    const { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
+    let activeToken = accessToken;
+
+    if (!activeToken || isExpired) {
+      const refreshed = await this.refreshAccessToken(tenantId);
+      if (refreshed.success && refreshed.accessToken) {
+        activeToken = refreshed.accessToken;
+      } else {
+        return { success: false, error: "Access token expired and refresh failed." };
+      }
+    }
+
+    try {
+      const res = await fetch("https://analyticsadmin.googleapis.com/v1beta/accountSummaries", {
+        headers: {
+          Authorization: `Bearer ${activeToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!res.ok) {
+        return { success: false, error: `Google Analytics Admin API returned HTTP ${res.status}` };
+      }
+
+      const data = await res.json();
+      const results: Array<{ propertyId: string; displayName: string; accountName?: string }> = [];
+      const summaries = data?.accountSummaries || [];
+      for (const account of summaries) {
+        for (const prop of account.propertySummaries || []) {
+          if (prop.property) {
+            results.push({
+              propertyId: prop.property,
+              displayName: prop.displayName || prop.property,
+              accountName: account.displayName || account.account,
+            });
+          }
+        }
+      }
+
+      return { success: true, properties: results };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to query Google Analytics Admin API" };
+    }
+  }
+
+  async selectProperty(
+    tenantId: string,
+    rawPropertyId: string
+  ): Promise<{ success: boolean; propertyId?: string; error?: string }> {
+    const conn = this.store.getConnection(tenantId, this.providerId);
+    if (!conn || conn.status !== "CONNECTED") {
+      return { success: false, error: "Google Analytics 4 is not connected." };
+    }
+
+    if (!rawPropertyId || typeof rawPropertyId !== "string") {
+      return { success: false, error: "Property ID is required." };
+    }
+
+    let normalized = rawPropertyId.trim();
+    if (!normalized.startsWith("properties/")) {
+      normalized = `properties/${normalized}`;
+    }
+
+    // Validate syntax: must be properties/{digits}
+    if (!/^properties\/[0-9]+$/.test(normalized)) {
+      return {
+        success: false,
+        error: `Invalid property identifier "${rawPropertyId}". Expected format: properties/123456789 (numeric ID only).`,
+      };
+    }
+
+    // Verify tenant access via accessible properties listing if possible
+    const accessList = await this.listAccessibleProperties(tenantId);
+    if (accessList.success && accessList.properties && accessList.properties.length > 0) {
+      const isAuthorized = accessList.properties.some((p) => p.propertyId === normalized);
+      if (!isAuthorized) {
+        return {
+          success: false,
+          error: `Property "${normalized}" is not accessible by the authenticated Google Analytics account.`,
+        };
+      }
+    }
+
+    this.store.updatePropertyId(tenantId, this.providerId, normalized);
+    return { success: true, propertyId: normalized };
   }
 
   async refreshAccessToken(tenantId: string): Promise<{ success: boolean; accessToken?: string; error?: string }> {
@@ -268,6 +411,21 @@ export class GA4Adapter {
       };
     }
 
+    if (!conn.property_id || !/^properties\/[0-9]+$/.test(conn.property_id)) {
+      return {
+        provider: this.providerId,
+        isAvailable: false,
+        dataTimestamp: now,
+        metrics: {},
+        provenance: {
+          source: "Google Analytics 4",
+          propertyOrAccount: "NO_PROPERTY_SELECTED",
+          fetchedAt: now,
+        },
+        limitations: "No valid Google Analytics 4 property selected or authorized. Property selection is required before traffic can be verified.",
+      };
+    }
+
     const { accessToken, isExpired } = this.store.getDecryptedTokens(tenantId, this.providerId);
     let activeToken = accessToken;
 
@@ -293,7 +451,7 @@ export class GA4Adapter {
 
     // Live API call to Google Analytics Data API v1beta
     try {
-      const property = conn.property_id || "properties/active";
+      const property = conn.property_id;
       const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/${property}:runReport`, {
         method: "POST",
         headers: {
@@ -322,7 +480,7 @@ export class GA4Adapter {
             propertyOrAccount: property,
             fetchedAt: now,
           },
-          limitations: `Google Analytics API returned HTTP ${res.status}. Check property permissions.`,
+          limitations: `Google Analytics Data API returned HTTP ${res.status}. Check property permissions for ${property}.`,
         };
       }
 

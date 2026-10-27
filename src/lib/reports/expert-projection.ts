@@ -270,7 +270,7 @@ export function projectExpertReport(
 
     const isNoIndex =
       (p.robotsDirectives || []).some((r) => r.toLowerCase().includes("noindex")) ||
-      (p.headers["x-robots-tag"] || "").toLowerCase().includes("noindex");
+      (p.headers?.["x-robots-tag"] || "").toLowerCase().includes("noindex");
 
     let indexabilityStatus: PageDiagnostic["indexabilityStatus"] = "INDEXABLE";
     if (p.statusCode >= 400) {

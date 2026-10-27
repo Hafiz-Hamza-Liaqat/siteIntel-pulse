@@ -1,6 +1,21 @@
 import { ProviderConnectionState, ProviderMetricsResult } from "./types";
 import { ProviderConnectionStore } from "./connection-store";
 
+export function calculateGscDateRange(
+  referenceDate: Date = new Date(),
+  days: number = 28
+): { startDate: string; endDate: string } {
+  // GSC data processing pipeline exhibits a standard 3-day data lag
+  const end = new Date(referenceDate.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+
+  const format = (d: Date) => d.toISOString().split("T")[0];
+  return {
+    startDate: format(start),
+    endDate: format(end),
+  };
+}
+
 export class SearchConsoleAdapter {
   readonly providerId = "search_console" as const;
   readonly displayName = "Google Search Console (GSC)";
@@ -218,10 +233,19 @@ export class SearchConsoleAdapter {
 
   async fetchMetrics(
     tenantId: string,
-    options?: { startDate?: string; endDate?: string; mockOverride?: Record<string, any> }
+    options?: {
+      startDate?: string;
+      endDate?: string;
+      referenceDate?: Date;
+      mockOverride?: Record<string, any>;
+    }
   ): Promise<ProviderMetricsResult> {
     const conn = this.store.getConnection(tenantId, this.providerId);
     const now = new Date().toISOString();
+
+    const dynamicRange = calculateGscDateRange(options?.referenceDate, 28);
+    const resolvedStartDate = options?.startDate || dynamicRange.startDate;
+    const resolvedEndDate = options?.endDate || dynamicRange.endDate;
 
     if (options?.mockOverride) {
       return {
@@ -229,15 +253,24 @@ export class SearchConsoleAdapter {
         isAvailable: true,
         dataTimestamp: now,
         dateRange: {
-          startDate: options.startDate || "2026-09-27",
-          endDate: options.endDate || "2026-10-27",
+          startDate: resolvedStartDate,
+          endDate: resolvedEndDate,
         },
-        metrics: options.mockOverride,
+        metrics: {
+          isAcquisitionContextOnly: true,
+          ...options.mockOverride,
+        },
         provenance: {
           source: "Google Search Console API (Mock Fixture)",
           propertyOrAccount: conn?.property_id || "sc-domain:example.com",
           isSimulatedOrMock: true,
           fetchedAt: now,
+          reportingPeriod: {
+            startDate: resolvedStartDate,
+            endDate: resolvedEndDate,
+            lagDays: 3,
+            windowDays: 28,
+          },
         },
       };
     }
@@ -291,8 +324,8 @@ export class SearchConsoleAdapter {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          startDate: options?.startDate || "2026-09-27",
-          endDate: options?.endDate || "2026-10-27",
+          startDate: resolvedStartDate,
+          endDate: resolvedEndDate,
           dimensions: ["query"],
           rowLimit: 10,
         }),
@@ -326,8 +359,8 @@ export class SearchConsoleAdapter {
         isAvailable: true,
         dataTimestamp: now,
         dateRange: {
-          startDate: options?.startDate || "2026-09-27",
-          endDate: options?.endDate || "2026-10-27",
+          startDate: resolvedStartDate,
+          endDate: resolvedEndDate,
         },
         metrics: {
           clicks: totalClicks,
@@ -335,11 +368,18 @@ export class SearchConsoleAdapter {
           averageCtrPct: avgCtr,
           averagePosition: avgPosition,
           topQueriesCount: rows.length,
+          isAcquisitionContextOnly: true,
         },
         provenance: {
           source: "Google Search Console API v3",
           propertyOrAccount: conn.property_id || "sc-domain:verified-site",
           fetchedAt: now,
+          reportingPeriod: {
+            startDate: resolvedStartDate,
+            endDate: resolvedEndDate,
+            lagDays: 3,
+            windowDays: 28,
+          },
         },
       };
     } catch (err: any) {

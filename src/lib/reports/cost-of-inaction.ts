@@ -60,15 +60,20 @@ export function calculateCostOfInaction(options: CostOfInactionOptions): CostOfI
   // Input Precedence: Explicit Owner Intake > Connected Provider Data > Fallback
   let monthlySessions: number | undefined = undefined;
   let sessionSource = "Unprovided";
+  const ga4Sessions = ga4?.metrics?.sessions ?? ga4?.metrics?.sessionsCount;
   if (request?.monthlySessions && request.monthlySessions > 0) {
     monthlySessions = request.monthlySessions;
     sessionSource = "Owner Intake";
-  } else if (ga4?.metrics?.sessionsCount && Number(ga4.metrics.sessionsCount) > 0) {
-    monthlySessions = Number(ga4.metrics.sessionsCount);
+  } else if (ga4Sessions && Number(ga4Sessions) > 0) {
+    monthlySessions = Number(ga4Sessions);
     sessionSource = "Connected GA4";
   }
 
-  const currency = request?.currency || shopify?.metrics?.currency || "USD";
+  const rawCurrency = request?.currency || shopify?.metrics?.currency || "USD";
+  const currency =
+    typeof rawCurrency === "string" && /^[A-Z]{3}$/.test(rawCurrency.trim().toUpperCase())
+      ? rawCurrency.trim().toUpperCase()
+      : "USD";
   const explicitAov = request?.averageOrderValue;
   const explicitLeadConv = request?.leadConversionRatePct;
   const explicitLeadToCust = request?.leadToCustomerRatePct;

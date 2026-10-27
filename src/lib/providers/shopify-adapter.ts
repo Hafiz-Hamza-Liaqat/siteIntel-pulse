@@ -13,15 +13,22 @@ export class ShopifyCommerceAdapter {
     "Online store checkout completion rate",
   ];
   readonly requiredScopes = ["read_orders", "read_products"];
+  readonly apiVersion: string;
 
   private store: ProviderConnectionStore;
   private apiKey?: string;
   private apiSecret?: string;
 
-  constructor(store: ProviderConnectionStore, apiKey?: string, apiSecret?: string) {
+  constructor(
+    store: ProviderConnectionStore,
+    apiKey?: string,
+    apiSecret?: string,
+    apiVersion?: string
+  ) {
     this.store = store;
     this.apiKey = apiKey || process.env.SHOPIFY_API_KEY || process.env.SHOPIFY_CLIENT_ID;
     this.apiSecret = apiSecret || process.env.SHOPIFY_API_SECRET || process.env.SHOPIFY_CLIENT_SECRET;
+    this.apiVersion = apiVersion || process.env.SHOPIFY_API_VERSION || "2025-01";
   }
 
   isConfigured(): boolean {
@@ -169,14 +176,7 @@ export class ShopifyCommerceAdapter {
     }
     const cleanShop = domainCheck.normalizedShop;
 
-    // Validate HMAC signature if queryParams containing hmac are provided
-    if (params.queryParams && params.queryParams.hmac && !params.mockTokens) {
-      const isHmacValid = this.validateHmac(params.queryParams);
-      if (!isHmacValid) {
-        return { success: false, error: "Shopify OAuth HMAC signature verification failed." };
-      }
-    }
-
+    // Explicit test-only mock path
     if (params.mockTokens) {
       this.store.saveConnection({
         tenantId: params.tenantId,
@@ -190,12 +190,21 @@ export class ShopifyCommerceAdapter {
       return { success: true, shopDomain: cleanShop };
     }
 
+    // In production/live flow, HMAC signature is strictly mandatory
+    if (!params.queryParams || !params.queryParams.hmac) {
+      return { success: false, error: "Missing required HMAC signature in Shopify OAuth callback." };
+    }
+
+    const isHmacValid = this.validateHmac(params.queryParams);
+    if (!isHmacValid) {
+      return { success: false, error: "Shopify OAuth HMAC signature verification failed." };
+    }
+
     if (!this.apiKey || !this.apiSecret) {
       return { success: false, error: "Shopify API credentials not configured." };
     }
 
     try {
-      const cleanShop = params.shopDomain.replace(/^https?:\/\//, "").replace(/\/$/, "");
       const tokenRes = await fetch(`https://${cleanShop}/admin/oauth/access_token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -239,9 +248,16 @@ export class ShopifyCommerceAdapter {
         provider: this.providerId,
         isAvailable: true,
         dataTimestamp: now,
-        metrics: options.mockOverride,
+        dateRange: {
+          startDate: options.mockOverride.reportingPeriod?.startDate || new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0],
+          endDate: options.mockOverride.reportingPeriod?.endDate || now.split("T")[0],
+        },
+        metrics: {
+          currency: "USD",
+          ...options.mockOverride,
+        },
         provenance: {
-          source: "Shopify Admin API (Mock Fixture)",
+          source: `Shopify Admin API ${this.apiVersion} (Mock Fixture)`,
           propertyOrAccount: conn?.account_id || "demo-store.myshopify.com",
           isSimulatedOrMock: true,
           fetchedAt: now,
@@ -274,24 +290,74 @@ export class ShopifyCommerceAdapter {
 
     const shop = conn.account_id || "active-store.myshopify.com";
     try {
-      const ordersRes = await fetch(`https://${shop}/admin/api/2024-01/orders.json?status=any&limit=250&fields=id,total_price,financial_status,created_at`, {
+      // 1. Fetch and validate store currency from shop settings
+      let storeCurrency: string | undefined = undefined;
+      const shopRes = await fetch(`https://${shop}/admin/api/${this.apiVersion}/shop.json?fields=currency,name,domain`, {
         headers: { "X-Shopify-Access-Token": accessToken },
       });
 
-      if (!ordersRes.ok) {
-        return {
-          provider: this.providerId,
-          isAvailable: false,
-          dataTimestamp: now,
-          metrics: {},
-          provenance: { source: "Shopify Admin Orders API", propertyOrAccount: shop, fetchedAt: now },
-          limitations: `Shopify Orders API returned HTTP ${ordersRes.status}.`,
-        };
+      if (shopRes.ok) {
+        const shopData = await shopRes.json();
+        if (shopData?.shop?.currency && typeof shopData.shop.currency === "string") {
+          const rawCurr = shopData.shop.currency.trim().toUpperCase();
+          if (/^[A-Z]{3}$/.test(rawCurr)) {
+            storeCurrency = rawCurr;
+          }
+        }
       }
 
-      const data = await ordersRes.json();
-      const orders = data?.orders || [];
-      const paidOrders = orders.filter((o: any) => o.financial_status === "paid");
+      // 2. Fetch orders within a defined recent 30-day window with complete pagination
+      const reportingDays = 30;
+      const createdAtMin = new Date(Date.now() - reportingDays * 24 * 60 * 60 * 1000).toISOString();
+      const allOrders: any[] = [];
+      let nextUrl: string | null = `https://${shop}/admin/api/${this.apiVersion}/orders.json?status=any&created_at_min=${encodeURIComponent(createdAtMin)}&limit=250&fields=id,total_price,currency,financial_status,created_at`;
+      let pageCount = 0;
+      const MAX_PAGES = 10; // safety ceiling: up to 2500 orders
+
+      while (nextUrl && pageCount < MAX_PAGES) {
+        pageCount++;
+        const ordersRes: Response = await fetch(nextUrl, {
+          headers: { "X-Shopify-Access-Token": accessToken },
+        });
+
+        if (!ordersRes.ok) {
+          return {
+            provider: this.providerId,
+            isAvailable: false,
+            dataTimestamp: now,
+            metrics: {},
+            provenance: { source: "Shopify Admin Orders API", propertyOrAccount: shop, fetchedAt: now },
+            limitations: `Shopify Orders API returned HTTP ${ordersRes.status} on page ${pageCount}.`,
+          };
+        }
+
+        const data = await ordersRes.json();
+        const ordersPage = data?.orders || [];
+        allOrders.push(...ordersPage);
+
+        // Check RFC 5988 Link header for cursor pagination
+        const linkHeader: string | null = ordersRes.headers.get("Link") || ordersRes.headers.get("link");
+        if (linkHeader && linkHeader.includes('rel="next"')) {
+          const match: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+          nextUrl = match ? match[1] : null;
+        } else {
+          nextUrl = null;
+        }
+      }
+
+      // If store currency was not obtained from shop settings, inspect order currencies
+      if (!storeCurrency && allOrders.length > 0) {
+        const orderCurrencies = Array.from(new Set(allOrders.map((o: any) => o.currency).filter(Boolean)));
+        if (orderCurrencies.length === 1 && typeof orderCurrencies[0] === "string" && /^[A-Z]{3}$/.test(orderCurrencies[0])) {
+          storeCurrency = orderCurrencies[0];
+        }
+      }
+
+      if (!storeCurrency) {
+        storeCurrency = "USD";
+      }
+
+      const paidOrders = allOrders.filter((o: any) => o.financial_status === "paid");
       const totalGmv = paidOrders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price || "0"), 0);
       const aov = paidOrders.length > 0 ? Math.round((totalGmv / paidOrders.length) * 100) / 100 : 0;
 
@@ -299,14 +365,22 @@ export class ShopifyCommerceAdapter {
         provider: this.providerId,
         isAvailable: true,
         dataTimestamp: now,
+        dateRange: {
+          startDate: createdAtMin.split("T")[0],
+          endDate: now.split("T")[0],
+        },
         metrics: {
-          totalOrders: orders.length,
+          totalOrders: allOrders.length,
           paidOrdersCount: paidOrders.length,
           grossMerchandiseValue: Math.round(totalGmv),
           averageOrderValue: aov,
+          currency: storeCurrency,
+          reportingWindowDays: reportingDays,
+          paginationComplete: nextUrl === null,
+          pagesRetrieved: pageCount,
         },
         provenance: {
-          source: "Shopify Admin Orders API (Aggregated)",
+          source: `Shopify Admin API ${this.apiVersion} (Aggregated)`,
           propertyOrAccount: shop,
           fetchedAt: now,
         },

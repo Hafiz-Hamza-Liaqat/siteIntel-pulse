@@ -115,14 +115,63 @@ export class BacklinksSerpAdapter {
       };
     }
 
-    return {
-      provider: this.providerId,
-      isAvailable: false,
-      dataTimestamp: now,
-      metrics: {},
-      provenance: { source: "SEO Data Provider", propertyOrAccount: domain, fetchedAt: now },
-      limitations: "Commercial backlink provider subscription required for live off-page link graph analysis.",
-    };
+    if (!this.apiKey) {
+      return {
+        provider: this.providerId,
+        isAvailable: false,
+        dataTimestamp: now,
+        metrics: {},
+        provenance: { source: "SEO Data Provider", propertyOrAccount: domain, fetchedAt: now },
+        limitations: "SERP_API_KEY / BACKLINK_API_KEY is not configured. Commercial API subscription required for live link graph metrics.",
+      };
+    }
+
+    try {
+      const cleanDomain = domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+      const url = `https://serpapi.com/search.json?engine=google&q=site:${encodeURIComponent(cleanDomain)}&api_key=${this.apiKey}`;
+      const res = await fetch(url);
+
+      if (!res.ok) {
+        return {
+          provider: this.providerId,
+          isAvailable: false,
+          dataTimestamp: now,
+          metrics: {},
+          provenance: { source: "SerpAPI / SEO Intelligence Provider", propertyOrAccount: cleanDomain, fetchedAt: now },
+          limitations: `SEO intelligence provider returned HTTP ${res.status}. Verify SERP_API_KEY subscription status.`,
+        };
+      }
+
+      const data = await res.json();
+      const organicResults = data?.organic_results || [];
+      const totalResults = Number(data?.search_information?.total_results || organicResults.length);
+
+      return {
+        provider: this.providerId,
+        isAvailable: true,
+        dataTimestamp: now,
+        metrics: {
+          indexedPagesEstimate: totalResults,
+          organicRankingsCount: organicResults.length,
+          topRankingUrl: organicResults[0]?.link || undefined,
+          isAcquisitionContextOnly: true,
+        },
+        provenance: {
+          source: "SerpAPI Live Google Index Provider",
+          propertyOrAccount: cleanDomain,
+          fetchedAt: now,
+        },
+      };
+    } catch (err: any) {
+      return {
+        provider: this.providerId,
+        isAvailable: false,
+        dataTimestamp: now,
+        metrics: {},
+        provenance: { source: "SEO Data Provider", propertyOrAccount: domain, fetchedAt: now },
+        limitations: `Failed to query SEO data provider: ${err?.message || "Network error"}`,
+      };
+    }
   }
 
   async disconnect(tenantId: string): Promise<boolean> {
