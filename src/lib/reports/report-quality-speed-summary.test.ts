@@ -248,10 +248,8 @@ describe("Report Quality, Genuine Speed Audits, and Unified Counts Verification"
   });
 
   // Test 1b: Shared live scan snapshot (scan_1793196263096_68rje7) reconciles exact 7-status distribution across reports and CSV
-  it("Live scan snapshot (scan_1793196263096_68rje7) reconciles exactly 32 PASS, 13 WARN, 2 FAIL, 1 NOT_TESTED, 0 BLOCKED, 4 UNKNOWN, 4 NOT_APPLICABLE and preserves distinct non-evaluable statuses", () => {
-    const csvPath = fs.existsSync(path.resolve("pdf-review-artifacts/final/caferemote-56-rule-ledger.csv"))
-      ? path.resolve("pdf-review-artifacts/final/caferemote-56-rule-ledger.csv")
-      : path.resolve("pdf-review-artifacts/single-scan-candidate/caferemote-56-rule-ledger.csv");
+  it("Synthetic regression fixture (assessment-summary-regression.csv) reconciles exactly 32 PASS, 13 WARN, 2 FAIL, 1 NOT_TESTED, 0 BLOCKED, 4 UNKNOWN, 4 NOT_APPLICABLE and preserves distinct non-evaluable statuses", () => {
+    const csvPath = path.resolve('src/lib/reports/__fixtures__/assessment-summary-regression.csv');
 
     const csvContent = fs.readFileSync(csvPath, "utf8");
     const lines = csvContent.trim().split(/\r?\n/);
