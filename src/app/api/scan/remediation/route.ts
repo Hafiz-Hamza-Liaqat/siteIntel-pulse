@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guard";
 import { scanDb } from "@/lib/persistence/db";
 import { RemediationUpdateSchema } from "@/types";
+import { readJsonBodyWithLimit } from "@/lib/security/read-json-body-with-limit";
 
 export async function POST(req: NextRequest) {
   const authCheck = await requireAuth(req);
@@ -9,7 +10,12 @@ export async function POST(req: NextRequest) {
   const { auth } = authCheck;
 
   try {
-    const body = await req.json();
+    const bodyResult = await readJsonBodyWithLimit<Record<string, any>>(req, 64 * 1024);
+    if (!bodyResult.success) {
+      return bodyResult.response;
+    }
+    const body = bodyResult.data;
+
     const parsed = RemediationUpdateSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(

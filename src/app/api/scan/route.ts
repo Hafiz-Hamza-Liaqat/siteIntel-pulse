@@ -6,6 +6,7 @@ import { authenticateRequest, requireAuth, verifyTenantOwnership } from "@/lib/a
 import { SESSION_COOKIE_NAME } from "@/lib/auth";
 import { tenantRateLimiter } from "@/lib/security/rate-limiter";
 import { extractClientIp } from "@/lib/security/login-rate-limiter";
+import { readJsonBodyWithLimit } from "@/lib/security/read-json-body-with-limit";
 import { scanDb } from "@/lib/persistence/db";
 
 export async function POST(req: NextRequest) {
@@ -42,15 +43,12 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. Validate Request Structure & Report Type BEFORE creating any guest records in SQLite
-  let body: any;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON request body" },
-      { status: 400 }
-    );
+  // Enforces 512 KiB (524,288 bytes) body size limit with early stream rejection
+  const bodyResult = await readJsonBodyWithLimit<Record<string, any>>(req, 512 * 1024);
+  if (!bodyResult.success) {
+    return bodyResult.response;
   }
+  const body = bodyResult.data;
 
   const parseResult = ScanRequestSchema.safeParse(body);
   if (!parseResult.success) {

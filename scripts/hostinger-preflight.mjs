@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+// #!/usr/bin/env node
 /**
  * SiteIntel Pulse — Hostinger VPS Preflight Environment & Runtime Validator
  *

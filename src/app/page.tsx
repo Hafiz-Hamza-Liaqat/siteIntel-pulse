@@ -409,7 +409,7 @@ export default function HomePage() {
         {/* Audience 2: Company B */}
         <div className="rounded-2xl border border-brand-cyan/40 bg-brand-card p-8 flex flex-col justify-between relative overflow-hidden shadow-xl shadow-cyan-500/5">
           <div className="absolute top-0 right-0 px-4 py-1.5 bg-brand-surface border-l border-b border-brand-border text-brand-cyan text-xs font-bold rounded-bl-xl uppercase tracking-wider">
-            Milestone 2 Preview
+            Technical Diagnostic
           </div>
 
           <div className="space-y-4">
@@ -453,7 +453,7 @@ export default function HomePage() {
               href="/expert-audit"
               className="w-full py-3 px-4 rounded-xl bg-brand-cyan/15 hover:bg-brand-cyan/25 text-brand-cyan border border-brand-cyan/40 font-bold transition-all flex items-center justify-center gap-2 text-sm"
             >
-              <span>Milestone 2 Expert Preview</span>
+              <span>Explore Expert Diagnostic Workbench</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

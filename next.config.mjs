@@ -67,6 +67,61 @@ const nextConfig = {
       },
     ],
   },
+  async headers() {
+    const isProd = process.env.NODE_ENV === 'production';
+
+    // Content Security Policy is configured in Report-Only mode to avoid
+    // breaking Next.js script chunk hydration, inline styles, or external image loading.
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https: http:",
+      "font-src 'self' data:",
+      "connect-src 'self'",
+      "frame-ancestors 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ');
+
+    const securityHeaders = [
+      {
+        key: 'X-Content-Type-Options',
+        value: 'nosniff',
+      },
+      {
+        key: 'Referrer-Policy',
+        value: 'strict-origin-when-cross-origin',
+      },
+      {
+        key: 'X-Frame-Options',
+        value: 'DENY',
+      },
+      {
+        key: 'Permissions-Policy',
+        value: 'camera=(), microphone=(), geolocation=(), browsing-topics=()',
+      },
+      {
+        key: 'Content-Security-Policy-Report-Only',
+        value: cspDirectives,
+      },
+    ];
+
+    if (isProd) {
+      securityHeaders.push({
+        key: 'Strict-Transport-Security',
+        value: 'max-age=63072000; includeSubDomains; preload',
+      });
+    }
+
+    return [
+      {
+        source: '/:path*',
+        headers: securityHeaders,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

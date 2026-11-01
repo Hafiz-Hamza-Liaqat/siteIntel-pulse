@@ -73,21 +73,64 @@ export class AssessmentRegistry {
     for (const rule of ALL_ASSESSMENT_RULES) {
       try {
         const res = rule.evaluate(ctx);
+        const isEvaluable = res.status === "PASS" || res.status === "WARNING" || res.status === "FAIL";
+        const executionStatus =
+          res.status === "NOT_TESTED"
+            ? "NOT_TESTED"
+            : res.status === "BLOCKED"
+            ? "BLOCKED"
+            : res.status === "NOT_APPLICABLE"
+            ? "NOT_APPLICABLE"
+            : res.status === "UNKNOWN"
+            ? "SKIPPED"
+            : "EXECUTED";
+        const evaluatedPoints = isEvaluable ? rule.maxPoints : 0;
+        const affectedUrls = res.affectedUrls || (res.sampleEvidence || []).filter((s) => s.startsWith("http"));
+
+        res.ruleId = rule.id;
+        res.description = res.description || rule.description;
+        res.executionStatus = res.executionStatus || executionStatus;
+        res.allocatedPoints = rule.maxPoints;
+        res.evaluatedPoints = evaluatedPoints;
+        res.scoringWeight = rule.maxPoints;
+        res.scoreContribution = res.earnedPoints;
+        res.evidenceSource = res.evidenceSource || "deterministic_crawler_probe";
+        res.affectedUrls = affectedUrls;
+        res.observedValue = res.observedValue || res.summary || "";
+        res.expectedThreshold = res.expectedThreshold || rule.businessImpactSummary || "";
+        res.remediation = res.remediation || res.remediationTheme || rule.remediationAdvice || "";
+        res.validationProcedure = res.validationProcedure || `Validate ${rule.id} against target public surface.`;
+        res.verificationSteps = res.verificationSteps || res.validationProcedure;
+
         results.push(res);
       } catch (err: any) {
         results.push({
           testId: rule.id,
+          ruleId: rule.id,
           testVersion: rule.version,
           testName: rule.name,
           category: rule.category,
+          description: rule.description,
           status: "UNKNOWN",
           severity: "MEDIUM",
+          executionStatus: "SKIPPED",
           maxPoints: rule.maxPoints,
+          allocatedPoints: rule.maxPoints,
+          evaluatedPoints: 0,
           earnedPoints: 0,
+          scoringWeight: rule.maxPoints,
+          scoreContribution: 0,
+          evidenceSource: "deterministic_crawler_probe",
+          affectedUrls: [],
+          observedValue: `Rule execution error: ${err?.message || "Unknown error"}`,
+          expectedThreshold: rule.businessImpactSummary || "",
           title: `${rule.name} (Evaluation Error)`,
           summary: `Rule execution error: ${err?.message || "Unknown error"}`,
           timestamp: new Date().toISOString(),
           confidence: "LOW",
+          remediation: rule.remediationAdvice || "",
+          validationProcedure: `Inspect rule ${rule.id} execution environment.`,
+          verificationSteps: `Inspect rule ${rule.id} execution environment.`,
         });
       }
     }

@@ -1,5 +1,6 @@
 import type { OwnerReport } from "../../types";
 import { formatCurrency, getCurrencySymbol } from "./currency.ts";
+import { renderAssessmentAndIssuesSummaryHtml } from "./summary-html.ts";
 import path from "node:path";
 import fs from "node:fs/promises";
 
@@ -240,6 +241,7 @@ export function generateReportHtml(report: OwnerReport): string {
       border-radius: 3px;
       font-size: 7.5pt;
       font-weight: 700;
+      white-space: nowrap !important;
     }
     .badge-pass { background: #DCFCE7; color: #166534; }
     .badge-warning { background: #FEF3C7; color: #92400E; }
@@ -302,6 +304,7 @@ export function generateReportHtml(report: OwnerReport): string {
     </div>
     <div class="meta-block">
       <div>Report ID: <strong>${escapeHtml(report.reportId)}</strong></div>
+      <div>Scan ID: <strong>${escapeHtml(report.scanId)}</strong></div>
       <div>Audit Date: <strong>${dateFormatted}</strong></div>
       <div>Audience: <strong>Company A (Owner Report)</strong></div>
     </div>
@@ -342,7 +345,7 @@ export function generateReportHtml(report: OwnerReport): string {
         </div>
       ` : ""}
       <div style="margin-top: 6px; font-size: 8pt; color: #64748B;">
-        Scope: <strong>${report.executiveSnapshot.testedPageCount} pages tested</strong> | Evaluated Coverage: <strong>${report.executiveSnapshot.coverage.coveragePercentage}% (${overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints}/100 pts)</strong> | Earned Points: <strong>${overall.totalEarnedCataloguePoints ?? overall.score} / ${overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints} evaluated pts</strong>
+        Crawl Scope: <strong>${report.assessmentAndIssuesSummary ? report.assessmentAndIssuesSummary.crawlScopeSummary.testedHtmlPages : (report.executiveSnapshot.coverage.htmlEligiblePages ?? report.executiveSnapshot.testedPageCount)} HTML pages evaluated (${report.executiveSnapshot.testedPageCount} pages tested)</strong> out of <strong>${report.assessmentAndIssuesSummary ? report.assessmentAndIssuesSummary.crawlScopeSummary.discoveredUrls : report.executiveSnapshot.coverage.discoveredPages} discovered candidate URLs</strong> (${report.assessmentAndIssuesSummary ? report.assessmentAndIssuesSummary.crawlScopeSummary.nonHtmlResourcesExcluded : (report.executiveSnapshot.coverage.excludedDocumentTypesCount ?? 0)} non-HTML resources excluded: sitemap, robots.txt) | Coverage: <strong>${report.executiveSnapshot.coverage.coveragePercentage}% (${overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints}/100 pts)</strong> | Earned Points: <strong>${overall.totalEarnedCataloguePoints ?? overall.score} / ${overall.pointsActuallyEvaluated ?? overall.evaluatedWeightedPoints} evaluated pts</strong>
       </div>
     </div>
   </div>
@@ -357,13 +360,15 @@ export function generateReportHtml(report: OwnerReport): string {
     ` : ""}
   </div>` : ""}
 
+  ${renderAssessmentAndIssuesSummaryHtml(report.assessmentAndIssuesSummary)}
+
   <h2 class="section-title">1. Executive Snapshot &amp; Category Scores</h2>
   <div class="category-grid no-break">
     ${report.scoreDetails.map((cat) => `
       <div class="category-card">
         <div class="category-card-header">
           <span>${escapeHtml(cat.categoryName)}</span>
-          <span style="color: ${getScoreColor(cat.scorePercentage)}">${cat.scorePercentage}% ${!cat.isEligibleForOverall ? '<small style="color: #D97706; font-size: 7.5pt;">(Prov)</small>' : ""}</span>
+          <span style="color: ${getScoreColor(cat.scorePercentage)}">${cat.scorePercentage}% ${!cat.isEligibleForOverall || cat.coveragePercentage < 80 ? `<small style="color: #D97706; font-size: 7pt; font-weight: normal;">(Prov: ${cat.earnedPoints}/${cat.testedPoints} pts, ${cat.coveragePercentage}% cov)</small>` : ""}</span>
         </div>
         <div class="progress-bar-bg">
           <div class="progress-bar-fill" style="width: ${cat.scorePercentage}%; background: ${getScoreColor(cat.scorePercentage)};"></div>
@@ -546,12 +551,15 @@ export function generateReportHtml(report: OwnerReport): string {
       <tr>
         <td><strong>Page Titles &amp; Meta</strong></td>
         <td>${report.technicalHealthAndSeoSummary.titlesHealthy > 0 ? '<span class="badge badge-pass">HEALTHY</span>' : '<span class="badge badge-warning">REVIEW</span>'}</td>
-        <td>${report.technicalHealthAndSeoSummary.titlesHealthy} pages with optimized titles, ${report.technicalHealthAndSeoSummary.descriptionsHealthy} with full descriptions.</td>
+        <td>
+          Titles: <strong>${report.technicalHealthAndSeoSummary.titlesHealthy} of ${report.technicalHealthAndSeoSummary.totalEligibleHtmlPages ?? report.technicalHealthAndSeoSummary.titlesHealthy}</strong> eligible HTML pages optimized (${report.technicalHealthAndSeoSummary.titlesSuboptimal ?? 0} suboptimal length, ${report.technicalHealthAndSeoSummary.titlesMissing ?? 0} missing${(report.technicalHealthAndSeoSummary.nonHtmlResourcesExcluded ?? 0) > 0 ? `, ${report.technicalHealthAndSeoSummary.nonHtmlResourcesExcluded} non-HTML resources excluded` : ""}).<br/>
+          Descriptions: <strong>${report.technicalHealthAndSeoSummary.descriptionsHealthy} of ${report.technicalHealthAndSeoSummary.totalEligibleHtmlPages ?? report.technicalHealthAndSeoSummary.descriptionsHealthy}</strong> with standard descriptions (${report.technicalHealthAndSeoSummary.descriptionsSuboptimal ?? 0} suboptimal, ${report.technicalHealthAndSeoSummary.descriptionsMissing ?? 0} missing).
+        </td>
       </tr>
       <tr>
         <td><strong>Indexability &amp; Canonicals</strong></td>
         <td>${report.technicalHealthAndSeoSummary.canonicalsConsistent ? '<span class="badge badge-pass">CONSISTENT</span>' : '<span class="badge badge-warning">INCONSISTENT</span>'}</td>
-        <td>Canonical URL consistency maintained. Sitemap detected: ${report.technicalHealthAndSeoSummary.sitemapAccessible ? "Yes" : "No"}.</td>
+        <td>${report.technicalHealthAndSeoSummary.canonicalsConsistent ? "Canonical URL consistency maintained across all evaluated pages." : `Canonical URL inconsistencies detected across evaluated pages (${report.technicalHealthAndSeoSummary.canonicalsMissingCount ?? "some"} missing/inconsistent canonicals).`} Sitemap detected: ${report.technicalHealthAndSeoSummary.sitemapAccessible ? "Yes" : "No"}.</td>
       </tr>
       <tr>
         <td><strong>Broken Links &amp; Errors</strong></td>
@@ -561,7 +569,7 @@ export function generateReportHtml(report: OwnerReport): string {
       <tr>
         <td><strong>Performance Lab Scores</strong></td>
         <td>${report.performanceAndResponsiveSummary.mobileLabScore != null ? '<span class="badge badge-pass">MEASURED</span>' : '<span class="badge badge-not-tested">NOT CONFIGURED</span>'}</td>
-        <td>Mobile lab: ${report.performanceAndResponsiveSummary.mobileLabScore != null ? `${report.performanceAndResponsiveSummary.mobileLabScore}/100` : "PageSpeed provider not configured"}. Desktop lab: ${report.performanceAndResponsiveSummary.desktopLabScore != null ? `${report.performanceAndResponsiveSummary.desktopLabScore}/100` : "PageSpeed provider not configured"}.${report.performanceAndResponsiveSummary.labMetrics ? ` Lab: Speed Index=${report.performanceAndResponsiveSummary.labMetrics.speedIndexMs ?? "N/A"}ms, FCP=${report.performanceAndResponsiveSummary.labMetrics.fcpMs ?? "N/A"}ms, LCP=${report.performanceAndResponsiveSummary.labMetrics.lcpMs ?? "N/A"}ms, TBT=${report.performanceAndResponsiveSummary.labMetrics.tbtMs ?? "N/A"}ms.` : ""}</td>
+        <td>Mobile lab: ${report.performanceAndResponsiveSummary.mobileLabScore != null ? `${report.performanceAndResponsiveSummary.mobileLabScore}/100` : "PageSpeed provider not configured"}. Desktop lab: ${report.performanceAndResponsiveSummary.desktopLabScore != null ? `${report.performanceAndResponsiveSummary.desktopLabScore}/100` : "PageSpeed provider not configured"}.${report.performanceAndResponsiveSummary.labMetrics ? ` Lab: Speed Index=${report.performanceAndResponsiveSummary.labMetrics.speedIndexMs ?? "N/A"}ms, FCP=${report.performanceAndResponsiveSummary.labMetrics.fcpMs ?? "N/A"}ms, LCP=${report.performanceAndResponsiveSummary.labMetrics.lcpMs ?? "N/A"}ms, TBT=${report.performanceAndResponsiveSummary.labMetrics.tbtMs ?? "N/A"}ms, CLS=${report.performanceAndResponsiveSummary.labMetrics.cls != null ? Number(report.performanceAndResponsiveSummary.labMetrics.cls).toFixed(3) : "NOT_TESTED"}.` : ""}</td>
       </tr>
       <tr>
         <td><strong>Core Web Vitals Field Data</strong></td>
@@ -706,14 +714,78 @@ export function generateReportHtml(report: OwnerReport): string {
   </table>
   <div style="font-size: 8pt; color: #64748B; margin-top: -12px; margin-bottom: 18px;">
     * Benchmarks reflect uniform public scan observations under identical catalogue rules v1.0.0.
-  </div>` : ""}
+  </div>` : `
+  <h2 class="section-title">6. Competitor Benchmark Snapshot</h2>
+  <div class="no-break" style="padding: 12px 14px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; color: #64748B; font-size: 8.5pt; margin-bottom: 18px;">
+    <strong>Not evaluated — no competitor domains supplied.</strong><br/>
+    <span style="font-size: 7.5pt;">Provide 1 to 3 direct competitor domains in the scan configuration to enable comparative health and search index benchmarking.</span>
+  </div>`}
 
-  <h2 class="section-title">${report.competitorSnapshot && report.competitorSnapshot.length > 0 ? "7" : "6"}. Methodology &amp; Next Steps</h2>
-  <div class="no-break" style="font-size: 8.5pt; color: #475569; line-height: 1.6;">
+  <h2 class="section-title">7. Methodology &amp; Next Steps</h2>
+  <div class="no-break" style="font-size: 8.5pt; color: #475569; line-height: 1.6; margin-bottom: 20px;">
     <p><strong>Scan Scope:</strong> ${escapeHtml(report.methodologyAndLimitations.scanScope)}</p>
     <p><strong>Evidence Integrity:</strong> Measured public HTML, robots.txt, and HTTP headers strictly recorded without artificial score inflation.</p>
     <p style="margin-top: 6px;"><strong>Milestone 2 Next Steps:</strong> ${escapeHtml(report.methodologyAndLimitations.expertEngagementCta)}</p>
   </div>
+
+  <div class="page-break"></div>
+
+  <!-- APPENDIX: ALL 56 CATALOGUE RULES AUDIT OVERVIEW -->
+  <h2 class="section-title">Appendix: Complete 56-Rule Assessment Catalogue Outcomes</h2>
+  <div style="font-size: 8pt; color: #64748B; margin-bottom: 10px;">
+    Full outcome record of all 56 deterministic assessment rules across all 11 catalogue categories. Evaluated points, status, and observed evidence are verified without score inflation.
+  </div>
+  <table class="table-custom">
+    <colgroup>
+      <col style="width: 14%;">
+      <col style="width: 28%;">
+      <col style="width: 12%;">
+      <col style="width: 12%;">
+      <col style="width: 34%;">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Rule ID</th>
+        <th>Test Name &amp; Category</th>
+        <th>Status</th>
+        <th>Points</th>
+        <th>Observed Evidence / Disclosure</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${(() => {
+        const rules = report.ruleLedger && report.ruleLedger.length > 0
+          ? report.ruleLedger
+          : (report.results || []);
+        return rules.map((r: any) => `<tr>
+          <td style="font-family: monospace; font-size: 7.5pt; white-space: nowrap;"><strong>${escapeHtml(r.ruleId || r.testId)}</strong></td>
+          <td>
+            <strong>${escapeHtml(r.testName || r.title)}</strong><br/>
+            <span style="font-size: 7pt; color: #64748B;">${escapeHtml(r.categoryName || r.category)}</span>
+          </td>
+          <td>
+            ${(() => {
+              const st = r.status;
+              if (st === "PASS") return '<span class="badge badge-pass">PASS</span>';
+              if (st === "WARNING") return '<span class="badge badge-warning">WARN</span>';
+              if (st === "FAIL") return '<span class="badge badge-fail">FAIL</span>';
+              if (st === "BLOCKED") return '<span class="badge badge-fail">BLOCKED</span>';
+              if (st === "NOT_APPLICABLE") return '<span class="badge badge-not-tested">N/A</span>';
+              if (st === "UNKNOWN") return '<span class="badge badge-unknown">UNKNOWN</span>';
+              return '<span class="badge badge-not-tested">NOT TESTED</span>';
+            })()}
+          </td>
+          <td style="font-size: 7.5pt; white-space: nowrap;">
+            <strong>${r.earnedPoints ?? 0}</strong> / ${r.allocatedPoints ?? r.maxPoints ?? 0} pts
+          </td>
+          <td style="font-size: 7.5pt; color: #334155;">
+            ${escapeHtml(r.observedValue || r.summary || (r.sampleEvidence?.[0] ?? "Compliant baseline verified."))}
+            ${r.status === "NOT_TESTED" || r.status === "UNKNOWN" ? '<div style="color: #D97706; font-size: 7pt; margin-top: 2px;">(Evidence unavailable on passive crawl)</div>' : ""}
+          </td>
+        </tr>`).join("");
+      })()}
+    </tbody>
+  </table>
 
 </body>
 </html>`;

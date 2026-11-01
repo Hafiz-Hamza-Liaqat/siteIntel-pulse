@@ -76,15 +76,16 @@ export class ScanOrchestrator {
         console.warn("[Orchestrator] Exposure check warning:", err);
       }
 
-      // PageSpeed provider evaluation
+      // PageSpeed provider evaluation (Google PageSpeed API with local headless Chromium fallback)
       const pageSpeedProvider = new PageSpeedProvider();
       let pageSpeedMobile: PageSpeedResult | undefined;
       let pageSpeedDesktop: PageSpeedResult | undefined;
       try {
-        pageSpeedMobile = await pageSpeedProvider.getPageSpeedData(request.targetUrl, "mobile");
-        pageSpeedDesktop = await pageSpeedProvider.getPageSpeedData(request.targetUrl, "desktop");
+        const speedRes = await pageSpeedProvider.getBothStrategies(request.targetUrl);
+        pageSpeedMobile = speedRes.mobile;
+        pageSpeedDesktop = speedRes.desktop;
       } catch (err) {
-        console.warn("[Orchestrator] PageSpeed check warning:", err);
+        console.warn("[Orchestrator] Speed audit warning:", err);
       }
 
       // Stage 2.5: Evidence-Based Business Model Classification
@@ -246,6 +247,217 @@ export class ScanOrchestrator {
         jobManager.cleanupJob(jobId);
         return ownerReport;
       }
+    } catch (err: any) {
+      const isCanceled = abortSignal?.aborted || err?.message?.includes("canceled");
+      await scanDb.updateJob(
+        jobId,
+        {
+          status: isCanceled ? "canceled" : "failed",
+          currentStage: isCanceled ? "Scan canceled by user." : `Scan halted: ${err?.message || "Execution error"}`,
+          errorMessage: err?.message,
+          progressPercentage: 100,
+          completedAt: new Date().toISOString(),
+        },
+        job.tenantId
+      );
+      jobManager.cleanupJob(jobId);
+      throw err;
+    }
+  }
+
+  /**
+   * Executes the full website audit pipeline once and projects BOTH Owner and Expert reports
+   * from the exact same crawl dataset, performance measurements, and assessment findings.
+   */
+  async runSharedAudit(job: ScanJob): Promise<{ ownerReport: OwnerReport; expertReport: ExpertReport }> {
+    const jobId = job.id;
+    const request = job.request;
+    const abortSignal = jobManager.getAbortSignal(jobId);
+
+    try {
+      // Stage 1: Validating
+      await jobManager.updateProgress(jobId, "validating", "Validating URL syntax, ports, and SSRF safety boundaries", 10, undefined, job.tenantId);
+
+      // Stage 2: Discovering & Crawling
+      await jobManager.updateProgress(jobId, "discovering", "Fetching entry page, parsing robots.txt and XML sitemaps", 25, undefined, job.tenantId);
+
+      const crawler = new SafeCrawler(
+        {
+          maxPages: request.maxPages,
+          maxDepth: request.maxDepth,
+        },
+        abortSignal
+      );
+
+      const crawlResult = await crawler.crawlWebsite(request.targetUrl, async (stage, discovered, tested) => {
+        await jobManager.updateProgress(
+          jobId,
+          "collecting_evidence",
+          stage,
+          Math.min(30 + Math.round((tested / (request.maxPages || 50)) * 30), 60),
+          { discovered, tested },
+          job.tenantId
+        );
+      });
+
+      if (abortSignal?.aborted) {
+        throw new Error("Scan was canceled by user.");
+      }
+
+      // Stage 2.5: Deep Evidence Gathering
+      await jobManager.updateProgress(
+        jobId,
+        "collecting_evidence",
+        "Executing headless responsive viewport checks across 7 screen widths and security exposure probes",
+        68,
+        { discovered: crawlResult.coverage.discoveredPages, tested: crawlResult.coverage.testedPages },
+        job.tenantId
+      );
+
+      let responsiveResult: ResponsiveRunnerResult | undefined;
+      try {
+        responsiveResult = await runResponsiveAudit(request.targetUrl, { abortSignal });
+      } catch (err) {
+        console.warn("[Orchestrator] Responsive audit warning:", err);
+      }
+
+      let exposureResult: ExposureCheckResult | undefined;
+      try {
+        exposureResult = await checkPublicExposure(request.targetUrl, { abortSignal });
+      } catch (err) {
+        console.warn("[Orchestrator] Exposure check warning:", err);
+      }
+
+      const pageSpeedProvider = new PageSpeedProvider();
+      let pageSpeedMobile: PageSpeedResult | undefined;
+      let pageSpeedDesktop: PageSpeedResult | undefined;
+      try {
+        const speedRes = await pageSpeedProvider.getBothStrategies(request.targetUrl);
+        pageSpeedMobile = speedRes.mobile;
+        pageSpeedDesktop = speedRes.desktop;
+      } catch (err) {
+        console.warn("[Orchestrator] Speed audit warning:", err);
+      }
+
+      // Evidence-Based Business Model Classification
+      await jobManager.updateProgress(
+        jobId,
+        "assessing",
+        "Classifying business model and conversion expectations from crawl evidence",
+        70,
+        { discovered: crawlResult.coverage.discoveredPages, tested: crawlResult.coverage.testedPages },
+        job.tenantId
+      );
+
+      const categoryDetection = detectBusinessCategory(
+        {
+          pages: crawlResult.pages,
+          sitemapUrls: crawlResult.sitemapUrls,
+          robotsTxt: typeof crawlResult.robotsTxt === "string" ? crawlResult.robotsTxt : (crawlResult.robotsTxt as any)?.raw,
+        },
+        request.businessCategory,
+        (request as any).manualCategoryOverride
+      );
+
+      // Stage 3: Assessing 56 rules
+      await jobManager.updateProgress(
+        jobId,
+        "assessing",
+        `Executing 56 versioned deterministic rules (${categoryDetection.categoryLabel})`,
+        75,
+        { discovered: crawlResult.coverage.discoveredPages, tested: crawlResult.coverage.testedPages },
+        job.tenantId
+      );
+
+      const parsedUrl = new URL(request.targetUrl);
+      const evalContext = {
+        targetUrl: request.targetUrl,
+        domain: parsedUrl.hostname,
+        businessCategory: categoryDetection.effectiveCategory,
+        businessCategoryDetection: categoryDetection,
+        pages: crawlResult.pages,
+        robotsTxt: crawlResult.robotsTxt,
+        isRobotsTruncated: crawlResult.isRobotsTruncated,
+        sitemapUrls: crawlResult.sitemapUrls,
+        isSitemapTruncated: crawlResult.isSitemapTruncated,
+        externalLinksTested: crawlResult.externalLinksTested,
+        competitors: request.competitors,
+        pageSpeedMobile,
+        pageSpeedDesktop,
+        browserResponsiveResults: responsiveResult?.viewportResults,
+        browserVisualResults: responsiveResult?.visualDesign,
+        exposureResults: exposureResult,
+      };
+
+      const assessmentResults = assessmentRegistry.evaluateAll(evalContext);
+
+      let connectedMetrics: Record<string, any> | undefined;
+      if (job.tenantId) {
+        try {
+          connectedMetrics = await integrationsManager.fetchAllMetrics(job.tenantId, parsedUrl.hostname);
+        } catch {}
+      }
+
+      const costOfInaction = calculateCostOfInaction({
+        businessCategory: categoryDetection.effectiveCategory,
+        request,
+        results: assessmentResults,
+        connectedMetrics,
+      });
+
+      // Stage 4: Scoring & Projecting Both Reports from Identical Snapshot
+      await jobManager.updateProgress(jobId, "scoring", "Computing category scores and overall weighted composite baseline", 85, undefined, job.tenantId);
+
+      const commonOptions = {
+        pageSpeedData: { mobile: pageSpeedMobile, desktop: pageSpeedDesktop },
+        browserResponsiveResults: responsiveResult?.viewportResults,
+        visualDesign: responsiveResult?.visualDesign,
+        businessCategoryDetection: categoryDetection,
+        costOfInaction,
+        connectedMetrics,
+      };
+
+      const ownerReport = projectOwnerReport(
+        jobId,
+        { ...request, reportType: "owner" },
+        crawlResult,
+        assessmentResults,
+        job.tenantId,
+        commonOptions
+      );
+
+      const expertReport = projectExpertReport(
+        jobId,
+        { ...request, reportType: "expert" },
+        crawlResult,
+        assessmentResults,
+        commonOptions,
+        job.tenantId
+      );
+
+      // Persist both reports to SQLite under same job/tenant
+      await scanDb.saveReport(ownerReport, job.tenantId);
+      await scanDb.saveExpertReport(expertReport, job.tenantId);
+
+      await scanDb.updateJob(
+        jobId,
+        {
+          status: "completed",
+          currentStage: "Audit complete. Both Owner and Expert Reports ready.",
+          progressPercentage: 100,
+          coverage: { ...crawlResult.coverage, ...expertReport.coverage },
+          results: assessmentResults,
+          report: ownerReport,
+          ownerReportId: ownerReport.reportId,
+          expertReport,
+          expertReportId: expertReport.metadata.reportId,
+          completedAt: new Date().toISOString(),
+        },
+        job.tenantId
+      );
+
+      jobManager.cleanupJob(jobId);
+      return { ownerReport, expertReport };
     } catch (err: any) {
       const isCanceled = abortSignal?.aborted || err?.message?.includes("canceled");
       await scanDb.updateJob(

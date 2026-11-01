@@ -41,6 +41,58 @@ export interface ParsedHtmlResult {
   };
 }
 
+/**
+ * Recursively bounds structured data entities to prevent memory/CPU exhaustion
+ * from adversarial or pathological JSON-LD trees.
+ * Enforces:
+ * - Max recursion depth: 8
+ * - Max keys per object: 100
+ * - Max array items: 100
+ * - Max string length: 10,000 characters
+ */
+function sanitizeStructuredValue(val: any, depth = 0): any {
+  if (depth > 8) return null;
+  if (val === null || val === undefined) return val;
+  if (typeof val === "string") return val.slice(0, 10000);
+  if (typeof val === "number" || typeof val === "boolean") return val;
+
+  if (Array.isArray(val)) {
+    const boundedArr: any[] = [];
+    const limit = Math.min(val.length, 100);
+    for (let i = 0; i < limit; i++) {
+      const sanitized = sanitizeStructuredValue(val[i], depth + 1);
+      if (sanitized !== undefined) {
+        boundedArr.push(sanitized);
+      }
+    }
+    return boundedArr;
+  }
+
+  if (typeof val === "object") {
+    const boundedObj: Record<string, any> = {};
+    let keyCount = 0;
+    for (const k in val) {
+      if (Object.prototype.hasOwnProperty.call(val, k)) {
+        keyCount++;
+        if (keyCount > 100) break;
+        const sanitized = sanitizeStructuredValue(val[k], depth + 1);
+        if (sanitized !== undefined) {
+          boundedObj[k.slice(0, 100)] = sanitized;
+        }
+      }
+    }
+    return boundedObj;
+  }
+
+  return String(val).slice(0, 1000);
+}
+
+function sanitizeStructuredEntity(raw: any): Record<string, any> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const sanitized = sanitizeStructuredValue(raw, 0);
+  return sanitized && typeof sanitized === "object" && !Array.isArray(sanitized) ? sanitized : null;
+}
+
 export function parsePageHtml(
   html: string,
   pageUrl: string,
@@ -127,8 +179,10 @@ export function parsePageHtml(
 
   // Forms Extraction & Usability Analysis (HTML only)
   const forms: PageObservation["forms"] = [];
+  const MAX_PARSED_FORMS = 200;
   if (isHtml) {
     $("form").each((idx, el) => {
+      if (forms.length >= MAX_PARSED_FORMS) return false;
       const formId = $(el).attr("id") || `form_${idx}`;
       const rawAction = $(el).attr("action")?.trim() || "";
       const method = ($(el).attr("method") || "GET").toUpperCase();
@@ -159,9 +213,9 @@ export function parsePageHtml(
       const formText = $(el).text().toLowerCase();
       const isAuthForm = hasPasswordInput || formText.includes("login") || formText.includes("sign in") || formText.includes("register");
       forms.push({
-        id: formId,
-        action: rawAction,
-        method,
+        id: formId.slice(0, 255),
+        action: rawAction.slice(0, 4096),
+        method: method.slice(0, 20),
         isSecureAction,
         hasPasswordInput,
         inputsCount,
@@ -172,7 +226,7 @@ export function parsePageHtml(
   }
 
   // Theme & Observable Styling Clues
-  const themeColor = !isXmlSitemap ? $('meta[name="theme-color" i]').attr("content")?.trim() : undefined;
+  const themeColor = !isXmlSitemap ? $('meta[name="theme-color" i]').attr("content")?.trim()?.slice(0, 100) : undefined;
   const htmlClass = $("html").attr("class") || "";
   const bodyClass = $("body").attr("class") || "";
   const hasDarkModeClass = Boolean(
@@ -181,35 +235,44 @@ export function parsePageHtml(
     $("html").attr("data-theme")?.includes("dark") ||
     $("body").attr("data-theme")?.includes("dark")
   );
-  const colorScheme = $('meta[name="color-scheme" i]').attr("content")?.trim();
+  const colorScheme = $('meta[name="color-scheme" i]').attr("content")?.trim()?.slice(0, 100);
   const themeClues = {
     themeColor,
     hasDarkModeClass,
     colorScheme,
   };
 
-  // 3. Robots directives
+  // 3. Robots directives (bounded extraction)
   const robotsDirectives: string[] = [];
+  const MAX_ROBOTS_DIRECTIVES = 100;
   const robotsMeta = $('meta[name="robots" i]').attr("content");
   if (robotsMeta) {
-    robotsMeta.split(",").forEach((d) => robotsDirectives.push(d.trim().toLowerCase()));
+    robotsMeta.split(",").forEach((d) => {
+      if (robotsDirectives.length < MAX_ROBOTS_DIRECTIVES) {
+        robotsDirectives.push(d.trim().toLowerCase().slice(0, 500));
+      }
+    });
   }
   const xRobots = headers["x-robots-tag"];
   if (xRobots) {
-    xRobots.split(",").forEach((d) => robotsDirectives.push(d.trim().toLowerCase()));
+    xRobots.split(",").forEach((d) => {
+      if (robotsDirectives.length < MAX_ROBOTS_DIRECTIVES) {
+        robotsDirectives.push(d.trim().toLowerCase().slice(0, 500));
+      }
+    });
   }
 
-  // 4. Headings Outline (HTML only)
-  const cleanHeading = (s: string) => s.replace(/\s+/g, " ").trim();
+  // 4. Headings Outline (HTML only with bounded collection counts)
+  const cleanHeading = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 2000);
   const headings = !isHtml
     ? { h1: [], h2: [], h3: [], h4: [], h5: [], h6: [] }
     : {
-        h1: $("h1").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
-        h2: $("h2").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
-        h3: $("h3").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
-        h4: $("h4").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
-        h5: $("h5").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
-        h6: $("h6").map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h1: $("h1").slice(0, 200).map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h2: $("h2").slice(0, 500).map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h3: $("h3").slice(0, 1000).map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h4: $("h4").slice(0, 1000).map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h5: $("h5").slice(0, 1000).map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
+        h6: $("h6").slice(0, 1000).map((_, el) => cleanHeading($(el).text())).get().filter(Boolean),
       };
 
   // 5. Visible Text & Word Count (HTML only)
@@ -231,9 +294,11 @@ export function parsePageHtml(
     $('meta[http-equiv="Content-Type" i]').attr("content") ||
     undefined;
 
-  // 7. Links Extraction
+  // 7. Links Extraction (bounded collection cap: 10,000)
   const links: LinkObservation[] = [];
+  const MAX_PARSED_LINKS = 10000;
   $("a[href]").each((i, el) => {
+    if (links.length >= MAX_PARSED_LINKS) return false;
     const rawHref = $(el).attr("href")?.trim();
     if (!rawHref || rawHref.startsWith("#") || rawHref.startsWith("javascript:") || rawHref.startsWith("mailto:") || rawHref.startsWith("tel:")) {
       return;
@@ -244,15 +309,15 @@ export function parsePageHtml(
       const resolvedHost = resolved.hostname.toLowerCase().replace(/^www\./, "");
       const baseHost = baseHostname.replace(/^www\./, "");
       const isInternal = resolvedHost === baseHost;
-      const rel = $(el).attr("rel")?.trim();
+      const rel = $(el).attr("rel")?.trim()?.slice(0, 500);
       const anchorText = $(el).text().trim() || $(el).attr("title")?.trim() || "";
 
       links.push({
-        id: `link_${i}_${resolved.pathname.replace(/[^a-zA-Z0-9]/g, "")}`,
-        sourceUrl: pageUrl,
-        targetUrl: resolved.toString(),
+        id: `link_${i}_${resolved.pathname.replace(/[^a-zA-Z0-9]/g, "")}`.slice(0, 128),
+        sourceUrl: pageUrl.slice(0, 4096),
+        targetUrl: resolved.toString().slice(0, 4096),
         isInternal,
-        anchorText: anchorText.slice(0, 100),
+        anchorText: anchorText.slice(0, 2000),
         rel,
         isBroken: false,
         isRedirect: false,
@@ -262,18 +327,20 @@ export function parsePageHtml(
     }
   });
 
-  // 8. Resources Extraction
+  // 8. Resources Extraction (bounded collection cap: 5,000)
   const resources: ResourceObservation[] = [];
+  const MAX_PARSED_RESOURCES = 5000;
   // Scripts
   $("script[src]").each((i, el) => {
+    if (resources.length >= MAX_PARSED_RESOURCES) return false;
     const src = $(el).attr("src")?.trim();
     if (!src) return;
     try {
       const resolved = new URL(src, pageUrl);
       const isThirdParty = resolved.hostname.toLowerCase().replace(/^www\./, "") !== baseHostname.replace(/^www\./, "");
       resources.push({
-        id: `script_${i}`,
-        url: resolved.toString(),
+        id: `script_${i}`.slice(0, 128),
+        url: resolved.toString().slice(0, 4096),
         type: "script",
         isRenderBlocking: !$(el).attr("defer") && !$(el).attr("async"),
         isThirdParty,
@@ -283,14 +350,15 @@ export function parsePageHtml(
 
   // Stylesheets
   $('link[rel="stylesheet" i]').each((i, el) => {
+    if (resources.length >= MAX_PARSED_RESOURCES) return false;
     const href = $(el).attr("href")?.trim();
     if (!href) return;
     try {
       const resolved = new URL(href, pageUrl);
       const isThirdParty = resolved.hostname.toLowerCase().replace(/^www\./, "") !== baseHostname.replace(/^www\./, "");
       resources.push({
-        id: `style_${i}`,
-        url: resolved.toString(),
+        id: `style_${i}`.slice(0, 128),
+        url: resolved.toString().slice(0, 4096),
         type: "stylesheet",
         isRenderBlocking: true,
         isThirdParty,
@@ -300,14 +368,15 @@ export function parsePageHtml(
 
   // Images
   $("img[src]").each((i, el) => {
+    if (resources.length >= MAX_PARSED_RESOURCES) return false;
     const src = $(el).attr("src")?.trim();
     if (!src) return;
     try {
       const resolved = new URL(src, pageUrl);
       const isThirdParty = resolved.hostname.toLowerCase().replace(/^www\./, "") !== baseHostname.replace(/^www\./, "");
       resources.push({
-        id: `img_${i}`,
-        url: resolved.toString(),
+        id: `img_${i}`.slice(0, 128),
+        url: resolved.toString().slice(0, 4096),
         type: "image",
         isRenderBlocking: false,
         isThirdParty,
@@ -315,29 +384,42 @@ export function parsePageHtml(
     } catch {}
   });
 
-  // 9. Structured Data (JSON-LD)
+  // 9. Structured Data (JSON-LD bounded to max 200 entities, 500KB block size, depth 8, and element caps)
   const structuredData: any[] = [];
+  const MAX_STRUCTURED_DATA = 200;
+  const MAX_JSONLD_BYTES = 500 * 1024;
   $('script[type="application/ld+json"]').each((_, el) => {
+    if (structuredData.length >= MAX_STRUCTURED_DATA) return false;
     try {
       const content = $(el).html();
-      if (content) {
+      if (content && content.length <= MAX_JSONLD_BYTES) {
         const parsed = JSON.parse(content);
         if (Array.isArray(parsed)) {
-          structuredData.push(...parsed);
+          for (const item of parsed) {
+            if (structuredData.length < MAX_STRUCTURED_DATA) {
+              const entity = sanitizeStructuredEntity(item);
+              if (entity) structuredData.push(entity);
+            }
+          }
         } else {
-          structuredData.push(parsed);
+          const entity = sanitizeStructuredEntity(parsed);
+          if (entity) structuredData.push(entity);
         }
       }
     } catch {}
   });
 
-  // 10. Open Graph & Public Tags
+  // 10. Open Graph & Public Tags (bounded to max 100 keys)
   const openGraph: Record<string, string> = {};
+  const MAX_OPENGRAPH_KEYS = 100;
+  let openGraphKeyCount = 0;
   $('meta[property^="og:" i]').each((_, el) => {
+    if (openGraphKeyCount >= MAX_OPENGRAPH_KEYS) return false;
     const prop = $(el).attr("property")?.toLowerCase();
     const content = $(el).attr("content");
-    if (prop && content) {
-      openGraph[prop] = content;
+    if (prop && content && !openGraph[prop.slice(0, 100)]) {
+      openGraph[prop.slice(0, 100)] = content.slice(0, 2000);
+      openGraphKeyCount++;
     }
   });
 
@@ -381,18 +463,20 @@ export function parsePageHtml(
     templateConfidence = "HIGH";
   }
 
-  // 12. Parse Cookies from headers
+  // 12. Parse Cookies from headers (bounded to max 500 cookies)
   const cookieAttributes: Array<{ name: string; secure: boolean; httpOnly: boolean; sameSite?: string }> = [];
+  const MAX_PARSED_COOKIES = 500;
   const setCookie = headers["set-cookie"];
   if (setCookie) {
     const cookieStrings = Array.isArray(setCookie) ? setCookie : [setCookie];
     for (const c of cookieStrings) {
+      if (cookieAttributes.length >= MAX_PARSED_COOKIES) break;
       const parts = c.split(";").map((p: string) => p.trim());
-      const nameVal = parts[0]?.split("=")[0] || "unknown";
+      const nameVal = (parts[0]?.split("=")[0] || "unknown").slice(0, 500);
       const secure = parts.some((p: string) => p.toLowerCase() === "secure");
       const httpOnly = parts.some((p: string) => p.toLowerCase() === "httponly");
       const sameSitePart = parts.find((p: string) => p.toLowerCase().startsWith("samesite="));
-      const sameSite = sameSitePart ? sameSitePart.split("=")[1] : undefined;
+      const sameSite = sameSitePart ? sameSitePart.split("=")[1]?.slice(0, 50) : undefined;
       cookieAttributes.push({ name: nameVal, secure, httpOnly, sameSite });
     }
   }

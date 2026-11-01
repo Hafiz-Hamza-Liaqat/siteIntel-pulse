@@ -26,6 +26,9 @@ export function exportFindingsCsv(report: ExpertReport): string {
     "Validation Procedure",
     "Workstream",
     "Estimated Effort",
+    "Allocated Points",
+    "Evaluated Points",
+    "Earned Points",
     "Affected Elements Count",
     "Affected Elements Sample",
     "Affected URLs Sample",
@@ -45,9 +48,73 @@ export function exportFindingsCsv(report: ExpertReport): string {
     escapeCsvCell(f.validationProcedure),
     escapeCsvCell(f.workstream),
     escapeCsvCell(f.estimatedEffort),
+    escapeCsvCell(f.allocatedPoints ?? 0),
+    escapeCsvCell(f.evaluatedPoints ?? 0),
+    escapeCsvCell(f.earnedPoints ?? 0),
     escapeCsvCell(f.affectedElements.length),
     escapeCsvCell(f.affectedElements.slice(0, 3).join(" | ")),
     escapeCsvCell(f.affectedUrls.slice(0, 3).join(" | ")),
+  ]);
+
+  return [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+}
+
+/**
+ * Generates complete CSV audit ledger for all 56 catalogue rules.
+ */
+export function exportRuleLedgerCsv(report: ExpertReport): string {
+  const headers = [
+    "Rule ID",
+    "Category",
+    "Test Name",
+    "Status",
+    "Severity",
+    "Execution Status",
+    "Allocated Points",
+    "Evaluated Points",
+    "Earned Points",
+    "Confidence",
+    "Observed Value",
+    "Expected Threshold",
+    "Remediation Advice",
+    "Validation Procedure",
+  ];
+
+  const rules = report.ruleLedger && report.ruleLedger.length > 0
+    ? report.ruleLedger
+    : report.findings.map((f) => ({
+        ruleId: f.testId,
+        category: f.category,
+        categoryName: f.categoryName,
+        testName: f.title,
+        status: f.status,
+        severity: f.severity,
+        executionStatus: f.executionStatus || "EXECUTED",
+        allocatedPoints: f.allocatedPoints ?? 0,
+        evaluatedPoints: f.evaluatedPoints ?? 0,
+        earnedPoints: f.earnedPoints ?? 0,
+        confidence: f.confidence,
+        observedValue: f.observedValue || f.technicalImpact,
+        expectedThreshold: f.expectedThreshold || f.businessImpact,
+        remediation: f.remediation,
+        validationProcedure: f.validationProcedure,
+      }));
+
+  const rows = rules.map((r: any) => [
+    escapeCsvCell(r.ruleId || r.testId),
+    escapeCsvCell(r.categoryName || r.category),
+    escapeCsvCell(r.testName || r.title),
+    escapeCsvCell(r.status),
+    escapeCsvCell(r.severity),
+    escapeCsvCell(r.executionStatus || "EXECUTED"),
+    escapeCsvCell(r.allocatedPoints ?? 0),
+    escapeCsvCell(r.evaluatedPoints ?? 0),
+    escapeCsvCell(r.earnedPoints ?? 0),
+    escapeCsvCell(r.confidence),
+    escapeCsvCell(r.observedValue || ""),
+    escapeCsvCell(r.expectedThreshold || ""),
+    escapeCsvCell(r.remediation || ""),
+    escapeCsvCell(r.validationProcedure || ""),
   ]);
 
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
