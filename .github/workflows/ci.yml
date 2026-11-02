@@ -52,6 +52,7 @@ jobs:
         run: npm test
 
       - name: 4. PDF Generation & Digest Verification
+        id: pdf_verification
         run: npm run test:pdf
 
       - name: 5. SQLite Backup & Recovery Verification
@@ -65,7 +66,7 @@ jobs:
 
       - name: 8. Upload PDF Verification & Review Artifacts
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.pdf_verification.outcome == 'success'
         with:
           name: pdf-review-artifacts
           path: |

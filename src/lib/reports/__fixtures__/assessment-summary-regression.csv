@@ -1,12 +1,13 @@
-RULE-001,SEO,SEO Rule 1,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
-RULE-002,SEO,SEO Rule 2,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
-RULE-003,SEO,SEO Rule 3,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
-RULE-004,SEO,SEO Rule 4,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
-RULE-005,SEO,SEO Rule 5,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
-RULE-006,SEO,SEO Rule 6,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
-RULE-007,SEO,SEO Rule 7,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
-RULE-008,SEO,SEO Rule 8,WARN,LOW,COMPLETED,2,2,1,HIGH,obs,exp,none,proc
-RULE-009,SEO,SEO Rule 9,FAIL,LOW,COMPLETED,2,2,0,HIGH,obs,exp,none,proc
+ruleId,categoryName,testName,status,severity,executionStatus,allocatedPoints,evaluatedPoints,earnedPoints,confidence,observedValue,expectedThreshold,remediation,validationProcedure
+SEO-001,SEO,SEO Rule 1,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-002,SEO,SEO Rule 2,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-003,SEO,SEO Rule 3,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-004,SEO,SEO Rule 4,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-005,SEO,SEO Rule 5,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-006,SEO,SEO Rule 6,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-007,SEO,SEO Rule 7,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-008,SEO,SEO Rule 8,WARN,LOW,COMPLETED,2,2,1,HIGH,obs,exp,none,proc
+SEO-009,SEO,SEO Rule 9,FAIL,LOW,COMPLETED,2,2,0,HIGH,obs,exp,none,proc
 RULE-010,Performance,Rule 10,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
 RULE-011,Performance,Rule 11,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
 RULE-012,Performance,Rule 12,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
