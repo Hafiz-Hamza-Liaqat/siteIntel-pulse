@@ -223,30 +223,38 @@ export const performanceRules: RuleDefinition[] = [
     isProviderDependent: true,
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
-      const crux = ctx.pageSpeedMobile?.cruxFieldData || ctx.pageSpeedDesktop?.cruxFieldData;
+      const psMobile = ctx.pageSpeedMobile;
+      const psDesktop = ctx.pageSpeedDesktop;
+      const crux = psMobile?.cruxFieldData || psDesktop?.cruxFieldData;
+      const isGoogleApiConnected = Boolean(
+        (psMobile?.providerName && psMobile.providerName.includes("Google PageSpeed")) ||
+        (psDesktop?.providerName && psDesktop.providerName.includes("Google PageSpeed"))
+      );
 
-      const hasProvider = Boolean(ctx.pageSpeedMobile?.isAvailable || ctx.pageSpeedDesktop?.isAvailable);
+      if (!crux) {
+        if (!isGoogleApiConnected) {
+          return {
+            testId: "PERF-03",
+            testVersion: "1.0.0",
+            testName: "Core Web Vitals Field Data",
+            category: "performance",
+            status: "NOT_TESTED",
+            severity: "INFORMATIONAL",
+            maxPoints: 2,
+            earnedPoints: 0,
+            title: "Core Web Vitals Field Data Not Configured",
+            summary: "CrUX real-user field data requires an active Google PageSpeed Insights API connection (PAGESPEED_API_KEY). Lab audit was performed via local headless Chromium.",
+            timestamp: now,
+            confidence: "LOW",
+            limitations: "Requires Google PageSpeed Insights API key to query Chrome User Experience Report (CrUX) 28-day field aggregate data.",
+            sampleEvidence: [
+              "CrUX field provider: NOT_CONFIGURED",
+              "Lab engine: Local Headless Chromium (Lab measurements only)",
+              "Field metrics (LCP/INP/CLS): NOT_TESTED",
+            ],
+          };
+        }
 
-      if (!hasProvider) {
-        return {
-          testId: "PERF-03",
-          testVersion: "1.0.0",
-          testName: "Core Web Vitals Field Data",
-          category: "performance",
-          status: "NOT_TESTED",
-          severity: "INFORMATIONAL",
-          maxPoints: 2,
-          earnedPoints: 0,
-          title: "Core Web Vitals Field Data Not Configured",
-          summary: "CrUX real-user field data requires an active PageSpeed Insights connection. API key is not configured.",
-          timestamp: now,
-          confidence: "LOW",
-          limitations: "Requires PAGESPEED_API_KEY to query Google Chrome User Experience Report (CrUX) field data.",
-          sampleEvidence: ["Provider status: NOT_CONFIGURED", "CrUX metrics: NOT_TESTED"],
-        };
-      }
-
-      if (!crux || crux.lcpMs == null) {
         return {
           testId: "PERF-03",
           testVersion: "1.0.0",
@@ -265,7 +273,7 @@ export const performanceRules: RuleDefinition[] = [
         };
       }
 
-      const isLcpGood = crux.lcpMs <= 2500;
+      const isLcpGood = crux.lcpMs != null && crux.lcpMs <= 2500;
       const isClsGood = crux.cls == null || crux.cls <= 0.1;
 
       if (isLcpGood && isClsGood) {

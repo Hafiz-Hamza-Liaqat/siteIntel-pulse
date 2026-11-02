@@ -14,6 +14,7 @@ import { CrawlResult } from "../scanner/crawler";
 import { isAuthUrl } from "../catalogue/rules/auth";
 import { parseRobotsForAi } from "../catalogue/rules/ai";
 import { PageSpeedResult } from "../providers/types";
+import { buildAssessmentAndIssuesSummary } from "./shared-summary";
 
 export interface OwnerProjectionOptions {
   pageSpeedData?: { mobile?: PageSpeedResult; desktop?: PageSpeedResult };
@@ -188,6 +189,7 @@ export function projectOwnerReport(
   let highCount = 0;
   let mediumCount = 0;
   let lowCount = 0;
+  let informationalCount = 0;
 
   for (const r of results) {
     if (r.status === "FAIL" || r.status === "WARNING") {
@@ -195,6 +197,7 @@ export function projectOwnerReport(
       else if (r.severity === "HIGH") highCount++;
       else if (r.severity === "MEDIUM") mediumCount++;
       else if (r.severity === "LOW") lowCount++;
+      else if (r.severity === "INFORMATIONAL") informationalCount++;
     }
   }
 
@@ -278,21 +281,49 @@ export function projectOwnerReport(
       high: highCount,
       medium: mediumCount,
       low: lowCount,
-      totalIssues: criticalCount + highCount + mediumCount + lowCount,
+      informational: informationalCount,
+      totalIssues: criticalCount + highCount + mediumCount + lowCount + informationalCount,
       affectedPagesCount: Math.max(affectedPagesCount, crawl.coverage.failedPages),
     },
     dimensionScorecards,
     costOfInaction,
-    technicalHealthAndSeoSummary: {
-      titlesHealthy: crawl.pages.filter((p) => p.title && p.title.length >= 25 && p.title.length <= 70).length,
-      descriptionsHealthy: crawl.pages.filter((p) => p.metaDescription && p.metaDescription.length >= 60).length,
-      canonicalsConsistent: crawl.pages.every((p) => Boolean(p.canonicalCandidate || (p as any).canonical)),
-      brokenLinksCount:
-        crawl.pages.flatMap((p) => p.links || []).filter((l) => l.isBroken).length +
-        (crawl.externalLinksTested || []).filter((l) => l.isBroken).length,
-      sitemapAccessible: crawl.sitemapUrls.length > 0,
-      structuredDataPresent: crawl.pages.some((p) => ((p.structuredData || (p as any).schemaObjects || []).length > 0)),
-    },
+    technicalHealthAndSeoSummary: (() => {
+      const htmlPages = crawl.pages.filter(
+        (p) =>
+          (p.documentType === "html" || !p.documentType) &&
+          !p.isXmlSitemap &&
+          !(p.contentType || "").toLowerCase().includes("xml") &&
+          !(p.finalUrl || "").toLowerCase().endsWith(".xml") &&
+          !(p.finalUrl || "").toLowerCase().endsWith("/robots.txt")
+      );
+      const nonHtmlResourcesExcluded = crawl.pages.length - htmlPages.length;
+      const titlesHealthy = htmlPages.filter((p) => p.title && p.title.length >= 25 && p.title.length <= 70).length;
+      const titlesSuboptimal = htmlPages.filter((p) => p.title && (p.title.length < 25 || p.title.length > 70)).length;
+      const titlesMissing = htmlPages.filter((p) => !p.title || p.title.trim().length === 0).length;
+      const descriptionsHealthy = htmlPages.filter((p) => p.metaDescription && p.metaDescription.length >= 60 && p.metaDescription.length <= 165).length;
+      const descriptionsSuboptimal = htmlPages.filter((p) => p.metaDescription && (p.metaDescription.length < 60 || p.metaDescription.length > 165)).length;
+      const descriptionsMissing = htmlPages.filter((p) => !p.metaDescription || p.metaDescription.trim().length === 0).length;
+      const canonicalsConsistent = htmlPages.length > 0 && htmlPages.every((p) => Boolean(p.canonicalCandidate || (p as any).canonical));
+      const canonicalsMissingCount = htmlPages.filter((p) => !Boolean(p.canonicalCandidate || (p as any).canonical)).length;
+
+      return {
+        titlesHealthy,
+        descriptionsHealthy,
+        canonicalsConsistent,
+        brokenLinksCount:
+          crawl.pages.flatMap((p) => p.links || []).filter((l) => l.isBroken).length +
+          (crawl.externalLinksTested || []).filter((l) => l.isBroken).length,
+        sitemapAccessible: (crawl.sitemapUrls || []).length > 0,
+        structuredDataPresent: crawl.pages.some((p) => ((p.structuredData || (p as any).schemaObjects || []).length > 0)),
+        totalEligibleHtmlPages: htmlPages.length,
+        titlesSuboptimal,
+        titlesMissing,
+        descriptionsSuboptimal,
+        descriptionsMissing,
+        nonHtmlResourcesExcluded,
+        canonicalsMissingCount,
+      };
+    })(),
     performanceAndResponsiveSummary: {
       mobileLabScore: resolvedOptions?.pageSpeedData?.mobile?.performanceScore ?? null,
       desktopLabScore: resolvedOptions?.pageSpeedData?.desktop?.performanceScore ?? null,
@@ -405,6 +436,18 @@ export function projectOwnerReport(
       expertEngagementCta: "To receive exact code fix locations, reproduction steps, authenticated security audits, and developer repair work plans, request a Company B Expert Diagnostic Audit.",
     },
     results,
+    ruleLedger: scoresOutput.ruleOutcomes,
+    assessmentAndIssuesSummary: buildAssessmentAndIssuesSummary({
+      crawl,
+      ruleOutcomes: scoresOutput.ruleOutcomes,
+      findings: results,
+      browserResults: resolvedOptions?.browserResponsiveResults,
+      technicalErrors: {
+        browserJsExceptions: resolvedOptions?.pageSpeedData?.mobile?.technicalErrors?.browserJsExceptions || resolvedOptions?.pageSpeedData?.desktop?.technicalErrors?.browserJsExceptions,
+        browserConsoleErrors: resolvedOptions?.pageSpeedData?.mobile?.technicalErrors?.browserConsoleErrors || resolvedOptions?.pageSpeedData?.desktop?.technicalErrors?.browserConsoleErrors,
+        failedNetworkRequests: resolvedOptions?.pageSpeedData?.mobile?.technicalErrors?.failedNetworkRequests || resolvedOptions?.pageSpeedData?.desktop?.technicalErrors?.failedNetworkRequests,
+      },
+    }),
   };
 
   return report;

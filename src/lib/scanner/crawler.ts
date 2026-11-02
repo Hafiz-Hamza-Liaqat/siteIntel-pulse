@@ -9,6 +9,22 @@ import { validateUrlSafety } from "./dns-safety";
 import { normalizeAndValidateUrl } from "./url-validator";
 import { pinnedFetch, readBoundedText, PinnedFetchOptions } from "./pinned-transport";
 
+export function isLikelyNonHtmlUrl(urlStr: string): boolean {
+  try {
+    const pathname = new URL(urlStr).pathname.toLowerCase();
+    const nonHtmlExtensions = [
+      ".xml", ".rss", ".atom", ".gz", ".zip", ".tar",
+      ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+      ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp",
+      ".mp3", ".mp4", ".wav", ".avi", ".mov",
+      ".css", ".js", ".mjs", ".json"
+    ];
+    return nonHtmlExtensions.some((ext) => pathname.endsWith(ext));
+  } catch {
+    return false;
+  }
+}
+
 export interface CrawlResult {
   pages: PageObservation[];
   coverage: ScanCoverage;
@@ -18,6 +34,15 @@ export interface CrawlResult {
   isSitemapTruncated?: boolean;
   externalLinksTested: LinkObservation[];
   discoveredPageUrls: string[];
+  scopeCounts?: {
+    discoveredUrls: number;
+    attemptedUrls: number;
+    testedHtmlPages: number;
+    nonHtmlResourcesExcluded: number;
+    skippedUrls: number;
+    blockedChecks: number;
+    failedRequests: number;
+  };
 }
 
 export class SafeCrawler {
@@ -26,10 +51,15 @@ export class SafeCrawler {
   private queue: Array<{ url: string; depth: number; source: "entry" | "sitemap" | "internal_link" }> = [];
   private abortSignal?: AbortSignal;
   private sitemapUrls: string[] = [];
+  private sitemapXmlUrls = new Set<string>();
+  private sitemapContentUrls = new Set<string>();
+  private nonHtmlResourcesList: string[] = [];
   private isSitemapTruncated = false;
   private robotsTxtContent?: string;
   private isRobotsTruncated = false;
   private fetchFn: (url: string, options?: PinnedFetchOptions) => Promise<Response>;
+  private attemptedCount = 0;
+  private blockedChecksCount = 0;
 
   constructor(
     budgets?: Partial<CrawlerBudgets>,
@@ -64,24 +94,24 @@ export class SafeCrawler {
     onProgress?.("Discovering robots.txt and sitemaps", 1, 0);
     await this.fetchRobotsTxt(baseOrigin, baseHostname);
 
-    // 2. Queue start URL
+    // 2. Queue start URL (highest priority)
     this.queue.push({ url: normalizedStart.normalizedUrl, depth: 0, source: "entry" });
     discoveredUrls.add(normalizedStart.normalizedUrl);
 
-    // Add sitemap discovered URLs to discovery queue (up to maxPages)
-    for (const sUrl of this.sitemapUrls) {
-      if (discoveredUrls.size >= this.tracker.budgets.maxPages * 2) break;
-      if (!discoveredUrls.has(sUrl)) {
+    // Add candidate content URLs discovered in sitemaps (excluding sitemap XML documents)
+    for (const sUrl of this.sitemapContentUrls) {
+      if (discoveredUrls.size >= this.tracker.budgets.maxPages * 3) break;
+      if (!discoveredUrls.has(sUrl) && !isLikelyNonHtmlUrl(sUrl) && !this.sitemapXmlUrls.has(sUrl)) {
         discoveredUrls.add(sUrl);
         this.queue.push({ url: sUrl, depth: 1, source: "sitemap" });
       }
     }
 
-    let testedCount = 0;
+    let testedHtmlCount = 0;
     let failedCount = 0;
     let maxDepthReached = 0;
 
-    // 3. Process crawl queue within budget bounds
+    // 3. Process crawl queue within budget bounds (prioritizing HTML pages)
     while (this.queue.length > 0 && this.tracker.canFetchMorePages()) {
       if (this.abortSignal?.aborted) {
         this.tracker.markTruncated("Scan canceled by user.");
@@ -92,27 +122,45 @@ export class SafeCrawler {
       if (this.visitedUrls.has(item.url)) continue;
       this.visitedUrls.add(item.url);
 
+      // Skip non-HTML files from page testing queue
+      if (isLikelyNonHtmlUrl(item.url) || this.sitemapXmlUrls.has(item.url)) {
+        this.nonHtmlResourcesList.push(item.url);
+        continue;
+      }
+
       if (item.depth > this.tracker.budgets.maxDepth) continue;
       if (item.depth > maxDepthReached) maxDepthReached = item.depth;
 
       onProgress?.(
-        `Crawling page ${testedCount + 1}: ${new URL(item.url).pathname}`,
+        `Crawling page ${testedHtmlCount + 1}: ${new URL(item.url).pathname}`,
         discoveredUrls.size,
-        testedCount
+        testedHtmlCount
       );
+
+      this.attemptedCount += 1;
 
       // Fetch and inspect page safely
       const pageResult = await this.safeFetchPage(item.url, item.depth, item.source);
       if (pageResult) {
-        pages.push(pageResult);
-        testedCount += 1;
+        if (pageResult.documentType === "html" || (!pageResult.documentType && (pageResult.contentType || "").includes("text/html"))) {
+          pages.push(pageResult);
+          testedHtmlCount += 1;
+        } else {
+          this.nonHtmlResourcesList.push(item.url);
+        }
 
-        // Discover and enqueue internal links if within depth limit
+        // Discover and enqueue internal links if within depth limit and under discovery ceiling
         if (item.depth < this.tracker.budgets.maxDepth) {
+          const MAX_TOTAL_DISCOVERED_URLS = 10000;
           for (const link of pageResult.links) {
             if (link.isInternal) {
               const cleanTarget = link.targetUrl.split("#")[0];
-              if (!discoveredUrls.has(cleanTarget)) {
+              if (
+                discoveredUrls.size < MAX_TOTAL_DISCOVERED_URLS &&
+                !discoveredUrls.has(cleanTarget) &&
+                !isLikelyNonHtmlUrl(cleanTarget) &&
+                !this.sitemapXmlUrls.has(cleanTarget)
+              ) {
                 discoveredUrls.add(cleanTarget);
                 this.queue.push({ url: cleanTarget, depth: item.depth + 1, source: "internal_link" });
               }
@@ -127,7 +175,7 @@ export class SafeCrawler {
     }
 
     // 4. Test a bounded subset of external links
-    onProgress?.("Validating external links hygiene", discoveredUrls.size, testedCount);
+    onProgress?.("Validating external links hygiene", discoveredUrls.size, testedHtmlCount);
     const testedExternalLinks = await this.testExternalLinksSample(externalLinksToTest);
 
     const stats = this.tracker.getStats();
@@ -144,16 +192,29 @@ export class SafeCrawler {
     const htmlEligibleCount = pages.filter(
       (p) => p.documentType === "html" || (!p.documentType && (p.contentType || "").includes("text/html"))
     ).length;
-    const excludedDocCount = pages.filter((p) => p.documentType && p.documentType !== "html").length;
+    const totalNonHtmlExcluded =
+      this.sitemapXmlUrls.size +
+      (this.robotsTxtContent ? 1 : 0) +
+      this.nonHtmlResourcesList.length;
+
+    const scopeCounts = {
+      discoveredUrls: discoveredUrls.size,
+      attemptedUrls: this.attemptedCount,
+      testedHtmlPages: htmlEligibleCount,
+      nonHtmlResourcesExcluded: totalNonHtmlExcluded,
+      skippedUrls: Math.max(0, discoveredUrls.size - this.attemptedCount),
+      blockedChecks: this.blockedChecksCount,
+      failedRequests: failedCount,
+    };
 
     const coverage: ScanCoverage = {
       discoveredPages: discoveredUrls.size,
       htmlEligiblePages: htmlEligibleCount,
-      testedPages: pages.length,
-      skippedPages: Math.max(0, discoveredUrls.size - pages.length - failedCount),
+      testedPages: htmlEligibleCount,
+      skippedPages: Math.max(0, discoveredUrls.size - htmlEligibleCount - failedCount),
       failedPages: failedCount,
       inaccessiblePages: failedCount,
-      excludedDocumentTypesCount: excludedDocCount,
+      excludedDocumentTypesCount: totalNonHtmlExcluded,
       totalBytesFetched: stats.totalBytesFetched,
       totalPagesBudget: this.tracker.budgets.maxPages,
       crawlDepthReached: maxDepthReached,
@@ -164,6 +225,13 @@ export class SafeCrawler {
       weightedPointsEvaluated: 0, // Populated after scoring
       totalWeightedPoints: 100,
       coveragePercentage: 0, // Populated after scoring
+      discoveredUrls: scopeCounts.discoveredUrls,
+      attemptedUrls: scopeCounts.attemptedUrls,
+      successfullyTestedHtmlPages: scopeCounts.testedHtmlPages,
+      nonHtmlResources: scopeCounts.nonHtmlResourcesExcluded,
+      skippedUrls: scopeCounts.skippedUrls,
+      blockedChecks: scopeCounts.blockedChecks,
+      failedRequests: scopeCounts.failedRequests,
     };
 
     return {
@@ -175,6 +243,7 @@ export class SafeCrawler {
       isSitemapTruncated: this.isSitemapTruncated,
       externalLinksTested: testedExternalLinks,
       discoveredPageUrls: Array.from(discoveredUrls),
+      scopeCounts,
     };
   }
 
@@ -215,8 +284,6 @@ export class SafeCrawler {
         { signal: this.abortSignal, timeoutMs: this.tracker.budgets.requestTimeoutMs }
       );
 
-      this.tracker.recordPageFetched(bytesRead);
-
       const pageObservation = parsePageHtml(
         text,
         targetUrl,
@@ -224,6 +291,12 @@ export class SafeCrawler {
         responseTimeMs,
         headersRecord
       );
+
+      if (pageObservation.documentType === "html" || (!pageObservation.documentType && (pageObservation.contentType || "").includes("text/html"))) {
+        this.tracker.recordPageFetched(bytesRead);
+      } else {
+        this.tracker.recordBytesFetched(bytesRead);
+      }
 
       pageObservation.discoveredAtDepth = depth;
       pageObservation.discoverySource = source;
@@ -329,6 +402,9 @@ export class SafeCrawler {
           this.isSitemapTruncated = true;
           this.tracker.markTruncated("Sitemap XML truncated at byte limit (1 MB); discovery may be incomplete.");
         }
+
+        const isSitemapIndex = text.includes("<sitemapindex") || text.includes("<sitemap>");
+
         // Regex extract <loc> URLs
         const locMatches = text.match(/<loc>(.*?)<\/loc>/gi);
         if (locMatches) {
@@ -341,9 +417,21 @@ export class SafeCrawler {
               const locUrl = new URL(rawUrl);
               if (locUrl.protocol !== "http:" && locUrl.protocol !== "https:") continue;
               const locHost = locUrl.hostname.toLowerCase().replace(/^www\./, "");
-              if (locHost === normBaseHost && !this.sitemapUrls.includes(rawUrl)) {
-                this.sitemapUrls.push(rawUrl);
-                this.tracker.recordSitemapUrlDiscovered();
+              if (locHost === normBaseHost) {
+                if (isSitemapIndex || rawUrl.endsWith(".xml") || rawUrl.includes("sitemap")) {
+                  if (!this.sitemapXmlUrls.has(rawUrl)) {
+                    this.sitemapXmlUrls.add(rawUrl);
+                    if (this.tracker.canFetchMoreSitemaps()) {
+                      await this.fetchSitemapXml(rawUrl, baseHostname);
+                    }
+                  }
+                } else {
+                  if (!this.sitemapContentUrls.has(rawUrl)) {
+                    this.sitemapContentUrls.add(rawUrl);
+                    this.sitemapUrls.push(rawUrl);
+                    this.tracker.recordSitemapUrlDiscovered();
+                  }
+                }
               }
             } catch {}
           }
@@ -373,7 +461,7 @@ export class SafeCrawler {
           abortSignal: this.abortSignal,
           maxBytes: 8 * 1024,
           redirect: "follow",
-          maxRedirects: 3,
+          maxRedirects: 2,
         });
 
         const isRedirect = (res as any).redirectChain?.length > 0 || (res.status >= 300 && res.status < 400);
@@ -390,8 +478,8 @@ export class SafeCrawler {
           err?.message?.includes("Prohibited");
         tested.push({
           ...link,
-          isBroken: true,
           statusCode: isSsrfBlock ? 403 : 0,
+          isBroken: true,
         });
       }
     }

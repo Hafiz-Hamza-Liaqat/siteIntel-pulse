@@ -358,7 +358,7 @@ export const technicalHealthRules: RuleDefinition[] = [
     evaluate: (ctx): AssessmentResult => {
       const now = new Date().toISOString();
       const hasRobots = Boolean(ctx.robotsTxt && ctx.robotsTxt.length > 10);
-      const hasSitemap = ctx.sitemapUrls.length > 0;
+      const hasSitemap = Boolean(ctx.sitemapUrls && ctx.sitemapUrls.length > 0);
       const isRobotsTruncated = Boolean(ctx.isRobotsTruncated);
       const isSitemapTruncated = Boolean(ctx.isSitemapTruncated);
 

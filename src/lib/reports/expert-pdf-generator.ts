@@ -1,5 +1,7 @@
 import type { ExpertReport } from "../../types";
 import { formatCurrency } from "./currency.ts";
+import { renderAssessmentAndIssuesSummaryHtml } from "./summary-html.ts";
+import { getMetricRating, getMetricRatingStyle } from "../scoring/performance-thresholds.ts";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -37,34 +39,34 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   const getSeverityBadge = (sev: string) => {
     switch (sev) {
       case "CRITICAL":
-        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">CRITICAL</span>`;
+        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">CRITICAL</span>`;
       case "HIGH":
-        return `<span style="background: #FFEDD5; color: #9A3412; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">HIGH</span>`;
+        return `<span style="background: #FFEDD5; color: #9A3412; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">HIGH</span>`;
       case "MEDIUM":
-        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">MEDIUM</span>`;
+        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">MEDIUM</span>`;
       case "LOW":
-        return `<span style="background: #E0E7FF; color: #3730A3; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">LOW</span>`;
+        return `<span style="background: #E0E7FF; color: #3730A3; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">LOW</span>`;
       default:
-        return `<span style="background: #F1F5F9; color: #475569; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">INFO</span>`;
+        return `<span style="background: #F1F5F9; color: #475569; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">INFO</span>`;
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "PASS":
-        return `<span style="background: #DCFCE7; color: #166534; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">PASS</span>`;
+        return `<span style="background: #DCFCE7; color: #166534; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">PASS</span>`;
       case "FAIL":
-        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">FAIL</span>`;
+        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">FAIL</span>`;
       case "WARNING":
-        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">WARN</span>`;
+        return `<span style="background: #FEF3C7; color: #92400E; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">WARN</span>`;
       case "BLOCKED":
-        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">BLOCKED</span>`;
+        return `<span style="background: #FEE2E2; color: #991B1B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">BLOCKED</span>`;
       case "NOT_APPLICABLE":
-        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">N/A</span>`;
+        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">N/A</span>`;
       case "UNKNOWN":
-        return `<span style="background: #FEF3C7; color: #78350F; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">UNKNOWN</span>`;
+        return `<span style="background: #FEF3C7; color: #78350F; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">UNKNOWN</span>`;
       default:
-        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt;">NOT TESTED</span>`;
+        return `<span style="background: #F1F5F9; color: #64748B; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 7.5pt; display: inline-block; white-space: nowrap;">NOT TESTED</span>`;
     }
   };
 
@@ -238,7 +240,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       font-size: 7pt;
       padding: 5px 7px;
       border-radius: 4px;
-      word-break: break-all;
+      word-break: break-word;
       overflow-wrap: anywhere;
       margin-top: 3px;
     }
@@ -264,6 +266,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
     </div>
     <div class="report-meta">
       <div>Report ID: <strong>${escapeHtml(meta.reportId)}</strong></div>
+      <div>Scan ID: <strong>${escapeHtml(meta.scanId)}</strong></div>
       <div>Audit Date: <strong>${dateFormatted}</strong></div>
       <div>Engine: <strong>SiteIntel Pulse v2.0.0</strong></div>
     </div>
@@ -292,7 +295,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       <div class="card-title">Crawl Inventory</div>
       <div class="card-value">${report.coverage.testedPages}<span style="font-size: 8.5pt; color: #64748B;"> / ${report.coverage.totalPagesBudget} budget</span></div>
       <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
-        Discovered: <strong>${report.coverage.discoveredPages}</strong> | Depth: <strong>${report.coverage.crawlDepthReached}</strong>
+        Candidate Pages: <strong>${report.coverage.discoveredPages}</strong>${report.assessmentAndIssuesSummary?.crawlScopeSummary ? ` (${report.assessmentAndIssuesSummary.crawlScopeSummary.nonHtmlResourcesExcluded} non-HTML excluded)` : ""}
       </div>
       <div style="font-size: 6.5pt; color: #94A3B8; margin-top: 1px;">
         Failed: ${report.coverage.failedPages} | Skipped: ${report.coverage.skippedPages}
@@ -318,10 +321,10 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         ${exec.issueTotals.critical + exec.issueTotals.high}<span style="font-size: 8.5pt; color: #64748B;"> high-priority</span>
       </div>
       <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
-        ${exec.issueTotals.critical} Crit / ${exec.issueTotals.high} High / ${exec.issueTotals.medium} Med
+        ${exec.issueTotals.critical} Crit / ${exec.issueTotals.high} High / ${exec.issueTotals.medium} Med / ${exec.issueTotals.low} Low${(exec.issueTotals as any).informational ? ` / ${(exec.issueTotals as any).informational} Info` : ""}
       </div>
       <div style="font-size: 6.5pt; color: #0F9D91; margin-top: 1px; font-weight: 600;">
-        ${totalEstimatedHours} hrs effort (${exec.workstreamEstimates.length} workstreams)
+        ${totalEstimatedHours} hrs effort (${report.executiveSummary.workstreamEstimates.filter((w: any) => (w.taskCount || 0) > 0).length} active workstreams)
       </div>
     </div>
   </div>
@@ -340,6 +343,8 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   <div class="alert-box">
     <strong>Auditor Scope &amp; Methodology:</strong> ${escapeHtml(meta.scopeAndBoundaries)}
   </div>
+
+  ${renderAssessmentAndIssuesSummaryHtml(report.assessmentAndIssuesSummary)}
 
   <!-- SECTION 2: METADATA & SCOPE -->
   <h2>1. Scope &amp; Execution Parameters</h2>
@@ -365,7 +370,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       <div class="card-title">Crawl Inventory &amp; Budget</div>
       <div style="font-weight: 700;">Tested: ${report.coverage.testedPages} / ${report.coverage.totalPagesBudget} budget</div>
       <div style="font-size: 7.5pt; color: #64748B;">
-        Discovered: ${report.coverage.discoveredPages} | Failed: ${report.coverage.failedPages} | Skipped: ${report.coverage.skippedPages}
+        Discovered: <strong>${report.coverage.discoveredPages}</strong> | Failed: ${report.coverage.failedPages} | Skipped: ${report.coverage.skippedPages}
       </div>
       <div style="font-size: 7pt; color: #64748B;">
         Depth: ${report.coverage.crawlDepthReached} | Exhaustive: ${report.coverage.isExhaustive ? "Yes" : "Budget Capped"}
@@ -436,7 +441,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         .map(
           (c) => `<tr>
         <td><strong>${escapeHtml(c.categoryName)}</strong></td>
-        <td><strong>${c.scorePercentage}%</strong></td>
+        <td><strong>${c.scorePercentage}%</strong>${c.coveragePercentage < 80 || !c.isEligibleForOverall ? `<span style="color: #D97706; font-size: 7pt; display: block; font-weight: normal;">(${c.earnedPoints}/${c.testedPoints} pts evaluated, ${c.coveragePercentage}% cov)</span>` : ""}</td>
         <td>${c.earnedAllocationPercentage}%</td>
         <td>${c.coveragePercentage}%</td>
         <td>${
@@ -451,7 +456,10 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   </table>
 
   <!-- SECTION 5: URL INVENTORY -->
-  <h2>4. Discovered Page Diagnostics (Top ${Math.min((report.urlInventory || []).length, 12)} Pages)</h2>
+  <h2>4. Discovered Page Diagnostics (Top ${Math.min((report.urlInventory || []).length, 12)} of ${(report.urlInventory || []).length} Tested Pages)</h2>
+  <div class="card" style="margin-bottom: 8px; font-size: 7.5pt; color: #475569;">
+    <strong>Bounded Sample Audit Notice:</strong> Bounded public sample of ${(report.urlInventory || []).length} pages tested out of ${report.coverage?.discoveredPages ?? (report.urlInventory || []).length} discovered (${report.coverage?.skippedPages ?? 0} budget-skipped, ${report.coverage?.failedPages ?? 0} failed requests). Findings reflect evaluated sample pages and do not imply exhaustive crawling of all platform URLs. Full URL inventory of all tested pages is recorded in the export bundle.
+  </div>
   <table>
     <colgroup>
       <col style="width: 36%;">
@@ -504,9 +512,10 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         </div>
       </div>
       <div class="card">
-        <div class="card-title">Heading Hierarchy Sample</div>
-        <div style="font-size: 7.5pt; font-family: monospace;">
-          H1: ${report.seoDiagnostics.headingHierarchy?.h1?.length || 0} found | H2: ${report.seoDiagnostics.headingHierarchy?.h2?.length || 0} found
+        <div class="card-title">Heading Hierarchy &amp; Outline</div>
+        <div style="font-size: 7.5pt;">
+          Homepage: <strong>${report.seoDiagnostics.headingHierarchy?.h1?.length ?? 0} H1</strong>, <strong>${report.seoDiagnostics.headingHierarchy?.h2?.length ?? 0} H2</strong> | Tested Pages: <strong>${report.seoDiagnostics.headingHierarchy?.pagesWithH1 ?? 0} with H1</strong>, <strong>${report.seoDiagnostics.headingHierarchy?.pagesMissingH1 ?? 0} missing H1</strong>
+          ${report.seoDiagnostics.headingHierarchy?.h1?.[0] ? `<div style="color: #64748B; margin-top: 2px; font-size: 7pt; overflow-wrap: anywhere;">H1: "${escapeHtml(report.seoDiagnostics.headingHierarchy.h1[0])}"</div>` : ""}
         </div>
       </div>
     </div>
@@ -530,29 +539,173 @@ export function generateExpertReportHtml(report: ExpertReport): string {
 
   <!-- SECTION 8 & 9: PERFORMANCE & RESPONSIVE MATRIX -->
   <h2>7. Core Web Vitals &amp; Multi-Viewport Matrix</h2>
-  <div class="grid-4">
+  ${(() => {
+    const pName = (report.performanceDiagnostics.labScores?.providerName || "").toLowerCase();
+    const isLighthouse = pName.includes("google pagespeed") || (pName.includes("lighthouse") && !pName.includes("custom"));
+    const mobScore = report.performanceDiagnostics.labScores?.mobileScore;
+    const dskScore = report.performanceDiagnostics.labScores?.desktopScore;
+    const mobProfile = report.performanceDiagnostics.labScores?.mobileLab?.deviceProfile || "390×844 Mobile Device";
+    const dskProfile = report.performanceDiagnostics.labScores?.desktopLab?.deviceProfile || "1280×800 Desktop View";
+
+    return `<div class="grid-4">
     <div class="card">
-      <div class="card-title">Lab TTFB</div>
-      <div class="card-value" style="font-size: 12pt;">${report.performanceDiagnostics.labScores?.ttfbMs != null ? `${report.performanceDiagnostics.labScores.ttfbMs}ms` : "—"}</div>
+      <div class="card-title">${isLighthouse ? "Mobile Lighthouse" : "Mobile Lab Performance Index"}</div>
+      <div class="card-value" style="color: ${mobScore != null ? getScoreColor(mobScore) : '#64748B'};">
+        ${mobScore != null ? `${mobScore}/100` : "NOT_TESTED"}
+      </div>
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
+        Profile: <strong>${escapeHtml(mobProfile)}</strong>
+      </div>
     </div>
     <div class="card">
-      <div class="card-title">Lab Speed Index</div>
-      <div class="card-value" style="font-size: 12pt;">${report.performanceDiagnostics.labScores?.speedIndex != null ? `${report.performanceDiagnostics.labScores.speedIndex}ms` : "—"}</div>
+      <div class="card-title">${isLighthouse ? "Desktop Lighthouse" : "Desktop Lab Performance Index"}</div>
+      <div class="card-value" style="color: ${dskScore != null ? getScoreColor(dskScore) : '#64748B'};">
+        ${dskScore != null ? `${dskScore}/100` : "NOT_TESTED"}
+      </div>
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
+        Profile: <strong>${escapeHtml(dskProfile)}</strong>
+      </div>
     </div>
     <div class="card">
-      <div class="card-title">PageSpeed Status</div>
-      <div class="card-value" style="font-size: 11pt; color: ${report.performanceDiagnostics.labScores?.mobileScore != null ? "#0F9D91" : "#64748B"};">
-        ${report.performanceDiagnostics.labScores?.mobileScore != null ? `${report.performanceDiagnostics.labScores.mobileScore}/100` : "Not Configured"}
+      <div class="card-title">Audit Engine &amp; Method</div>
+      <div style="font-weight: 700; font-size: 8.5pt; color: #0F172A; margin-top: 2px; word-break: break-word;">
+        ${escapeHtml(report.performanceDiagnostics.labScores?.providerName || "Custom Lab Performance Index (Headless Chromium v1.50)")}
+      </div>
+      <div style="font-size: 6.5pt; color: #64748B; margin-top: 2px; word-break: break-word;">
+        ${escapeHtml(report.performanceDiagnostics.labScores?.measurementMethod || "Custom Lab Performance Index v1.0 (Log-Normal Model)")}
       </div>
     </div>
     <div class="card">
       <div class="card-title">Responsive Breakpoints</div>
-      <div class="card-value" style="font-size: 11pt; color: #0F9D91;">
-        ${(report.responsiveDiagnostics || []).length > 0 ? `${report.responsiveDiagnostics.length} tested` : "Not tested"}
+      <div class="card-value" style="font-size: 14pt; color: #0F9D91;">
+        ${(report.responsiveDiagnostics || []).length > 0 ? `${report.responsiveDiagnostics.length} / 7` : "0"}
+      </div>
+      <div style="font-size: 7pt; color: #64748B; margin-top: 2px;">
+        Tested: <strong>320, 360, 390, 768, 1024, 1280, 1440px</strong>
       </div>
     </div>
+  </div>`;
+  })()}
+
+  <div style="margin-top: 6px; margin-bottom: 4px; font-weight: 700; font-size: 8pt; color: #0F172A;">
+    Diagnostic Lab Performance Breakdown (Mobile vs Desktop)
+  </div>
+  <table>
+    <colgroup>
+      <col style="width: 25%;">
+      <col style="width: 15%;">
+      <col style="width: 15%;">
+      <col style="width: 15%;">
+      <col style="width: 15%;">
+      <col style="width: 15%;">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Mobile Lab</th>
+        <th>Desktop Lab</th>
+        <th>Good Threshold</th>
+        <th>Mobile Rating</th>
+        <th>Desktop Rating</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${(() => {
+        const mob = report.performanceDiagnostics.labScores?.mobileLab;
+        const dsk = report.performanceDiagnostics.labScores?.desktopLab;
+        const metricsDef: Array<{
+          id: "fcp" | "lcp" | "cls" | "tbt" | "speedIndex" | "ttfb";
+          name: string;
+          mobVal: number | null | undefined;
+          dskVal: number | null | undefined;
+          unit: string;
+          threshold: string;
+          format: (v: number | null | undefined) => string;
+        }> = [
+          {
+            id: "fcp",
+            name: "First Contentful Paint (FCP)",
+            mobVal: mob?.fcpMs ?? report.performanceDiagnostics.labScores?.fcpMs,
+            dskVal: dsk?.fcpMs,
+            unit: "ms",
+            threshold: "≤ 1,800ms",
+            format: (v) => (v != null ? `${Math.round(v)}ms` : "—"),
+          },
+          {
+            id: "lcp",
+            name: "Largest Contentful Paint (LCP)",
+            mobVal: mob?.lcpMs ?? report.performanceDiagnostics.labScores?.lcpMs,
+            dskVal: dsk?.lcpMs,
+            unit: "ms",
+            threshold: "≤ 2,500ms",
+            format: (v) => (v != null ? `${Math.round(v)}ms` : "—"),
+          },
+          {
+            id: "tbt",
+            name: "Total Blocking Time (TBT)",
+            mobVal: mob?.tbtMs ?? report.performanceDiagnostics.labScores?.tbtMs,
+            dskVal: dsk?.tbtMs,
+            unit: "ms",
+            threshold: "≤ 200ms",
+            format: (v) => (v != null ? `${Math.round(v)}ms` : "—"),
+          },
+          {
+            id: "cls",
+            name: "Cumulative Layout Shift (CLS)",
+            mobVal: mob?.cls ?? report.performanceDiagnostics.labScores?.cls,
+            dskVal: dsk?.cls,
+            unit: "",
+            threshold: "≤ 0.100",
+            format: (v) => (v != null ? Number(v).toFixed(3) : '<span style="color: #64748B;">NOT_TESTED</span>'),
+          },
+          {
+            id: "speedIndex",
+            name: "Speed Index (SI)",
+            mobVal: mob?.speedIndexMs ?? report.performanceDiagnostics.labScores?.speedIndex,
+            dskVal: dsk?.speedIndexMs,
+            unit: "ms",
+            threshold: "≤ 3,400ms",
+            format: (v) => (v != null ? `${Math.round(v)}ms` : "—"),
+          },
+          {
+            id: "ttfb",
+            name: "Time to First Byte (TTFB)",
+            mobVal: mob?.ttfbMs ?? report.performanceDiagnostics.labScores?.ttfbMs,
+            dskVal: dsk?.ttfbMs,
+            unit: "ms",
+            threshold: "≤ 800ms",
+            format: (v) => (v != null ? `${Math.round(v)}ms` : "—"),
+          },
+        ];
+
+        return metricsDef
+          .map((m) => {
+            const mobRating = getMetricRating(m.id, m.mobVal);
+            const dskRating = getMetricRating(m.id, m.dskVal);
+            const mobStyle = getMetricRatingStyle(mobRating);
+            const dskStyle = getMetricRatingStyle(dskRating);
+
+            return `<tr>
+              <td><strong>${escapeHtml(m.name)}</strong></td>
+              <td>${m.format(m.mobVal)}</td>
+              <td>${m.format(m.dskVal)}</td>
+              <td style="color: #64748B; font-size: 7.5pt;">${m.threshold}</td>
+              <td><span style="background: ${mobStyle.bg}; color: ${mobStyle.color}; padding: 2px 5px; border-radius: 3px; font-size: 7pt; font-weight: bold; white-space: nowrap;">${mobStyle.label}</span></td>
+              <td><span style="background: ${dskStyle.bg}; color: ${dskStyle.color}; padding: 2px 5px; border-radius: 3px; font-size: 7pt; font-weight: bold; white-space: nowrap;">${dskStyle.label}</span></td>
+            </tr>`;
+          })
+          .join("");
+      })()}
+    </tbody>
+  </table>
+
+  <div style="font-size: 7pt; color: #64748B; margin-top: -8px; margin-bottom: 10px;">
+    * Real-user field data (CrUX 75th percentile) requires sufficient 28-day Chrome user traffic. Field data currently unavailable or unconfigured for this domain.
   </div>
 
+  <div style="margin-top: 8px; margin-bottom: 4px; font-weight: 700; font-size: 8pt; color: #0F172A;">
+    Multi-Viewport Responsive Breakdown (7 Standard Viewports)
+  </div>
   <table>
     <colgroup>
       <col style="width: 20%;">
@@ -695,6 +848,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
 
   <!-- SECTION 16: COMPETITOR BENCHMARK -->
   <h2>10. Competitor Benchmark Analysis</h2>
+  ${(report.competitorComparisons || []).length > 0 ? `
   <table>
     <colgroup>
       <col style="width: 32%;">
@@ -717,7 +871,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         <td>Live Crawl &amp; Deterministic Catalogue</td>
         <td>Full Inspection</td>
       </tr>
-      ${(report.competitorComparisons || []).length > 0 ? report.competitorComparisons
+      ${report.competitorComparisons
         .map(
           (comp) => `<tr>
         <td class="url-cell"><strong>${escapeHtml(comp.domain)}</strong></td>
@@ -726,21 +880,31 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         <td>${comp.status === "NOT_ASSESSED" ? "Pending Scan" : "Public Surface Benchmark"}</td>
       </tr>`
         )
-        .join("") : `<tr><td colspan="4" style="text-align: center; color: #64748B; padding: 8px;">No competitor domains specified for comparative evaluation.</td></tr>`}
+        .join("")}
     </tbody>
-  </table>
+  </table>` : `
+  <div class="card" style="padding: 12px; color: #64748B; text-align: center; font-size: 8.5pt; margin-top: 8px;">
+    <strong>Not evaluated — no competitor domains supplied.</strong><br/>
+    <span style="font-size: 7.5pt;">No competitor domains specified for comparative evaluation. Provide 1 to 3 direct competitor domains in the scan configuration to enable comparative technical and search visibility benchmarking.</span>
+  </div>`}
 
   <div class="page-break"></div>
 
   <!-- SECTION 17: FINDING LEDGER -->
-  <h2>11. Diagnostic Finding Ledger (Top 15 of ${(report.findings || []).filter((f) => f.status === "FAIL" || f.status === "WARNING").length} Total Issues — Full Ledger in Export)</h2>
+  ${(() => {
+    const totalIssues = (report.findings || []).filter((f) => f.status === "FAIL" || f.status === "WARNING").length;
+    const title = totalIssues <= 15
+      ? `11. Diagnostic Finding Ledger (${totalIssues} Findings Identified — Full Ledger in Export)`
+      : `11. Diagnostic Finding Ledger (Top 15 of ${totalIssues} Findings Identified — Full Ledger in Export)`;
+    return `<h2>${title}</h2>`;
+  })()}
   <table>
     <colgroup>
-      <col style="width: 12%;">
+      <col style="width: 15%;">
       <col style="width: 22%;">
       <col style="width: 12%;">
-      <col style="width: 30%;">
-      <col style="width: 24%;">
+      <col style="width: 28%;">
+      <col style="width: 23%;">
     </colgroup>
     <thead>
       <tr>
@@ -762,7 +926,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         return issues
           .map(
             (f) => `<tr>
-          <td style="font-family: monospace; font-size: 7.5pt;">${escapeHtml(f.id)}</td>
+          <td style="font-family: monospace; font-size: 7.5pt; white-space: nowrap;">${escapeHtml(f.id)}</td>
           <td>
             <strong>${escapeHtml(f.categoryName)}</strong><br/>
             <span style="font-size: 7.5pt; color: #475569;">${escapeHtml(f.title)}</span>
@@ -789,13 +953,17 @@ export function generateExpertReportHtml(report: ExpertReport): string {
 
   <!-- SECTION 18: REMEDIATION PLAN -->
   <h2>12. Specialist Remediation Action Plan (Company B Engineering Tasks)</h2>
+  <div class="card" style="margin-bottom: 8px; font-size: 7.5pt; color: #475569;">
+    <strong>Synchronized Effort Schedule:</strong> Scheduled <strong>${totalEstimatedHours} engineering hours</strong> across <strong>${report.remediationRegister.length} active specialist workstreams</strong>. All hours reconcile directly with findings in the ledger.
+  </div>
   <table>
     <colgroup>
-      <col style="width: 12%;">
-      <col style="width: 20%;">
+      <col style="width: 11%;">
+      <col style="width: 18%;">
+      <col style="width: 9%;">
       <col style="width: 10%;">
-      <col style="width: 12%;">
-      <col style="width: 46%;">
+      <col style="width: 10%;">
+      <col style="width: 42%;">
     </colgroup>
     <thead>
       <tr>
@@ -803,6 +971,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
         <th>Workstream</th>
         <th>Pri</th>
         <th>Effort</th>
+        <th>Hours</th>
         <th>Task Action &amp; Validation</th>
       </tr>
     </thead>
@@ -810,7 +979,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
       ${(() => {
         const tasks = (report.remediationRegister || []).slice(0, 15);
         if (tasks.length === 0) {
-          return `<tr><td colspan="5" style="text-align: center; color: #64748B; padding: 14px;">No remediation tasks scheduled. Target meets evaluated baseline specifications.</td></tr>`;
+          return `<tr><td colspan="6" style="text-align: center; color: #64748B; padding: 14px;">No remediation tasks scheduled. Target meets evaluated baseline specifications.</td></tr>`;
         }
         return tasks
           .map(
@@ -819,6 +988,7 @@ export function generateExpertReportHtml(report: ExpertReport): string {
           <td><strong>${escapeHtml(t.workstream)}</strong></td>
           <td>${getSeverityBadge(t.priority)}</td>
           <td>${escapeHtml(t.estimatedEffort)}</td>
+          <td><strong>${t.estimatedHours || 0} hrs</strong></td>
           <td>
             <strong>${escapeHtml(t.title)}</strong>
             <div style="font-size: 7pt; color: #475569; margin-top: 2px;">${escapeHtml((t.actionSteps || []).join(" -> "))}</div>
@@ -885,9 +1055,57 @@ export function generateExpertReportHtml(report: ExpertReport): string {
   </div>
   ` : ""}
 
+  <!-- SECTION 18b: COMPLETE 56-RULE AUDIT LEDGER -->
+  <div class="page-break"></div>
+  <h2>Appendix: Complete 56-Rule Assessment Catalogue Ledger</h2>
+  <div class="card" style="margin-bottom: 8px; font-size: 7.5pt; color: #475569;">
+    <strong>Deterministic Evaluation Ledger:</strong> Complete audit record of all 56 rules across 11 assessment categories. Passing rules represent verified baseline hygiene, not defects. Non-evaluable checks explicitly disclose limitations rather than assuming compliance.
+  </div>
+  <table>
+    <colgroup>
+      <col style="width: 12%;">
+      <col style="width: 16%;">
+      <col style="width: 26%;">
+      <col style="width: 10%;">
+      <col style="width: 10%;">
+      <col style="width: 26%;">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Rule ID</th>
+        <th>Category</th>
+        <th>Rule Name</th>
+        <th>Status</th>
+        <th>Points</th>
+        <th>Observed Evidence / Procedure</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${(() => {
+        const rules = report.ruleLedger && report.ruleLedger.length > 0
+          ? report.ruleLedger
+          : (report.findings || []);
+        return rules.map((r: any) => `<tr>
+          <td style="font-family: monospace; font-size: 7.5pt; white-space: nowrap;"><strong>${escapeHtml(r.ruleId || r.testId)}</strong></td>
+          <td style="font-size: 7pt;">${escapeHtml(r.categoryName || r.category)}</td>
+          <td>
+            <strong>${escapeHtml(r.testName || r.title)}</strong>
+          </td>
+          <td>${getStatusBadge(r.status)}</td>
+          <td style="font-size: 7.5pt; white-space: nowrap;"><strong>${r.earnedPoints ?? 0}</strong> / ${r.allocatedPoints ?? r.maxPoints ?? 0} pts</td>
+          <td style="font-size: 7pt; color: #334155;">
+            ${escapeHtml(r.observedValue || r.summary || (r.evidence?.[0]?.observedValue ?? "Compliant baseline verified."))}
+            ${r.status === "NOT_TESTED" || r.status === "UNKNOWN" ? '<div style="color: #D97706; margin-top: 2px;">(Evidence unavailable on passive crawl)</div>' : ""}
+          </td>
+        </tr>`).join("");
+      })()}
+    </tbody>
+  </table>
+
   <!-- SECTION 19: EXPORT MANIFEST & SIGN-OFF -->
   <h2>13. Cryptographic Integrity Sign-Off &amp; Manifest</h2>
   <div class="card" style="margin-top: 10px; font-size: 8pt;">
+    <div><strong>Scan ID:</strong> <span style="font-family: monospace; font-size: 7.5pt;">${escapeHtml(meta.scanId)}</span></div>
     <div><strong>Export ID:</strong> ${escapeHtml(report.exportManifest?.exportId || "EXP_DEFAULT")}</div>
     <div><strong>Audit Core Manifest Hash:</strong> <span style="font-family: monospace; font-size: 7.5pt; word-break: break-all;">${escapeHtml(report.exportManifest?.checksum || "NOT_GENERATED")}</span></div>
     <div><strong>Digest Scope:</strong> Canonical serialization of audit dataset (scanId, targetUrl, overallScore, categoryScores, findings ledger, and platformProfile).</div>

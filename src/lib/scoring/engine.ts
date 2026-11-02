@@ -3,15 +3,115 @@ import {
   AssessmentResult,
   CategoryScore,
   OverallScore,
+  RuleAssessmentOutcome,
 } from "@/types";
 import { ScoreLedger } from "./ledger";
 import { calculateCoverage, CoverageAnalysis } from "./coverage";
-import { CATEGORY_ALLOCATED_WEIGHTS } from "../catalogue/registry";
+import { CATEGORY_ALLOCATED_WEIGHTS, ALL_ASSESSMENT_RULES } from "../catalogue/registry";
+import { getMeasurableThreshold, getValidationProcedure } from "../catalogue/rule-criteria";
 
 export interface ScoreLedgerOutput {
   categoryScores: CategoryScore[];
   overallScore: OverallScore;
   coverage: CoverageAnalysis;
+  ruleOutcomes: RuleAssessmentOutcome[];
+}
+
+export function buildRuleAssessmentOutcomes(results: AssessmentResult[]): RuleAssessmentOutcome[] {
+  const resultsByTestId = new Map<string, AssessmentResult>();
+  for (const r of results) {
+    resultsByTestId.set(r.testId, r);
+    if (r.ruleId) resultsByTestId.set(r.ruleId, r);
+  }
+
+  return ALL_ASSESSMENT_RULES.map((rule) => {
+    const r = resultsByTestId.get(rule.id);
+    if (!r) {
+      return {
+        ruleId: rule.id,
+        testId: rule.id,
+        testVersion: rule.version,
+        testName: rule.name,
+        category: rule.category,
+        categoryName: rule.categoryName,
+        description: rule.description,
+        status: "NOT_TESTED" as const,
+        severity: "INFORMATIONAL" as const,
+        executionStatus: "NOT_TESTED" as const,
+        allocatedPoints: rule.maxPoints,
+        evaluatedPoints: 0,
+        maxPoints: rule.maxPoints,
+        earnedPoints: 0,
+        scoringWeight: rule.maxPoints,
+        scoreContribution: 0,
+        evidenceSource: "none",
+        affectedUrls: [],
+        observedValue: "Test was not executed in scan run.",
+        expectedThreshold: getMeasurableThreshold(rule.id, rule.description),
+        timestamp: new Date().toISOString(),
+        confidence: "LOW" as const,
+        limitations: "Test omitted from execution.",
+        remediation: rule.remediationAdvice,
+        validationProcedure: getValidationProcedure(rule.id),
+        verificationSteps: getValidationProcedure(rule.id),
+        title: `${rule.name} (Not Tested)`,
+        summary: "This catalogue test was not executed in the current audit run.",
+        sampleEvidence: [],
+        affectedUrlsCount: 0,
+      };
+    }
+
+    const isEvaluable = r.status === "PASS" || r.status === "WARNING" || r.status === "FAIL";
+    const executionStatus =
+      r.executionStatus ||
+      (r.status === "NOT_TESTED"
+        ? "NOT_TESTED"
+        : r.status === "BLOCKED"
+        ? "BLOCKED"
+        : r.status === "NOT_APPLICABLE"
+        ? "NOT_APPLICABLE"
+        : r.status === "UNKNOWN"
+        ? "SKIPPED"
+        : "EXECUTED");
+    const evaluatedPoints = isEvaluable ? rule.maxPoints : 0;
+    const affectedUrls =
+      r.affectedUrls && r.affectedUrls.length > 0
+        ? r.affectedUrls
+        : (r.sampleEvidence || []).filter((s) => s.startsWith("http"));
+
+    return {
+      ruleId: rule.id,
+      testId: rule.id,
+      testVersion: r.testVersion || rule.version,
+      testName: rule.name,
+      category: rule.category,
+      categoryName: rule.categoryName,
+      description: rule.description,
+      status: r.status,
+      severity: r.severity,
+      executionStatus,
+      allocatedPoints: rule.maxPoints,
+      evaluatedPoints,
+      maxPoints: rule.maxPoints,
+      earnedPoints: r.earnedPoints,
+      scoringWeight: rule.maxPoints,
+      scoreContribution: r.earnedPoints,
+      evidenceSource: r.evidenceSource || "deterministic_crawler_probe",
+      affectedUrls,
+      observedValue: r.observedValue || r.summary || "",
+      expectedThreshold: r.expectedThreshold || getMeasurableThreshold(rule.id, rule.description),
+      timestamp: r.timestamp || new Date().toISOString(),
+      confidence: r.confidence || "HIGH",
+      limitations: r.limitations,
+      remediation: r.remediation || r.remediationTheme || rule.remediationAdvice || "",
+      validationProcedure: r.validationProcedure || getValidationProcedure(rule.id),
+      verificationSteps: r.verificationSteps || r.validationProcedure || getValidationProcedure(rule.id),
+      title: r.title || rule.name,
+      summary: r.summary || "",
+      sampleEvidence: r.sampleEvidence || [],
+      affectedUrlsCount: r.affectedUrlsCount ?? affectedUrls.length,
+    };
+  });
 }
 
 export function computeAuditScores(results: AssessmentResult[]): ScoreLedgerOutput {
@@ -158,9 +258,12 @@ export function computeAuditScores(results: AssessmentResult[]): ScoreLedgerOutp
     scoringFormula: `normalizedScore = Math.round((${roundedEarned} / ${totalTestedPoints}) * 100)`,
   };
 
+  const ruleOutcomes = buildRuleAssessmentOutcomes(results);
+
   return {
     categoryScores,
     overallScore,
     coverage,
+    ruleOutcomes,
   };
 }

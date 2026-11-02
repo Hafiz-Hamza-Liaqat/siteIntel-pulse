@@ -13,14 +13,14 @@ test.describe("Navigation & Public Routes", () => {
     await expect(page.getByText("Company B — Expert Diagnostic Workbench")).toBeVisible();
 
     // Verify Milestone 2 disclaimer tag
-    await expect(page.getByText("Milestone 2 Preview")).toBeVisible();
+    await expect(page.getByText("Public Live Audit Platform")).toBeVisible();
 
     // Verify primary CTA links
     const ownerReportLink = page.getByRole("link", { name: /Launch Owner Audit/i });
     await expect(ownerReportLink).toBeVisible();
     await expect(ownerReportLink).toHaveAttribute("href", "/owner-report");
 
-    const expertAuditLink = page.getByRole("link", { name: /Milestone 2 Expert Preview/i });
+    const expertAuditLink = page.getByRole("link", { name: /Explore Expert Diagnostic Workbench/i });
     await expect(expertAuditLink).toBeVisible();
     await expect(expertAuditLink).toHaveAttribute("href", "/expert-audit");
   });

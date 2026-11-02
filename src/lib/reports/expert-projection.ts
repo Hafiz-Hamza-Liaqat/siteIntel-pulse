@@ -32,6 +32,8 @@ import { isAuthUrl } from "../catalogue/rules/auth";
 import { PageSpeedResult } from "../providers/types";
 import { computeCanonicalReportDigest } from "./manifest-integrity";
 import { calculateCostOfInaction, formatCurrency } from "./cost-of-inaction";
+import { computeDimensionScorecards } from "../scoring/dimension-scorecards";
+import { buildAssessmentAndIssuesSummary } from "./shared-summary";
 
 export interface ExpertAuditOptions {
   isAuthorizedForAuthScan?: boolean;
@@ -244,6 +246,14 @@ export function projectExpertReport(
       estimatedEffort,
       evidence,
       dependencies: [],
+      allocatedPoints: ruleDef?.maxPoints ?? r.maxPoints,
+      evaluatedPoints: (r.status === "PASS" || r.status === "WARNING" || r.status === "FAIL") ? (ruleDef?.maxPoints ?? r.maxPoints) : 0,
+      earnedPoints: r.earnedPoints,
+      scoringWeight: ruleDef?.maxPoints ?? r.maxPoints,
+      scoreContribution: r.earnedPoints,
+      observedValue: r.observedValue || r.summary || "",
+      expectedThreshold: r.expectedThreshold || ruleDef?.businessImpactSummary || "",
+      executionStatus: r.executionStatus || (r.status === "NOT_TESTED" ? "NOT_TESTED" : r.status === "BLOCKED" ? "BLOCKED" : r.status === "NOT_APPLICABLE" ? "NOT_APPLICABLE" : r.status === "UNKNOWN" ? "SKIPPED" : "EXECUTED"),
     };
   });
 
@@ -255,7 +265,7 @@ export function projectExpertReport(
     const isSitemap =
       p.isXmlSitemap ||
       p.documentType === "xml_sitemap" ||
-      crawl.sitemapUrls.includes(pageUrl) ||
+      (crawl.sitemapUrls || []).includes(pageUrl) ||
       (p.contentType && p.contentType.includes("xml")) ||
       lowerUrl.endsWith(".xml") ||
       lowerUrl.includes("sitemap");
@@ -388,7 +398,7 @@ export function projectExpertReport(
       isRedirect: l.isRedirect,
       redirectChain: l.redirectTarget ? [l.redirectTarget] : [],
       relAttributes: l.rel ? l.rel.split(" ") : [],
-      linkLocation: l.anchorText.toLowerCase().includes("privacy") || l.anchorText.toLowerCase().includes("terms") ? "footer" : "content",
+      linkLocation: (l.anchorText || "").toLowerCase().includes("privacy") || (l.anchorText || "").toLowerCase().includes("terms") ? "footer" : "content",
     };
 
     if (diag.isBroken) brokenLinks.push(diag);
@@ -736,13 +746,24 @@ export function projectExpertReport(
   workstreams.forEach((ws, wsIdx) => {
     const wsFindings = issueFindings.filter((f) => f.workstream === ws);
     const criticals = wsFindings.filter((f) => f.severity === "CRITICAL").length;
+    const hours = wsFindings.reduce((sum, f) => {
+      if (f.severity === "CRITICAL") return sum + 8;
+      if (f.severity === "HIGH") return sum + 6;
+      if (f.severity === "MEDIUM") return sum + 4;
+      return sum + 2;
+    }, 0);
+    const lowBound = Math.max(1, Math.round(hours * 0.85));
+    const highBound = Math.round(hours * 1.15);
+    const hoursRange = wsFindings.length === 0 ? "0 hrs" : `${lowBound}–${highBound} hrs`;
 
     workstreamEstimates.push({
       workstream: ws,
       title: workstreamMap[ws].title,
       taskCount: wsFindings.length,
       criticalCount: criticals,
-      estimatedEffortSummary: wsFindings.length === 0 ? "No active remediations" : `${wsFindings.length} task(s) estimated`,
+      estimatedHours: hours,
+      hoursRange,
+      estimatedEffortSummary: wsFindings.length === 0 ? "No active remediations" : `${hours} hrs (${hoursRange}, ${wsFindings.length} finding(s))`,
       recommendedSpecialist: workstreamMap[ws].specialist,
     });
 
@@ -755,8 +776,8 @@ export function projectExpertReport(
         status: "PLANNED",
         findingIds: wsFindings.map((f) => f.id),
         affectedUrls: Array.from(new Set(wsFindings.flatMap((f) => f.affectedUrls))),
-        estimatedEffort: criticals > 0 ? "COMPLEX" : "MODERATE",
-        estimatedHours: wsFindings.length * 4,
+        estimatedEffort: criticals > 0 || hours >= 16 ? "COMPLEX" : "MODERATE",
+        estimatedHours: hours,
         actionSteps: wsFindings.map((f) => f.remediation),
         validationProcedure: `Rerun assessment catalogue tests: ${wsFindings.map((f) => f.testId).join(", ")}.`,
         dependencies: [],
@@ -764,13 +785,20 @@ export function projectExpertReport(
     }
   });
 
-  // 12. Issue totals
+  // 12. Issue totals (Reconciled with Company A issue distribution)
+  const criticalCount = findings.filter((f) => f.severity === "CRITICAL" && (f.status === "FAIL" || f.status === "WARNING")).length;
+  const highCount = findings.filter((f) => f.severity === "HIGH" && (f.status === "FAIL" || f.status === "WARNING")).length;
+  const mediumCount = findings.filter((f) => f.severity === "MEDIUM" && (f.status === "FAIL" || f.status === "WARNING")).length;
+  const lowCount = findings.filter((f) => f.severity === "LOW" && (f.status === "FAIL" || f.status === "WARNING")).length;
+  const informationalCount = findings.filter((f) => f.severity === "INFORMATIONAL" && (f.status === "FAIL" || f.status === "WARNING")).length;
+
   const issueTotals = {
-    critical: findings.filter((f) => f.severity === "CRITICAL" && (f.status === "FAIL" || f.status === "WARNING")).length,
-    high: findings.filter((f) => f.severity === "HIGH" && (f.status === "FAIL" || f.status === "WARNING")).length,
-    medium: findings.filter((f) => f.severity === "MEDIUM" && (f.status === "FAIL" || f.status === "WARNING")).length,
-    low: findings.filter((f) => f.severity === "LOW" && (f.status === "FAIL" || f.status === "WARNING")).length,
-    total: issueFindings.length,
+    critical: criticalCount,
+    high: highCount,
+    medium: mediumCount,
+    low: lowCount,
+    informational: informationalCount,
+    total: criticalCount + highCount + mediumCount + lowCount + informationalCount,
   };
 
   // 13. Report Coverage
@@ -877,6 +905,10 @@ export function projectExpertReport(
         pagesWithH1: urlInventory.filter((p) => p.testStatus === "FULLY_TESTED" && p.headingsOutline.h1.length > 0).length,
         pagesMissingH1: urlInventory.filter((p) => p.testStatus === "FULLY_TESTED" && p.headingsOutline.h1.length === 0).length,
         pagesMultipleH1: urlInventory.filter((p) => p.testStatus === "FULLY_TESTED" && p.headingsOutline.h1.length > 1).length,
+        h1: entry?.headings?.h1 || [],
+        h2: entry?.headings?.h2 || [],
+        totalH1Found: crawl.pages.reduce((acc, p) => acc + (p.headings?.h1?.length || 0), 0),
+        totalH2Found: crawl.pages.reduce((acc, p) => acc + (p.headings?.h2?.length || 0), 0),
       },
       structuredDataEntities: urlInventory.flatMap((p) => p.structuredDataTypes).map((t) => ({ type: t })),
     },
@@ -891,7 +923,18 @@ export function projectExpertReport(
       labScores: {
         mobile: options.pageSpeedData?.mobile?.performanceScore ?? null,
         desktop: options.pageSpeedData?.desktop?.performanceScore ?? null,
-        ttfbMs: entry?.responseTimeMs ?? null,
+        mobileScore: options.pageSpeedData?.mobile?.performanceScore ?? null,
+        desktopScore: options.pageSpeedData?.desktop?.performanceScore ?? null,
+        fcpMs: options.pageSpeedData?.mobile?.labMetrics?.fcpMs ?? null,
+        lcpMs: options.pageSpeedData?.mobile?.labMetrics?.lcpMs ?? null,
+        tbtMs: options.pageSpeedData?.mobile?.labMetrics?.tbtMs ?? null,
+        cls: options.pageSpeedData?.mobile?.labMetrics?.cls ?? null,
+        speedIndex: options.pageSpeedData?.mobile?.labMetrics?.speedIndexMs ?? null,
+        ttfbMs: options.pageSpeedData?.mobile?.labMetrics?.ttfbMs ?? entry?.responseTimeMs ?? null,
+        providerName: options.pageSpeedData?.mobile?.providerName || "Headless Chromium Lab Engine",
+        measurementMethod: options.pageSpeedData?.mobile?.measurementMethod || "W3C Navigation & Paint Timing",
+        mobileLab: options.pageSpeedData?.mobile?.labMetrics,
+        desktopLab: options.pageSpeedData?.desktop?.labMetrics,
         status: options.pageSpeedData?.mobile?.isAvailable ? "AVAILABLE" : "NOT_CONNECTED",
         reason: options.pageSpeedData?.mobile?.source || "PageSpeed API provider is not configured or connected.",
       },
@@ -959,6 +1002,19 @@ export function projectExpertReport(
     competitorComparisons,
     remediationRegister,
     findings,
+    ruleLedger: scoresOutput.ruleOutcomes,
+    dimensionScorecards: computeDimensionScorecards(results, crawl.pages.length),
+    assessmentAndIssuesSummary: buildAssessmentAndIssuesSummary({
+      crawl,
+      ruleOutcomes: scoresOutput.ruleOutcomes,
+      findings,
+      browserResults: options.browserResponsiveResults,
+      technicalErrors: {
+        browserJsExceptions: options.pageSpeedData?.mobile?.technicalErrors?.browserJsExceptions || options.pageSpeedData?.desktop?.technicalErrors?.browserJsExceptions,
+        browserConsoleErrors: options.pageSpeedData?.mobile?.technicalErrors?.browserConsoleErrors || options.pageSpeedData?.desktop?.technicalErrors?.browserConsoleErrors,
+        failedNetworkRequests: options.pageSpeedData?.mobile?.technicalErrors?.failedNetworkRequests || options.pageSpeedData?.desktop?.technicalErrors?.failedNetworkRequests,
+      },
+    }),
     costOfInaction:
       options.costOfInaction ||
       calculateCostOfInaction({

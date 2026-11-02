@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { scanDb } from "@/lib/persistence/db";
 import {
   exportFindingsCsv,
+  exportRuleLedgerCsv,
   exportInventoryCsv,
   exportRemediationCsv,
   exportManifestJson,
@@ -52,6 +53,18 @@ export async function GET(req: NextRequest) {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": `attachment; filename="SiteIntel-Expert-Findings-${hostname}.csv"`,
+          "Cache-Control": "private, no-cache, no-store",
+        },
+      });
+    }
+
+    case "csv_rules":
+    case "csv_rule_ledger": {
+      const csv = exportRuleLedgerCsv(report);
+      return new NextResponse(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="SiteIntel-Expert-Rule-Ledger-${hostname}.csv"`,
           "Cache-Control": "private, no-cache, no-store",
         },
       });

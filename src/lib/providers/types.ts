@@ -4,6 +4,7 @@ export interface PageSpeedLabMetrics {
   lcpMs?: number;
   tbtMs?: number;
   ttfbMs?: number;
+  cls?: number;
 }
 
 export interface PageSpeedFieldMetrics {
@@ -32,6 +33,13 @@ export interface PageSpeedResult {
   unconfiguredReason?: string;
   source: string;
   measuredAt: string;
+  measurementMethod?: string;
+  deviceProfile?: string;
+  technicalErrors?: {
+    browserJsExceptions?: string[];
+    browserConsoleErrors?: string[];
+    failedNetworkRequests?: Array<{ url: string; error?: string }>;
+  };
 }
 
 export type ProviderId =

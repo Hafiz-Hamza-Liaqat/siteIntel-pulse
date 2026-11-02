@@ -1,0 +1,57 @@
+ruleId,categoryName,testName,status,severity,executionStatus,allocatedPoints,evaluatedPoints,earnedPoints,confidence,observedValue,expectedThreshold,remediation,validationProcedure
+SEO-001,SEO,SEO Rule 1,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-002,SEO,SEO Rule 2,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-003,SEO,SEO Rule 3,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-004,SEO,SEO Rule 4,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-005,SEO,SEO Rule 5,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-006,SEO,SEO Rule 6,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-007,SEO,SEO Rule 7,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+SEO-008,SEO,SEO Rule 8,WARN,LOW,COMPLETED,2,2,1,HIGH,obs,exp,none,proc
+SEO-009,SEO,SEO Rule 9,FAIL,LOW,COMPLETED,2,2,0,HIGH,obs,exp,none,proc
+RULE-010,Performance,Rule 10,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-011,Performance,Rule 11,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-012,Performance,Rule 12,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-013,Performance,Rule 13,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-014,Performance,Rule 14,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-015,Performance,Rule 15,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-016,Performance,Rule 16,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-017,Performance,Rule 17,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-018,Performance,Rule 18,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-019,Performance,Rule 19,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-020,Performance,Rule 20,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-021,Performance,Rule 21,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-022,Performance,Rule 22,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-023,Performance,Rule 23,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-024,Performance,Rule 24,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-025,Performance,Rule 25,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-026,Performance,Rule 26,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-027,Performance,Rule 27,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-028,Performance,Rule 28,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-029,Performance,Rule 29,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-030,Performance,Rule 30,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-031,Performance,Rule 31,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-032,Performance,Rule 32,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-033,Performance,Rule 33,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-034,Performance,Rule 34,PASS,LOW,COMPLETED,2,2,2,HIGH,obs,exp,none,proc
+RULE-035,Performance,Rule 35,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-036,Performance,Rule 36,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-037,Performance,Rule 37,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-038,Performance,Rule 38,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-039,Performance,Rule 39,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-040,Performance,Rule 40,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-041,Performance,Rule 41,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-042,Performance,Rule 42,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-043,Performance,Rule 43,WARN,LOW,COMPLETED,1,1,0.5,HIGH,obs,exp,none,proc
+RULE-044,Performance,Rule 44,WARN,LOW,COMPLETED,2,2,1,HIGH,obs,exp,none,proc
+RULE-045,Performance,Rule 45,WARN,LOW,COMPLETED,2,2,1,HIGH,obs,exp,none,proc
+RULE-046,Performance,Rule 46,FAIL,LOW,COMPLETED,5,5,0,HIGH,obs,exp,none,proc
+RULE-047,Performance,Rule 47,NOT_TESTED,LOW,COMPLETED,4,0,0,HIGH,obs,exp,none,proc
+RULE-048,Performance,Rule 48,UNKNOWN,LOW,COMPLETED,1.5,0,0,HIGH,obs,exp,none,proc
+RULE-049,Performance,Rule 49,UNKNOWN,LOW,COMPLETED,1.5,0,0,HIGH,obs,exp,none,proc
+RULE-050,Performance,Rule 50,UNKNOWN,LOW,COMPLETED,1.5,0,0,HIGH,obs,exp,none,proc
+RULE-051,Performance,Rule 51,UNKNOWN,LOW,COMPLETED,1.5,0,0,HIGH,obs,exp,none,proc
+RULE-052,Performance,Rule 52,NOT_APPLICABLE,LOW,COMPLETED,1,0,0,HIGH,obs,exp,none,proc
+RULE-053,Performance,Rule 53,NOT_APPLICABLE,LOW,COMPLETED,1,0,0,HIGH,obs,exp,none,proc
+RULE-054,Performance,Rule 54,NOT_APPLICABLE,LOW,COMPLETED,1,0,0,HIGH,obs,exp,none,proc
+RULE-055,Performance,Rule 55,NOT_APPLICABLE,LOW,COMPLETED,1,0,0,HIGH,obs,exp,none,proc
+RULE-056,Performance,Extra Warn Row,WARN,LOW,COMPLETED,0,0,0,HIGH,obs,exp,none,proc
